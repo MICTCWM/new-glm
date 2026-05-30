@@ -30,7 +30,7 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CopyButton } from '@/components/copy-button'
 import { DataTableBulkActions as BulkActionsToolbar } from '@/components/data-table'
-import { deleteInvalidRedemptions } from '../api'
+import { deleteInvalidRedemptions, deleteUnusedRedemptions } from '../api'
 import { type Redemption } from '../types'
 import { useRedemptions } from './redemptions-provider'
 
@@ -44,6 +44,8 @@ export function DataTableBulkActions<TData>({
   const { t } = useTranslation()
   const { triggerRefresh } = useRedemptions()
   const [showDeleteInvalidConfirm, setShowDeleteInvalidConfirm] =
+    useState(false)
+  const [showDeleteUnusedConfirm, setShowDeleteUnusedConfirm] =
     useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const selectedRows = table.getFilteredSelectedRowModel().rows
@@ -77,6 +79,27 @@ export function DataTableBulkActions<TData>({
     }
   }
 
+  const handleDeleteUnused = async () => {
+    setIsDeleting(true)
+    try {
+      const result = await deleteUnusedRedemptions()
+
+      if (result.success) {
+        const count = result.data || 0
+        toast.success(
+          t('Successfully deleted {{count}} unused redemption codes', {
+            count,
+          })
+        )
+        table.resetRowSelection()
+        triggerRefresh()
+        setShowDeleteUnusedConfirm(false)
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <>
       <BulkActionsToolbar table={table} entityName={t('redemption code')}>
@@ -89,6 +112,27 @@ export function DataTableBulkActions<TData>({
           successTooltip={t('Codes copied!')}
           aria-label={t('Copy selected codes')}
         />
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='outline'
+                size='icon'
+                onClick={() => setShowDeleteUnusedConfirm(true)}
+                className='size-8'
+                aria-label={t('Delete unused redemption codes')}
+                title={t('Delete unused redemption codes')}
+              />
+            }
+          >
+            <Trash2 />
+            <span className='sr-only'>{t('Delete unused codes')}</span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('Delete unused codes')}</p>
+          </TooltipContent>
+        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger
@@ -111,6 +155,25 @@ export function DataTableBulkActions<TData>({
           </TooltipContent>
         </Tooltip>
       </BulkActionsToolbar>
+
+      <ConfirmDialog
+        destructive
+        open={showDeleteUnusedConfirm}
+        onOpenChange={setShowDeleteUnusedConfirm}
+        handleConfirm={handleDeleteUnused}
+        isLoading={isDeleting}
+        className='max-w-md'
+        title={t('Delete Unused Redemption Codes?')}
+        desc={
+          <>
+            {t('This will delete all')} <strong>{t('unused')}</strong>{' '}
+            {t('redemption codes.')}
+            <br />
+            {t('This action cannot be undone.')}
+          </>
+        }
+        confirmText={t('Delete Unused')}
+      />
 
       <ConfirmDialog
         destructive

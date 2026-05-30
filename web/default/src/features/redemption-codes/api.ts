@@ -94,3 +94,9 @@ export async function deleteInvalidRedemptions(): Promise<ApiResponse<number>> {
   const res = await api.delete('/api/redemption/invalid')
   return res.data
 }
+
+// Delete unused redemption codes
+export async function deleteUnusedRedemptions(): Promise<ApiResponse<number>> {
+  const res = await api.delete('/api/redemption/unused')
+  return res.data
+}

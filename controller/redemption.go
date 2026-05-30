@@ -185,6 +185,20 @@ func DeleteInvalidRedemption(c *gin.Context) {
 	return
 }
 
+func DeleteUnusedRedemption(c *gin.Context) {
+	rows, err := model.DeleteUnusedRedemptions()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    rows,
+	})
+	return
+}
+
 func validateExpiredTime(c *gin.Context, expired int64) (bool, string) {
 	if expired != 0 && expired < common.GetTimestamp() {
 		return false, i18n.T(c, i18n.MsgRedemptionExpireTimeInvalid)

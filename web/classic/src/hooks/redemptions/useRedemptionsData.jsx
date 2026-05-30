@@ -272,6 +272,26 @@ export const useRedemptionsData = () => {
     });
   };
 
+  // Batch delete unused redemption codes
+  const batchDeleteUnusedRedemptions = async () => {
+    Modal.confirm({
+      title: t('确定删除所有未使用的兑换码？'),
+      content: t('将删除所有未使用的兑换码，此操作不可撤销。'),
+      onOk: async () => {
+        setLoading(true);
+        const res = await API.delete('/api/redemption/unused');
+        const { success, message, data } = res.data;
+        if (success) {
+          showSuccess(t('已删除 {{count}} 条未使用兑换码', { count: data }));
+          await refresh();
+        } else {
+          showError(message);
+        }
+        setLoading(false);
+      },
+    });
+  };
+
   // Close edit modal
   const closeEdit = () => {
     setShowEdit(false);
@@ -353,6 +373,7 @@ export const useRedemptionsData = () => {
     // Batch operations
     batchCopyRedemptions,
     batchDeleteRedemptions,
+    batchDeleteUnusedRedemptions,
 
     // Translation function
     t,

@@ -26,6 +26,7 @@ const RedemptionsActions = ({
   setShowEdit,
   batchCopyRedemptions,
   batchDeleteRedemptions,
+  batchDeleteUnusedRedemptions,
   t,
 }) => {
   // Add new redemption code
@@ -54,6 +55,15 @@ const RedemptionsActions = ({
         size='small'
       >
         {t('复制所选兑换码到剪贴板')}
+      </Button>
+
+      <Button
+        type='danger'
+        className='w-full md:w-auto'
+        onClick={batchDeleteUnusedRedemptions}
+        size='small'
+      >
+        {t('删除未使用兑换码')}
       </Button>
 
       <Button

@@ -291,6 +291,7 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.POST("/", controller.AddRedemption)
 			redemptionRoute.PUT("/", controller.UpdateRedemption)
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
+			redemptionRoute.DELETE("/unused", controller.DeleteUnusedRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
 		}
 		logRoute := apiRouter.Group("/log")

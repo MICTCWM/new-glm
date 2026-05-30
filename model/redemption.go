@@ -196,3 +196,8 @@ func DeleteInvalidRedemptions() (int64, error) {
 	result := DB.Where("status IN ? OR (status = ? AND expired_time != 0 AND expired_time < ?)", []int{common.RedemptionCodeStatusUsed, common.RedemptionCodeStatusDisabled}, common.RedemptionCodeStatusEnabled, now).Delete(&Redemption{})
 	return result.RowsAffected, result.Error
 }
+
+func DeleteUnusedRedemptions() (int64, error) {
+	result := DB.Where("status = ?", common.RedemptionCodeStatusEnabled).Delete(&Redemption{})
+	return result.RowsAffected, result.Error
+}
