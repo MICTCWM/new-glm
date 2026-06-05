@@ -109,6 +109,8 @@ export interface LogOtherData {
     // Manage audit fields (type=3, admin only)
     admin_username?: string
     admin_id?: number | string
+    // Error detail (admin only)
+    detail_error?: string
   }
   request_path?: string
   request_conversion?: string[]
@@ -190,6 +192,7 @@ export interface LogOtherData {
   subscription_remain?: number
   subscription_total?: number
   upstream_retry_count?: number
+  retry_delays?: number[]
 }
 
 /**

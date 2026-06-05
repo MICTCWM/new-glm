@@ -145,6 +145,19 @@ func (e *NewAPIError) ErrorWithStatusCode() string {
 	return fmt.Sprintf("status_code=%d, %s", e.StatusCode, msg)
 }
 
+// GetUserFriendlyMessage returns a user-friendly error message based on the status code.
+// For 429 errors, it returns a message about upstream saturation.
+// For other errors, it returns a generic parameter error message.
+func (e *NewAPIError) GetUserFriendlyMessage() string {
+	if e == nil {
+		return ""
+	}
+	if e.StatusCode == 429 {
+		return common.UserMessage429
+	}
+	return common.UserMessageOther
+}
+
 func (e *NewAPIError) MaskSensitiveError() string {
 	if e == nil {
 		return ""

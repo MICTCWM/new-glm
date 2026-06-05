@@ -59,7 +59,8 @@ func formatUserLogs(logs []*Log, startIdx int) {
 		otherMap, _ = common.StrToMap(logs[i].Other)
 		if otherMap != nil {
 			// Remove admin-only debug fields.
-			delete(otherMap, "admin_info")
+			// 注释掉删除 admin_info 的逻辑，前端会根据用户权限动态决定是否展示详细错误
+			// delete(otherMap, "admin_info")
 			// delete(otherMap, "reject_reason")
 			delete(otherMap, "stream_status")
 		}

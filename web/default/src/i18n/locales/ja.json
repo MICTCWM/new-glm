@@ -3314,6 +3314,7 @@
     "Retry": "再試行",
     "Retry Chain": "リトライチェーン",
     "Retry Count": "リトライ回数",
+    "Retry Delays": "リトライ遅延",
     "Retry Suggestion": "リトライ提案",
     "Retry Times": "再試行回数",
     "Return a custom error immediately": "即座にカスタムエラーを返す",

@@ -461,6 +461,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if relayInfo.UpstreamRetryCount > 0 {
 		other["upstream_retry_count"] = relayInfo.UpstreamRetryCount
 	}
+	if retryDelays, exists := ctx.Get("retry_delays"); exists {
+		if delays, ok := retryDelays.([]int); ok && len(delays) > 0 {
+			other["retry_delays"] = delays
+		}
+	}
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,

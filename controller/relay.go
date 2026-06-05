@@ -55,6 +55,15 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 	return err
 }
 
+// getRetryDelay 根据重试次数返回对应的延迟时间
+// retryCount 从 1 开始，表示第几次重试
+func getRetryDelay(retryCount int) time.Duration {
+	if retryCount <= 0 || retryCount > len(common.RetryDelays) {
+		return 0
+	}
+	return common.RetryDelays[retryCount-1]
+}
+
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	if strings.Contains(c.Request.URL.Path, "embed") {
@@ -89,7 +98,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
-			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			// 使用用户友好的错误消息返回给客户端
+			userFriendlyMsg := newAPIError.GetUserFriendlyMessage()
+			newAPIError.SetMessage(common.MessageWithRequestId(userFriendlyMsg, requestId))
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -187,6 +198,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
 
+	var retryDelays []int
+
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
@@ -199,7 +212,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		addUsedChannel(c, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
-			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
 				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
 			} else {
@@ -222,6 +234,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		if newAPIError == nil {
 			relayInfo.LastError = nil
+			if len(retryDelays) > 0 {
+				c.Set("retry_delays", retryDelays)
+			}
 			return
 		}
 
@@ -234,6 +249,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
+
+		if delay := getRetryDelay(retryParam.GetRetry() + 1); delay > 0 {
+			logger.LogInfo(c, fmt.Sprintf("Waiting %v before retry #%d", delay, retryParam.GetRetry()+1))
+			retryDelays = append(retryDelays, int(delay.Seconds()))
+			time.Sleep(delay)
+		}
+	}
+
+	if len(retryDelays) > 0 {
+		c.Set("retry_delays", retryDelays)
 	}
 
 	useChannel := c.GetStringSlice("use_channel")
@@ -384,6 +409,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["channel_type"] = c.GetInt("channel_type")
 		adminInfo := make(map[string]interface{})
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
+		adminInfo["detail_error"] = err.ErrorWithStatusCode()
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
 		if isMultiKey {
 			adminInfo["is_multi_key"] = true
@@ -393,6 +419,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["admin_info"] = adminInfo
 		if retryCount, exists := c.Get("upstream_retry_count"); exists {
 			other["upstream_retry_count"] = retryCount
+		}
+		if retryDelays, exists := c.Get("retry_delays"); exists {
+			if delays, ok := retryDelays.([]int); ok && len(delays) > 0 {
+				other["retry_delays"] = delays
+			}
 		}
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
@@ -405,7 +436,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 				retryCountInt = rcInt
 			}
 		}
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, retryCountInt, other)
+		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.GetUserFriendlyMessage(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, retryCountInt, other)
 	}
 
 }
@@ -523,6 +554,8 @@ func RelayTask(c *gin.Context) {
 		Retry:      common.GetPointer(0),
 	}
 
+	var retryDelays []int
+
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		var channel *model.Channel
 
@@ -558,6 +591,9 @@ func RelayTask(c *gin.Context) {
 
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		if taskErr == nil {
+			if len(retryDelays) > 0 {
+				c.Set("retry_delays", retryDelays)
+			}
 			break
 		}
 
@@ -572,6 +608,16 @@ func RelayTask(c *gin.Context) {
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
+
+		if delay := getRetryDelay(retryParam.GetRetry() + 1); delay > 0 {
+			logger.LogInfo(c, fmt.Sprintf("Waiting %v before retry #%d", delay, retryParam.GetRetry()+1))
+			retryDelays = append(retryDelays, int(delay.Seconds()))
+			time.Sleep(delay)
+		}
+	}
+
+	if len(retryDelays) > 0 {
+		c.Set("retry_delays", retryDelays)
 	}
 
 	useChannel := c.GetStringSlice("use_channel")

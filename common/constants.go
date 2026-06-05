@@ -154,6 +154,16 @@ var RetryTimes = 0
 
 var UpstreamRetryTimes = 5
 
+// RetryDelays 定义每次重试前的等待时间
+// 第 1 次重试等待 3 秒，第 2 次等待 5 秒，第 3 次等待 7 秒，第 4 次等待 10 秒，第 5 次等待 15 秒
+var RetryDelays = []time.Duration{
+	3 * time.Second,  // 第 1 次重试
+	5 * time.Second,  // 第 2 次重试
+	7 * time.Second,  // 第 3 次重试
+	10 * time.Second, // 第 4 次重试
+	15 * time.Second, // 第 5 次重试
+}
+
 //var RootUserEmail = ""
 
 var IsMasterNode bool
@@ -262,4 +272,10 @@ const (
 	TopUpStatusSuccess = "success"
 	TopUpStatusFailed  = "failed"
 	TopUpStatusExpired = "expired"
+)
+
+// User-friendly error messages for API errors
+const (
+	UserMessage429   = "上游已饱和，请稍后再重试"
+	UserMessageOther = "参数有问题，可以继续重试或等待"
 )

@@ -631,6 +631,17 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   }
                 />
               )}
+
+              {other?.retry_delays && other.retry_delays.length > 0 && (
+                <DetailRow
+                  label={t('Retry Delays')}
+                  value={
+                    <span className='text-muted-foreground'>
+                      {other.retry_delays.map((delay, index) => `${index + 1}:${delay}s`).join(', ')}
+                    </span>
+                  }
+                />
+              )}
             </div>
 
             {/* Request conversion (admin only, not for refund) */}
@@ -681,6 +692,17 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 variant='danger'
               >
                 <p className='text-xs break-words'>{other.reject_reason}</p>
+              </DetailSection>
+            )}
+
+            {/* Detail error (admin only, for error logs) */}
+            {props.isAdmin && other?.admin_info?.detail_error && (
+              <DetailSection
+                icon={<AlertTriangle className='size-3.5' aria-hidden='true' />}
+                label={t('Detail Error')}
+                variant='danger'
+              >
+                <p className='text-xs font-mono break-all'>{other.admin_info.detail_error}</p>
               </DetailSection>
             )}
 
