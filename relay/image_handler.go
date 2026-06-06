@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -113,6 +114,14 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
+			// Add retry delay before next attempt
+			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
+			if delay > 0 {
+				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+				time.Sleep(delay)
+			}
 			continue
 		}
 		if resp != nil {
@@ -129,6 +138,14 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 						return lastApiErr
 					}
 					info.UpstreamRetryCount = attempt + 1
+					// Add retry delay before next attempt
+					if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+						delay = common.RetryDelays[attempt]
+					}
+					if delay > 0 {
+						logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+						time.Sleep(delay)
+					}
 					continue
 				}
 			}
@@ -142,6 +159,14 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
+			// Add retry delay before next attempt
+			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
+			if delay > 0 {
+				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+				time.Sleep(delay)
+			}
 			continue
 		}
 

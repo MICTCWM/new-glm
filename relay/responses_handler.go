@@ -6,10 +6,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -135,6 +137,14 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
+			// Add retry delay before next attempt
+			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
+			if delay > 0 {
+				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+				time.Sleep(delay)
+			}
 			continue
 		}
 
@@ -149,6 +159,14 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
+				// Add retry delay before next attempt
+				if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+					delay = common.RetryDelays[attempt]
+				}
+				if delay > 0 {
+					logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+					time.Sleep(delay)
+				}
 				continue
 			}
 		}
@@ -161,6 +179,14 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
+			// Add retry delay before next attempt
+			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
+			if delay > 0 {
+				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+				time.Sleep(delay)
+			}
 			continue
 		}
 

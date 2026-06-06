@@ -2,13 +2,16 @@ package relay
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -148,6 +151,14 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
+			// Add retry delay before next attempt
+			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
+			if delay > 0 {
+				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+				time.Sleep(delay)
+			}
 			continue
 		}
 		if resp == nil {
@@ -156,6 +167,14 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
+			// Add retry delay before next attempt
+			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
+			if delay > 0 {
+				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+				time.Sleep(delay)
+			}
 			continue
 		}
 
@@ -169,6 +188,14 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
+			// Add retry delay before next attempt
+			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
+			if delay > 0 {
+				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+				time.Sleep(delay)
+			}
 			continue
 		}
 
@@ -184,6 +211,14 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
+			// Add retry delay before next attempt
+			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
+			if delay > 0 {
+				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
+				time.Sleep(delay)
+			}
 			continue
 		}
 
