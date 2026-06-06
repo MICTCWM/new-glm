@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -212,7 +213,8 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			}
 			info.UpstreamRetryCount = attempt + 1
 			// Add retry delay before next attempt
-			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+			var delay time.Duration
+			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
 			if delay > 0 {
@@ -234,7 +236,8 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				}
 				info.UpstreamRetryCount = attempt + 1
 				// Add retry delay before next attempt
-				if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				var delay time.Duration
+				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
 				}
 				if delay > 0 {
@@ -258,7 +261,8 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			}
 			info.UpstreamRetryCount = attempt + 1
 			// Add retry delay before next attempt
-			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+			var delay time.Duration
+			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
 			if delay > 0 {

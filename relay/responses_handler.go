@@ -138,7 +138,8 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			}
 			info.UpstreamRetryCount = attempt + 1
 			// Add retry delay before next attempt
-			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+			var delay time.Duration
+			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
 			if delay > 0 {
@@ -160,7 +161,8 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 				}
 				info.UpstreamRetryCount = attempt + 1
 				// Add retry delay before next attempt
-				if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				var delay time.Duration
+				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
 				}
 				if delay > 0 {
@@ -180,7 +182,8 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			}
 			info.UpstreamRetryCount = attempt + 1
 			// Add retry delay before next attempt
-			if delay := common.RetryDelays[0]; len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+			var delay time.Duration
+			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
 			if delay > 0 {
