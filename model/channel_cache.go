@@ -93,10 +93,22 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+// isChannelUsed checks if a channel ID is in the used channel IDs list
+func isChannelUsed(channelId int, usedChannelIds []int) bool {
+	for _, usedId := range usedChannelIds {
+		if usedId == channelId {
+			return true
+		}
+	}
+	return false
+}
+
+// GetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
+// usedChannelIds: list of channel IDs that have been tried and failed, will be excluded from selection.
+func GetRandomSatisfiedChannel(group string, model string, retry int, usedChannelIds []int) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry)
+		return GetChannel(group, model, retry, usedChannelIds)
 	}
 
 	channelSyncLock.RLock()
@@ -115,15 +127,28 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 		return nil, nil
 	}
 
-	if len(channels) == 1 {
-		if channel, ok := channelsIDM[channels[0]]; ok {
+	// Filter out used channels
+	var availableChannels []int
+	for _, channelId := range channels {
+		if !isChannelUsed(channelId, usedChannelIds) {
+			availableChannels = append(availableChannels, channelId)
+		}
+	}
+
+	// If all channels have been used, return nil to indicate exhaustion
+	if len(availableChannels) == 0 {
+		return nil, nil
+	}
+
+	if len(availableChannels) == 1 {
+		if channel, ok := channelsIDM[availableChannels[0]]; ok {
 			return channel, nil
 		}
-		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channels[0])
+		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", availableChannels[0])
 	}
 
 	uniquePriorities := make(map[int]bool)
-	for _, channelId := range channels {
+	for _, channelId := range availableChannels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			uniquePriorities[int(channel.GetPriority())] = true
 		} else {
@@ -144,7 +169,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	// get the priority for the given retry number
 	var sumWeight = 0
 	var targetChannels []*Channel
-	for _, channelId := range channels {
+	for _, channelId := range availableChannels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
 				sumWeight += channel.GetWeight()

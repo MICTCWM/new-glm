@@ -103,7 +103,17 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int) (*Channel, error) {
+// isAbilityChannelUsed checks if a channel ID is in the used channel IDs list
+func isAbilityChannelUsed(channelId int, usedChannelIds []int) bool {
+	for _, usedId := range usedChannelIds {
+		if usedId == channelId {
+			return true
+		}
+	}
+	return false
+}
+
+func GetChannel(group string, model string, retry int, usedChannelIds ...[]int) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
@@ -119,16 +129,35 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Filter out used channels if provided
+	var usedIds []int
+	if len(usedChannelIds) > 0 {
+		usedIds = usedChannelIds[0]
+	}
+
 	channel := Channel{}
 	if len(abilities) > 0 {
 		// Randomly choose one
 		weightSum := uint(0)
 		for _, ability_ := range abilities {
+			// Skip used channels
+			if len(usedIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedIds) {
+				continue
+			}
 			weightSum += ability_.Weight + 10
+		}
+		// If all channels are used, return nil
+		if weightSum == 0 {
+			return nil, nil
 		}
 		// Randomly choose one
 		weight := common.GetRandomInt(int(weightSum))
 		for _, ability_ := range abilities {
+			// Skip used channels
+			if len(usedIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedIds) {
+				continue
+			}
 			weight -= int(ability_.Weight) + 10
 			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
 			if weight <= 0 {

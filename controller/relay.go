@@ -190,10 +190,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}()
 
 	retryParam := &service.RetryParam{
-		Ctx:        c,
-		TokenGroup: relayInfo.TokenGroup,
-		ModelName:  relayInfo.OriginModelName,
-		Retry:      common.GetPointer(0),
+		Ctx:            c,
+		TokenGroup:     relayInfo.TokenGroup,
+		ModelName:      relayInfo.OriginModelName,
+		Retry:          common.GetPointer(0),
+		UsedChannelIds: make([]int, 0), // 初始化已使用渠道ID列表
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
@@ -210,6 +211,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		addUsedChannel(c, channel.Id)
+		// 将当前渠道ID添加到已使用列表，以便下次重试时排除
+		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
@@ -548,10 +551,11 @@ func RelayTask(c *gin.Context) {
 	}()
 
 	retryParam := &service.RetryParam{
-		Ctx:        c,
-		TokenGroup: relayInfo.TokenGroup,
-		ModelName:  relayInfo.OriginModelName,
-		Retry:      common.GetPointer(0),
+		Ctx:            c,
+		TokenGroup:     relayInfo.TokenGroup,
+		ModelName:      relayInfo.OriginModelName,
+		Retry:          common.GetPointer(0),
+		UsedChannelIds: make([]int, 0), // 初始化已使用渠道ID列表
 	}
 
 	var retryDelays []int
@@ -578,6 +582,8 @@ func RelayTask(c *gin.Context) {
 		}
 
 		addUsedChannel(c, channel.Id)
+		// 将当前渠道ID添加到已使用列表，以便下次重试时排除
+		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {

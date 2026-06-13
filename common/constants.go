@@ -150,7 +150,7 @@ var AutomaticEnableChannelEnabled = false
 var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 
-var RetryTimes = 0
+var RetryTimes = 5 // 重试次数，默认5次，每次尝试不同的渠道
 
 var UpstreamRetryTimes = 5
 
