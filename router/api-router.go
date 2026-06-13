@@ -154,6 +154,7 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionRoute.POST("/epay/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestEpay)
 			subscriptionRoute.POST("/stripe/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestStripePay)
 			subscriptionRoute.POST("/creem/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestCreemPay)
+			subscriptionRoute.POST("/redeem", middleware.CriticalRateLimit(), controller.RedeemSubscription)
 		}
 		subscriptionAdminRoute := apiRouter.Group("/subscription/admin")
 		subscriptionAdminRoute.Use(middleware.AdminAuth())
@@ -293,6 +294,20 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/unused", controller.DeleteUnusedRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
+		}
+
+		// Subscription redemption management (admin)
+		subscriptionRedemptionRoute := apiRouter.Group("/subscription-redemption")
+		subscriptionRedemptionRoute.Use(middleware.AdminAuth())
+		{
+			subscriptionRedemptionRoute.GET("/", controller.GetAllSubscriptionRedemptions)
+			subscriptionRedemptionRoute.GET("/search", controller.SearchSubscriptionRedemptions)
+			subscriptionRedemptionRoute.GET("/:id", controller.GetSubscriptionRedemption)
+			subscriptionRedemptionRoute.POST("/", controller.AddSubscriptionRedemption)
+			subscriptionRedemptionRoute.PUT("/", controller.UpdateSubscriptionRedemption)
+			subscriptionRedemptionRoute.DELETE("/invalid", controller.DeleteInvalidSubscriptionRedemption)
+			subscriptionRedemptionRoute.DELETE("/unused", controller.DeleteUnusedSubscriptionRedemption)
+			subscriptionRedemptionRoute.DELETE("/:id", controller.DeleteSubscriptionRedemption)
 		}
 		logRoute := apiRouter.Group("/log")
 		logRoute.GET("/", middleware.AdminAuth(), controller.GetAllLogs)
