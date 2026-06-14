@@ -77,8 +77,8 @@ jobs:
         if: success()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp-mail.outlook.com
-          server_port: 587
+          server_address: smtp.qq.com
+          server_port: 465
           username: ${{ secrets.OUTLOOK_SMTP_USERNAME }}
           password: ${{ secrets.OUTLOOK_SMTP_PASSWORD }}
           subject: "Docker Build Success - ${{ env.IMAGE_NAME }} ${{ steps.version.outputs.version }}"
@@ -104,8 +104,8 @@ jobs:
         if: failure()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp-mail.outlook.com
-          server_port: 587
+          server_address: smtp.qq.com
+          server_port: 465
           username: ${{ secrets.OUTLOOK_SMTP_USERNAME }}
           password: ${{ secrets.OUTLOOK_SMTP_PASSWORD }}
           subject: "Docker Build Failed - ${{ env.IMAGE_NAME }}"
