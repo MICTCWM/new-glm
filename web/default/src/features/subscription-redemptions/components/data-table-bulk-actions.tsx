@@ -162,24 +162,40 @@ export function DataTableBulkActions<TData>({
         destructive
         open={showDeleteUnusedConfirm}
         onOpenChange={setShowDeleteUnusedConfirm}
-        title={t('Delete Unused Subscription Redemption Codes')}
-        description={t(
-          'This will delete all unused (enabled) subscription redemption codes. This action cannot be undone.'
-        )}
-        onConfirm={handleDeleteUnused}
-        loading={isDeleting}
+        handleConfirm={handleDeleteUnused}
+        isLoading={isDeleting}
+        className='max-w-md'
+        title={t('Delete Unused Subscription Redemption Codes?')}
+        desc={
+          <>
+            {t('This will delete all')} <strong>{t('unused')}</strong>{' '}
+            {t('subscription redemption codes.')}
+            <br />
+            {t('This action cannot be undone.')}
+          </>
+        }
+        confirmText={t('Delete Unused')}
       />
 
       <ConfirmDialog
         destructive
         open={showDeleteInvalidConfirm}
         onOpenChange={setShowDeleteInvalidConfirm}
-        title={t('Delete Invalid Subscription Redemption Codes')}
-        description={t(
-          'This will delete all used, disabled, and expired subscription redemption codes. This action cannot be undone.'
-        )}
-        onConfirm={handleDeleteInvalid}
-        loading={isDeleting}
+        handleConfirm={handleDeleteInvalid}
+        isLoading={isDeleting}
+        className='max-w-md'
+        title={t('Delete Invalid Subscription Redemption Codes?')}
+        desc={
+          <>
+            {t('This will delete all')} <strong>{t('used')}</strong>,{' '}
+            <strong>{t('disabled')}</strong>
+            {t(', and')} <strong>{t('expired')}</strong>{' '}
+            {t('subscription redemption codes.')}
+            <br />
+            {t('This action cannot be undone.')}
+          </>
+        }
+        confirmText={t('Delete Invalid')}
       />
     </>
   )

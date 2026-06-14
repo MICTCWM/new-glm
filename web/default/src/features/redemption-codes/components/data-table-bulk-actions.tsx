@@ -73,7 +73,11 @@ export function DataTableBulkActions<TData>({
         table.resetRowSelection()
         triggerRefresh()
         setShowDeleteInvalidConfirm(false)
+      } else {
+        toast.error(result.message || t('Failed to delete invalid redemption codes'))
       }
+    } catch {
+      toast.error(t('An unexpected error occurred'))
     } finally {
       setIsDeleting(false)
     }
@@ -94,7 +98,11 @@ export function DataTableBulkActions<TData>({
         table.resetRowSelection()
         triggerRefresh()
         setShowDeleteUnusedConfirm(false)
+      } else {
+        toast.error(result.message || t('Failed to delete redemption code'))
       }
+    } catch {
+      toast.error(t('An unexpected error occurred'))
     } finally {
       setIsDeleting(false)
     }

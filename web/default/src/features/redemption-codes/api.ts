@@ -91,7 +91,16 @@ export async function deleteRedemption(id: number): Promise<ApiResponse> {
 
 // Delete invalid redemption codes (used, disabled, expired)
 export async function deleteInvalidRedemptions(): Promise<ApiResponse<number>> {
-  const res = await api.delete('/api/redemption/invalid')
+  const res = await api.delete('/api/redemption/invalid', {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+export async function deleteUnusedRedemptions(): Promise<ApiResponse<number>> {
+  const res = await api.delete('/api/redemption/unused', {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
   return res.data
 }
 

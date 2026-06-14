@@ -98,7 +98,16 @@ export async function deleteSubscriptionRedemption(
 
 // Delete invalid subscription redemption codes (used, disabled, expired)
 export async function deleteInvalidSubscriptionRedemptions(): Promise<ApiResponse<number>> {
-  const res = await api.delete('/api/subscription-redemption/invalid')
+  const res = await api.delete('/api/subscription-redemption/invalid', {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+export async function deleteUnusedSubscriptionRedemptions(): Promise<ApiResponse<number>> {
+  const res = await api.delete('/api/subscription-redemption/unused', {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
   return res.data
 }
 
