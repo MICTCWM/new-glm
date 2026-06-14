@@ -21,7 +21,7 @@ import i18next from 'i18next'
 import { toast } from 'sonner'
 import { getSelf } from '@/lib/api'
 import { formatQuota } from '@/lib/format'
-import { redeemTopupCode } from '../api'
+import { redeemTopupCode, redeemSubscriptionCode } from '../api'
 
 // ============================================================================
 // Redemption Hook
@@ -38,10 +38,12 @@ export function useRedemption() {
 
     try {
       setRedeeming(true)
-      const response = await redeemTopupCode({ key: code })
 
-      if (response.success && response.data) {
-        const quotaAdded = response.data
+      // First try regular topup redemption
+      const topupResponse = await redeemTopupCode({ key: code })
+
+      if (topupResponse.success && topupResponse.data) {
+        const quotaAdded = topupResponse.data
         toast.success(
           i18next.t('Redemption successful! Added: {{quota}}', {
             quota: formatQuota(quotaAdded),
@@ -51,7 +53,22 @@ export function useRedemption() {
         return true
       }
 
-      toast.error(response.message || i18next.t('Redemption failed'))
+      // If topup failed, try subscription redemption
+      const subResponse = await redeemSubscriptionCode({ key: code })
+
+      if (subResponse.success && subResponse.data) {
+        const planTitle = subResponse.data.plan_title
+        toast.success(
+          i18next.t('Subscription redemption successful! Plan: {{plan}}', {
+            plan: planTitle,
+          })
+        )
+        await getSelf()
+        return true
+      }
+
+      // Both failed - show error from subscription response (more specific)
+      toast.error(subResponse.message || i18next.t('Redemption failed'))
       return false
     } catch (_error) {
       toast.error(i18next.t('Redemption failed'))

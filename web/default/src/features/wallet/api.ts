@@ -65,7 +65,21 @@ export async function getTopupInfo(): Promise<TopupInfoResponse> {
 export async function redeemTopupCode(
   request: RedemptionRequest
 ): Promise<RedemptionResponse> {
-  const res = await api.post('/api/user/topup', request)
+  const res = await api.post('/api/user/topup', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Redeem a subscription code
+ */
+export async function redeemSubscriptionCode(
+  request: RedemptionRequest
+): Promise<SubscriptionRedemptionResponse> {
+  const res = await api.post('/api/subscription/redeem', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
   return res.data
 }
 

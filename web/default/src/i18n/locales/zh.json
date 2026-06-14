@@ -3173,6 +3173,7 @@
     "redemption codes.": "兑换码。",
     "Redemption failed": "兑换失败",
     "Redemption successful! Added: {{quota}}": "兑换成功！已添加：{{quota}}",
+    "Subscription redemption successful! Plan: {{plan}}": "订阅兑换成功！套餐：{{plan}}",
     "Redirecting to chat page...": "正在跳转到聊天页面...",
     "Redirecting to Creem checkout...": "正在重定向到 Creem 结账...",
     "Redirecting to GitHub...": "正在跳转 GitHub...",
