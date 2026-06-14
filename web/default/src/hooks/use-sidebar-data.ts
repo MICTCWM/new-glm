@@ -141,6 +141,11 @@ export function useSidebarData(): SidebarData {
             icon: Ticket,
           },
           {
+            title: t('Subscription Redemption Codes'),
+            url: '/subscription-redemptions',
+            icon: Ticket,
+          },
+          {
             title: t('Subscription Management'),
             url: '/subscriptions',
             icon: CreditCard,
