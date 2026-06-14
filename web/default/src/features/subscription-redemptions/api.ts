@@ -110,9 +110,3 @@ export async function deleteUnusedSubscriptionRedemptions(): Promise<ApiResponse
   } as Record<string, unknown>)
   return res.data
 }
-
-// Delete unused subscription redemption codes
-export async function deleteUnusedSubscriptionRedemptions(): Promise<ApiResponse<number>> {
-  const res = await api.delete('/api/subscription-redemption/unused')
-  return res.data
-}
