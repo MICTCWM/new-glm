@@ -259,6 +259,7 @@ export function ChannelsTable() {
       }
     },
     placeholderData: (previousData) => previousData,
+    refetchInterval: 10000, // refresh every 10s for real-time RPM display
   })
 
   // Apply tag aggregation if tag mode is enabled

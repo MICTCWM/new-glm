@@ -2,12 +2,12 @@ import { useQuery } from '@tanstack/react-query'
 import { Clock } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { api } from '@/lib/api'
 import { Skeleton } from '@/components/ui/skeleton'
 
 async function fetchQueueStatus(): Promise<{ success: boolean; queue_count: number }> {
-  const res = await fetch('/dashboard/queue-status', { headers: { 'Content-Type': 'application/json' } })
-  if (!res.ok) throw new Error('Failed to fetch queue status')
-  return res.json()
+  const res = await api.get('/dashboard/queue-status')
+  return res.data
 }
 
 export function QueueStatusCard() {
