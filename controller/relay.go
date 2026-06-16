@@ -201,6 +201,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	var retryDelays []int
 	var selectedChannel *model.Channel // track selected channel for RPM management
+	wasQueued := false                  // track whether request ever entered the RPM queue
 
 	defer func() {
 		// Notify RPM queue when request completes (success or final failure)
@@ -217,6 +218,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// Check if all channels are RPM-full -> enter queue
 			if errors.Is(channelErr.Err, service.ErrAllChannelsRpmFull) {
 				logger.LogInfo(c, "All channels RPM full, entering queue...")
+				wasQueued = true
 				queueItem := service.GetRpmQueue().Enqueue()
 				if queueItem.WaitWithTimeout() {
 					// Dequeued successfully, retry channel selection
@@ -224,7 +226,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					retryParam.ResetRetryNextTry()
 					continue
 				}
-				// Queue timed out
+				// Queue timed out -> return user-friendly message (already queued, didn't get through)
 				newAPIError = types.NewErrorWithStatusCode(
 					errors.New(common.UserMessageRpmQueue),
 					types.ErrorCodeRpmQueueTimeout,
@@ -308,13 +310,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
-		// Check if this is an RPM-related failure after all retries exhausted
-		if selectedChannel != nil && newAPIError.GetErrorCode() != types.ErrorCodeRpmQueueTimeout {
+		// Only return "hard inference failed" for requests that went through the queue
+		// AND exhausted all retries. Normal (non-queued) failures preserve their original error.
+		if wasQueued && newAPIError.GetErrorCode() != types.ErrorCodeRpmQueueTimeout {
+			// Request was queued, dequeued, tried all retries but all failed
+			// Return controlled message - NEVER expose raw upstream content
 			newAPIError = types.NewErrorWithStatusCode(
 				errors.New(common.UserMessageRpmFailed),
 				types.ErrorCodeRpmHardInferFailed,
 				http.StatusServiceUnavailable,
 			)
+			// Also log this error for visibility in usage records
+			if constant.ErrorLogEnabled {
+				logRpmFinalError(c, selectedChannel, common.UserMessageRpmFailed)
+			}
 		}
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
@@ -759,4 +768,35 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 		return false
 	}
 	return true
+}
+
+// logRpmFinalError records an error log for RPM queue final failures,
+// ensuring the user-controlled message appears in usage records.
+func logRpmFinalError(c *gin.Context, selectedChannel *model.Channel, content string) {
+	userId := c.GetInt("id")
+	tokenName := c.GetString("token_name")
+	modelName := c.GetString("original_model")
+	tokenId := c.GetInt("token_id")
+	userGroup := c.GetString("group")
+	channelId := 0
+	if selectedChannel != nil {
+		channelId = selectedChannel.Id
+	}
+	retryCountInt := 0
+	if rc, exists := c.Get("upstream_retry_count"); exists {
+		if rcInt, ok := rc.(int); ok {
+			retryCountInt = rcInt
+		}
+	}
+	other := map[string]interface{}{
+		"queued":         true,
+		"queued_timeout": false,
+	}
+	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+	useTimeSeconds := int(time.Since(startTime).Seconds())
+	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, content, tokenId, useTimeSeconds,
+		common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, retryCountInt, other)
 }
