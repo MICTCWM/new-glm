@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /* eslint-disable react-refresh/only-export-components */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import {
@@ -27,7 +27,7 @@ import {
   ListOrdered,
   Shuffle,
 } from 'lucide-react'
-import { motion } from 'motion/react'
+import { motion, useSpring, useTransform } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { getCurrencyLabel } from '@/lib/currency'
@@ -36,7 +36,6 @@ import {
   formatQuota as formatQuotaValue,
 } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
-import { MOTION_TRANSITION } from '@/lib/motion'
 import { cn, truncateText } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -449,6 +448,8 @@ function BalanceCell({ channel }: { channel: Channel }) {
  * Animated RPM progress bar with spring physics for smooth growth/shrink.
  * Uses framer-motion spring animation to avoid jarring jumps when
  * the RPM value changes during periodic polling.
+ * Both the numeric value and the bar width are spring-animated
+ * to eliminate bouncing/jittering during polling refreshes.
  */
 function AnimatedRpmBar({
   currentRpm,
@@ -457,37 +458,86 @@ function AnimatedRpmBar({
   currentRpm: number
   maxRpm: number
 }) {
+  // Spring-animate the numeric RPM value so it glides between values
+  const rpmSpring = useSpring(0, {
+    stiffness: 220,
+    damping: 36,
+    mass: 0.7,
+  })
+
+  // Spring-animate the bar width percentage
+  const widthSpring = useSpring(0, {
+    stiffness: 260,
+    damping: 34,
+    mass: 0.8,
+  })
+
+  // Re-derive the animated ratio for color transitions
+  const ratioSpring = useTransform(widthSpring, [0, 100], [0, 1])
+
+  // State subscriptions for rendering animated values
+  const [displayRpm, setDisplayRpm] = useState(0)
+  const [animatedRatio, setAnimatedRatio] = useState(0)
+
+  // Drive springs from incoming props
+  useEffect(() => {
+    rpmSpring.set(currentRpm)
+  }, [currentRpm, rpmSpring])
+
+  useEffect(() => {
+    if (maxRpm > 0) {
+      widthSpring.set(Math.min(currentRpm / maxRpm, 1) * 100)
+    }
+  }, [currentRpm, maxRpm, widthSpring])
+
+  // Subscribe to animated values for renders
+  useEffect(() => {
+    const unsubRpm = rpmSpring.on('change', (v) => setDisplayRpm(Math.round(v)))
+    return unsubRpm
+  }, [rpmSpring])
+
+  useEffect(() => {
+    const unsub = ratioSpring.on('change', (v) => setAnimatedRatio(v))
+    return unsub
+  }, [ratioSpring])
+
+  // Derive bar width as a motion value string (acceptable as style prop)
+  const barWidthStyle = useTransform(widthSpring, (v) => `${Math.round(v)}%`)
+
   if (maxRpm <= 0) {
     return (
-      <div className='flex items-center gap-1.5'>
+      <div className='flex w-[90px] items-center gap-1.5'>
         <span className='text-muted-foreground text-xs tabular-nums'>-</span>
       </div>
     )
   }
 
-  const ratio = Math.min(currentRpm / maxRpm, 1)
-  const pct = Math.round(ratio * 100)
-  const isFull = ratio >= 1
-  const isWarning = ratio > 0.8
+  const isFull = animatedRatio >= 1
+  const isWarning = animatedRatio > 0.8
 
   return (
-    <div className='flex flex-col gap-0.5 min-w-[80px]'>
+    <div className='flex w-[90px] flex-col gap-0.5'>
       <span className='text-xs font-mono tabular-nums'>
-        <span
-          className={cn(isFull ? 'text-destructive font-semibold' : 'text-foreground')}
+        <motion.span
+          className={cn(
+            isFull ? 'text-destructive font-semibold' : 'text-foreground'
+          )}
         >
-          {currentRpm}
-        </span>
+          {displayRpm}
+        </motion.span>
         <span className='text-muted-foreground'>/{maxRpm}</span>
       </span>
       <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
         <motion.div
           className={cn(
-            'h-full rounded-full',
-            isFull ? 'bg-destructive' : isWarning ? 'bg-warning' : 'bg-primary'
+            'h-full rounded-full will-change-[width]',
+            isFull
+              ? 'bg-destructive'
+              : isWarning
+                ? 'bg-warning'
+                : 'bg-primary'
           )}
-          animate={{ width: `${pct}%` }}
-          transition={MOTION_TRANSITION.damped}
+          style={{ width: barWidthStyle }}
         />
       </div>
     </div>
