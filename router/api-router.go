@@ -1,6 +1,8 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 
@@ -351,6 +353,28 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
 			taskRoute.GET("/", middleware.AdminAuth(), controller.GetAllTask)
+		}
+
+		// Ticket routes
+		// Static file serving for uploaded ticket images
+		apiRouter.StaticFS("/uploads", http.Dir("ticket_images"))
+
+		ticketRoute := apiRouter.Group("/ticket")
+		ticketRoute.Use(middleware.UserAuth())
+		{
+			ticketRoute.POST("", controller.CreateTicket)
+			ticketRoute.POST("/upload", controller.UploadTicketImage)
+			ticketRoute.GET("/self", controller.GetUserTickets)
+			ticketRoute.GET("/:id", controller.GetTicketDetail)
+
+			// Admin-only ticket routes
+			ticketAdminRoute := ticketRoute.Group("")
+			ticketAdminRoute.Use(middleware.AdminAuth())
+			{
+				ticketAdminRoute.GET("", controller.GetAllTickets)
+				ticketAdminRoute.POST("/:id/reply", controller.AddTicketReply)
+				ticketAdminRoute.PUT("/:id/status", controller.UpdateTicketStatus)
+			}
 		}
 
 		vendorRoute := apiRouter.Group("/vendors")

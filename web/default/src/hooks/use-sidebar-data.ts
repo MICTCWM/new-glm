@@ -101,6 +101,18 @@ export function useSidebarData(): SidebarData {
         ],
       },
       {
+        id: 'support',
+        title: t('Support'),
+        items: [
+          {
+            title: t('Tickets'),
+            url: '/tickets',
+            activeUrls: ['/tickets'],
+            icon: MessageSquare,
+          },
+        ],
+      },
+      {
         id: 'personal',
         title: t('Personal'),
         items: [

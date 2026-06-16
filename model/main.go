@@ -282,6 +282,9 @@ func migrateDB() error {
 		&UserOAuthBinding{},
 		&PerfMetric{},
 		&SubscriptionRedemption{},
+		&Ticket{},
+		&TicketImage{},
+		&TicketReply{},
 	)
 	if err != nil {
 		return err
