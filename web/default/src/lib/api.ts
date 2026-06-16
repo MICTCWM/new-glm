@@ -103,6 +103,8 @@ api.interceptors.response.use(
         } catch {
           /* empty */
         }
+        // 标记此错误已被处理，避免 QueryCache onError 重复触发
+        ;(error as Record<string, unknown>).handled = true
       } else {
         // Other errors: show error message from response or default
         const msg =

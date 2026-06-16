@@ -22,7 +22,19 @@ import { getSelf } from '@/lib/api'
 import { AuthenticatedLayout } from '@/components/layout'
 
 // 内存中的验证标记，避免同一会话中重复验证
+// 当用户注销或 auth.reset() 被调用时应重置为 false
 let sessionVerified = false
+
+// 监听 auth store 的 reset 事件，重置验证状态
+if (typeof window !== 'undefined') {
+  window.addEventListener('auth:reset', () => {
+    sessionVerified = false
+  })
+  // 监听 login flow 已验证通过的事件，跳过重复验证
+  window.addEventListener('auth:verified', () => {
+    sessionVerified = true
+  })
+}
 
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: async ({ location }) => {
@@ -30,6 +42,7 @@ export const Route = createFileRoute('/_authenticated')({
 
     // 如果本地没有用户信息，直接跳转登录页
     if (!auth.user) {
+      sessionVerified = false
       throw redirect({
         to: '/sign-in',
         search: { redirect: location.href },
@@ -46,6 +59,7 @@ export const Route = createFileRoute('/_authenticated')({
       } else {
         // 验证失败或 API 调用失败，清除本地缓存并跳转登录页
         auth.reset()
+        sessionVerified = false
         throw redirect({
           to: '/sign-in',
           search: { redirect: location.href },

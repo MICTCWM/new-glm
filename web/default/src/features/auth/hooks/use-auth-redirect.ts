@@ -69,6 +69,11 @@ export function useAuthRedirect() {
         const user = self.data as User
         auth.setUser(user)
 
+        // 标记 session 已验证，避免 _authenticated route guard 重复验证
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('auth:verified'))
+        }
+
         // Update user ID if not already set
         if (user.id) {
           saveUserId(user.id)

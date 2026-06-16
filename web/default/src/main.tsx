@@ -77,6 +77,10 @@ const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error) => {
       if (error instanceof AxiosError) {
+        // 如果 axios 拦截器已处理过此 401，跳过避免重复 toast
+        if ((error as Record<string, unknown>).handled) {
+          return
+        }
         if (error.response?.status === 401) {
           toast.error(i18next.t('Session expired!'))
           useAuthStore.getState().auth.reset()

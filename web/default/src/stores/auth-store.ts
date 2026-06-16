@@ -58,13 +58,22 @@ interface AuthState {
   }
 }
 
-export const useAuthStore = create<AuthState>()((set) => {
+export const useAuthStore = create<AuthState>()((set, get) => {
   // Restore user info from localStorage
   const initUser = (() => {
     try {
       if (typeof window !== 'undefined') {
         const saved = window.localStorage.getItem('user')
-        return saved ? JSON.parse(saved) : null
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          // check expiry
+          const expiresAt = (parsed as Record<string, unknown>)?._expiresAt
+          if (typeof expiresAt === 'number' && expiresAt < Date.now()) {
+            window.localStorage.removeItem('user')
+            return null
+          }
+          return parsed
+        }
       }
     } catch {
       // Clear dirty data when parsing fails
@@ -80,10 +89,13 @@ export const useAuthStore = create<AuthState>()((set) => {
       user: initUser,
       setUser: (user) =>
         set((state) => {
-          // Persist user to localStorage
+          // Persist user to localStorage with expiry
           if (typeof window !== 'undefined') {
             if (user) {
-              window.localStorage.setItem('user', JSON.stringify(user))
+              window.localStorage.setItem(
+                'user',
+                JSON.stringify({ ...user, _expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000 })
+              )
             } else {
               window.localStorage.removeItem('user')
             }
@@ -94,6 +106,8 @@ export const useAuthStore = create<AuthState>()((set) => {
         set((state) => {
           if (typeof window !== 'undefined') {
             window.localStorage.removeItem('user')
+            // 通知 route guard 重置 session 验证状态
+            window.dispatchEvent(new CustomEvent('auth:reset'))
           }
           return {
             ...state,
