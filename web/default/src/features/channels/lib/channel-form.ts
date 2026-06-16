@@ -78,6 +78,8 @@ export const channelFormSchema = z.object({
   upstream_model_update_check_enabled: z.boolean().optional(),
   upstream_model_update_auto_sync_enabled: z.boolean().optional(),
   upstream_model_update_ignored_models: z.string().optional(),
+  // RPM limit
+  max_rpm: z.number().min(0).optional(),
 })
 
 export type ChannelFormValues = z.infer<typeof channelFormSchema>
@@ -135,6 +137,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
+  max_rpm: 0,
 }
 
 // ============================================================================
@@ -262,6 +265,7 @@ export function transformChannelToFormDefaults(
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
+    max_rpm: channel.max_rpm ?? 0,
   }
 }
 
@@ -422,6 +426,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     header_override: formData.header_override || null,
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
+    max_rpm: formData.max_rpm ?? 0,
   }
 
   // Clean up empty strings to null for optional fields
@@ -470,6 +475,7 @@ export function transformFormDataToUpdatePayload(
     header_override: formData.header_override || null,
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
+    max_rpm: formData.max_rpm ?? 0,
   }
 
   // Only include key if it was changed (not empty)

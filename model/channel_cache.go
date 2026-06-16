@@ -18,6 +18,13 @@ var group2model2channels map[string]map[string][]int // enabled channel
 var channelsIDM map[int]*Channel                     // all channels include disabled
 var channelSyncLock sync.RWMutex
 
+// ErrAllChannelsRpmFull is returned when all matching channels have their RPM at max capacity.
+var ErrAllChannelsRpmFull = errors.New("all channels rpm full")
+
+// CheckChannelRpmFullFunc is a hook function to check if a channel's RPM is full.
+// Registered by service/rpm_tracker.go via init().
+var CheckChannelRpmFullFunc func(channelId int) bool
+
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
 		return
@@ -139,6 +146,32 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 	if len(availableChannels) == 0 {
 		return nil, nil
 	}
+
+	// Filter out channels whose RPM is full
+	var rpmAvailableChannels []int
+	var anyRpmLimited bool
+	for _, channelId := range availableChannels {
+		if channel, ok := channelsIDM[channelId]; ok {
+			if channel.MaxRPM > 0 {
+				anyRpmLimited = true
+				if CheckChannelRpmFullFunc != nil && CheckChannelRpmFullFunc(channelId) {
+					continue // skip RPM-full channels
+				}
+			}
+			rpmAvailableChannels = append(rpmAvailableChannels, channelId)
+		}
+	}
+
+	// If all channels were filtered out by RPM, signal for queuing
+	if len(rpmAvailableChannels) == 0 {
+		if anyRpmLimited {
+			return nil, ErrAllChannelsRpmFull
+		}
+		return nil, nil
+	}
+
+	// Use RPM-filtered channels for selection
+	availableChannels = rpmAvailableChannels
 
 	if len(availableChannels) == 1 {
 		if channel, ok := channelsIDM[availableChannels[0]]; ok {

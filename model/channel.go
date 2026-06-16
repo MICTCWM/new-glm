@@ -54,8 +54,11 @@ type Channel struct {
 
 	OtherSettings string `json:"settings" gorm:"column:settings"` // 其他设置，存储azure版本等不需要检索的信息，详见dto.ChannelOtherSettings
 
+	MaxRPM int `json:"max_rpm" gorm:"default:0"` // 每分钟最大请求数，0=不限制
+
 	// cache info
-	Keys []string `json:"-" gorm:"-"`
+	Keys       []string `json:"-" gorm:"-"`
+	CurrentRPM int      `json:"current_rpm" gorm:"-"` // 当前RPM占用数（仅运行时，不持久化）
 }
 
 type ChannelInfo struct {

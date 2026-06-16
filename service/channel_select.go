@@ -11,6 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ErrAllChannelsRpmFull is returned when all matching channels have RPM at capacity.
+// Exported alias of model.ErrAllChannelsRpmFull for convenience.
+var ErrAllChannelsRpmFull = model.ErrAllChannelsRpmFull
+
 type RetryParam struct {
 	Ctx            *gin.Context
 	TokenGroup     string
@@ -116,8 +120,21 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.UsedChannelIds)
+			channel, chErr := model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.UsedChannelIds)
 			if channel == nil {
+				// If all channels in this group are RPM-full, try next group
+				if errors.Is(chErr, model.ErrAllChannelsRpmFull) {
+					// Check if there are more groups to try
+					if i+1 < len(autoGroups) {
+						logger.LogDebug(param.Ctx, "All channels RPM full in group %s, trying next group", autoGroup)
+						common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+						common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+						param.SetRetry(0)
+						continue
+					}
+					// No more groups, propagate the RPM full error
+					return nil, selectGroup, chErr
+				}
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
 				logger.LogDebug(param.Ctx, "No available channel in group %s for model %s at priorityRetry %d, trying next group", autoGroup, param.ModelName, priorityRetry)
@@ -156,6 +173,10 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	} else {
 		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.UsedChannelIds)
 		if err != nil {
+			// Propagate ErrAllChannelsRpmFull to caller for queue handling
+			if errors.Is(err, model.ErrAllChannelsRpmFull) {
+				return nil, param.TokenGroup, err
+			}
 			return nil, param.TokenGroup, err
 		}
 	}

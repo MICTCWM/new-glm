@@ -41,6 +41,8 @@ import {
   Link2,
   RefreshCw,
   ChevronDown,
+  ChevronUp,
+  Gauge,
   Code,
   Boxes,
   KeyRound,
@@ -3355,6 +3357,49 @@ export function ChannelMutateDrawer({
                       </div>
                     )}
                   </div>
+                </CollapsibleContent>
+              </Collapsible>
+
+              {/* Max RPM Configuration */}
+              <Collapsible defaultOpen={false} className='border-b'>
+                <CollapsibleTrigger className='hover:bg-muted/50 flex w-full items-center justify-between px-4 py-3 text-sm font-medium'>
+                  <div className='flex items-center gap-2'>
+                    <Gauge className='text-muted-foreground size-4' />
+                    {t('Rate Limiting')}
+                  </div>
+                  <ChevronUp className='size-4 transition-transform duration-200 group-data-[state=closed]:rotate-180' />
+                </CollapsibleTrigger>
+                <CollapsibleContent className='px-4 pb-4'>
+                  <FormField
+                    control={form.control}
+                    name='max_rpm'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('Maximum RPM')}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            placeholder='0'
+                            {...field}
+                            onChange={(e) => {
+                              const val = Number(e.target.value) || 0
+                              field.onChange(Math.max(0, val))
+                            }}
+                            value={field.value ?? 0}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Maximum requests per minute for this channel. 0 means unlimited.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </CollapsibleContent>
               </Collapsible>
             </form>

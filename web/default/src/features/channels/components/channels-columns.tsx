@@ -503,109 +503,6 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
       size: 80,
     },
 
-    // Name column
-    {
-      accessorKey: 'name',
-      meta: { label: t('Name'), mobileTitle: true },
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Name')} />
-      ),
-      cell: ({ row }) => {
-        const isTagRow = isTagAggregateRow(row.original)
-        const name = row.getValue('name') as string
-        const channel = row.original
-        const isMultiKey = isMultiKeyChannel(channel)
-
-        // Tag row with expand/collapse
-        if (isTagRow) {
-          const tag = (row.original as TagRow).tag || name
-          const childrenCount = (row.original as TagRow).children?.length || 0
-
-          return (
-            <div className='flex items-center gap-2'>
-              <Button
-                variant='ghost'
-                size='sm'
-                className='h-6 w-6 p-0'
-                onClick={row.getToggleExpandedHandler()}
-              >
-                {row.getIsExpanded() ? (
-                  <ChevronDown className='h-4 w-4' />
-                ) : (
-                  <ChevronRight className='h-4 w-4' />
-                )}
-              </Button>
-              <div className='flex items-center gap-1.5'>
-                <span className='font-semibold'>Tag：{tag}</span>
-                <StatusBadge
-                  label={`${childrenCount} channels`}
-                  variant='blue'
-                  size='sm'
-                  copyable={false}
-                />
-              </div>
-            </div>
-          )
-        }
-
-        // Regular channel row
-        const settings = parseChannelSettings(channel.setting)
-        const isPassThrough = settings.pass_through_body_enabled === true
-
-        return (
-          <div className='flex items-center gap-2'>
-            <div className='flex flex-col gap-1'>
-              <div className='flex items-center gap-1.5'>
-                <span className='font-medium'>{truncateText(name, 30)}</span>
-                {isPassThrough && (
-                  <TooltipProvider delay={100}>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <AlertTriangle className='h-3.5 w-3.5 flex-shrink-0 text-amber-500' />
-                        }
-                      ></TooltipTrigger>
-                      <TooltipContent side='top'>
-                        {t(
-                          'Request body pass-through is enabled. The request body will be sent directly to the upstream without any conversion.'
-                        )}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-                {isMultiKey && (
-                  <StatusBadge
-                    label={`${channel.channel_info.multi_key_size} keys`}
-                    variant='purple'
-                    size='sm'
-                    copyable={false}
-                  />
-                )}
-                <UpstreamUpdateTags channel={channel} />
-              </div>
-              {channel.remark && (
-                <TooltipProvider delay={200}>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span className='text-muted-foreground text-xs' />
-                      }
-                    >
-                      {truncateText(channel.remark, 40)}
-                    </TooltipTrigger>
-                    <TooltipContent side='bottom' className='max-w-xs'>
-                      {channel.remark}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-            </div>
-          </div>
-        )
-      },
-      minSize: 200,
-    },
-
     // Type column
     {
       accessorKey: 'type',
@@ -720,6 +617,157 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
       },
       size: 140,
       enableSorting: false,
+    },
+
+    // RPM Usage column
+    {
+      accessorKey: 'rpm_usage',
+      meta: { label: t('RPM') },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title='RPM' />
+      ),
+      cell: ({ row }) => {
+        const channel = row.original
+        const maxRpm = channel.max_rpm ?? 0
+        const currentRpm = channel.current_rpm ?? 0
+
+        if (maxRpm <= 0) {
+          return (
+            <div className='flex items-center gap-1.5'>
+              <span className='text-muted-foreground text-xs tabular-nums'>-</span>
+            </div>
+          )
+        }
+
+        const ratio = maxRpm > 0 ? currentRpm / maxRpm : 0
+        const pct = Math.min(Math.round(ratio * 100), 100)
+        const isFull = ratio >= 1
+
+        return (
+          <div className='flex flex-col gap-0.5 min-w-[80px]'>
+            <span className='text-xs font-mono tabular-nums'>
+              <span className={cn(isFull ? 'text-destructive font-semibold' : 'text-foreground')}>
+                {currentRpm}
+              </span>
+              <span className='text-muted-foreground'>/{maxRpm}</span>
+            </span>
+            <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all duration-300',
+                  isFull ? 'bg-destructive' : pct > 80 ? 'bg-warning' : 'bg-primary'
+                )}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        )
+      },
+      size: 110,
+      enableSorting: false,
+    },
+
+    // Name column
+    {
+      accessorKey: 'name',
+      meta: { label: t('Name'), mobileTitle: true },
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title={t('Name')} />
+      ),
+      cell: ({ row }) => {
+        const isTagRow = isTagAggregateRow(row.original)
+        const name = row.getValue('name') as string
+        const channel = row.original
+        const isMultiKey = isMultiKeyChannel(channel)
+
+        // Tag row with expand/collapse
+        if (isTagRow) {
+          const tag = (row.original as TagRow).tag || name
+          const childrenCount = (row.original as TagRow).children?.length || 0
+
+          return (
+            <div className='flex items-center gap-2'>
+              <Button
+                variant='ghost'
+                size='sm'
+                className='h-6 w-6 p-0'
+                onClick={row.getToggleExpandedHandler()}
+              >
+                {row.getIsExpanded() ? (
+                  <ChevronDown className='h-4 w-4' />
+                ) : (
+                  <ChevronRight className='h-4 w-4' />
+                )}
+              </Button>
+              <div className='flex items-center gap-1.5'>
+                <span className='font-semibold'>Tag：{tag}</span>
+                <StatusBadge
+                  label={`${childrenCount} channels`}
+                  variant='blue'
+                  size='sm'
+                  copyable={false}
+                />
+              </div>
+            </div>
+          )
+        }
+
+        // Regular channel row
+        const settings = parseChannelSettings(channel.setting)
+        const isPassThrough = settings.pass_through_body_enabled === true
+
+        return (
+          <div className='flex items-center gap-2'>
+            <div className='flex flex-col gap-1'>
+              <div className='flex items-center gap-1.5'>
+                <span className='font-medium'>{truncateText(name, 30)}</span>
+                {isPassThrough && (
+                  <TooltipProvider delay={100}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <AlertTriangle className='h-3.5 w-3.5 flex-shrink-0 text-amber-500' />
+                        }
+                      ></TooltipTrigger>
+                      <TooltipContent side='top'>
+                        {t(
+                          'Request body pass-through is enabled. The request body will be sent directly to the upstream without any conversion.'
+                        )}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                {isMultiKey && (
+                  <StatusBadge
+                    label={`${channel.channel_info.multi_key_size} keys`}
+                    variant='purple'
+                    size='sm'
+                    copyable={false}
+                  />
+                )}
+                <UpstreamUpdateTags channel={channel} />
+              </div>
+              {channel.remark && (
+                <TooltipProvider delay={200}>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span className='text-muted-foreground text-xs' />
+                      }
+                    >
+                      {truncateText(channel.remark, 40)}
+                    </TooltipTrigger>
+                    <TooltipContent side='bottom' className='max-w-xs'>
+                      {channel.remark}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
+          </div>
+        )
+      },
+      minSize: 200,
     },
 
     // Status column

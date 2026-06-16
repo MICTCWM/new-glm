@@ -71,6 +71,8 @@ export const channelSchema = z.object({
     multi_key_mode: 'random',
   }),
   settings: z.string().default('{}'), // other_settings JSON
+  max_rpm: z.number().default(0), // max requests per minute, 0=unlimited
+  current_rpm: z.number().default(0), // current RPM usage (from server)
 })
 
 export type Channel = z.infer<typeof channelSchema>

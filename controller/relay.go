@@ -200,14 +200,52 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.LastError = nil
 
 	var retryDelays []int
+	var selectedChannel *model.Channel // track selected channel for RPM management
+
+	defer func() {
+		// Notify RPM queue when request completes (success or final failure)
+		if selectedChannel != nil {
+			// RPM occupied via TryIncrement; notify queue that a slot might have freed
+			service.GetRpmQueue().NotifyRpmRelease()
+		}
+	}()
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
+			// Check if all channels are RPM-full -> enter queue
+			if errors.Is(channelErr.Err, service.ErrAllChannelsRpmFull) {
+				logger.LogInfo(c, "All channels RPM full, entering queue...")
+				queueItem := service.GetRpmQueue().Enqueue()
+				if queueItem.WaitWithTimeout() {
+					// Dequeued successfully, retry channel selection
+					logger.LogInfo(c, "Dequeued from RPM queue, retrying...")
+					retryParam.ResetRetryNextTry()
+					continue
+				}
+				// Queue timed out
+				newAPIError = types.NewErrorWithStatusCode(
+					errors.New(common.UserMessageRpmQueue),
+					types.ErrorCodeRpmQueueTimeout,
+					http.StatusTooManyRequests,
+				)
+				break
+			}
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
 			break
+		}
+
+		// Try to increment RPM counter for the selected channel
+		if channel.MaxRPM > 0 {
+			tracker := service.GetRpmTracker(channel.Id, channel.MaxRPM)
+			if !tracker.TryIncrement() {
+				// RPM just filled up, skip this channel and retry another
+				retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
+				continue
+			}
+			selectedChannel = channel
 		}
 
 		addUsedChannel(c, channel.Id)
@@ -270,6 +308,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
+		// Check if this is an RPM-related failure after all retries exhausted
+		if selectedChannel != nil && newAPIError.GetErrorCode() != types.ErrorCodeRpmQueueTimeout {
+			newAPIError = types.NewErrorWithStatusCode(
+				errors.New(common.UserMessageRpmFailed),
+				types.ErrorCodeRpmHardInferFailed,
+				http.StatusServiceUnavailable,
+			)
+		}
 		gopool.Go(func() {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})

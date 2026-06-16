@@ -199,9 +199,9 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			info.UpstreamRetryCount = attempt + 1
 			// Add retry delay before next attempt
 			var delay time.Duration
-if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
-delay = common.RetryDelays[attempt]
-}
+			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+				delay = common.RetryDelays[attempt]
+			}
 			if delay > 0 {
 				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
 				time.Sleep(delay)
@@ -227,9 +227,9 @@ delay = common.RetryDelays[attempt]
 				info.UpstreamRetryCount = attempt + 1
 				// Add retry delay before next attempt
 				var delay time.Duration
-if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
-delay = common.RetryDelays[attempt]
-}
+				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+					delay = common.RetryDelays[attempt]
+				}
 				if delay > 0 {
 					logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
 					time.Sleep(delay)
@@ -391,9 +391,9 @@ delay = common.RetryDelays[attempt]
 				info.UpstreamRetryCount = attempt + 1
 				// Add retry delay before next attempt
 				var delay time.Duration
-if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
-delay = common.RetryDelays[attempt]
-}
+				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+					delay = common.RetryDelays[attempt]
+				}
 				if delay > 0 {
 					logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
 					time.Sleep(delay)

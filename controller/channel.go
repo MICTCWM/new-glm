@@ -66,6 +66,10 @@ func clearChannelInfo(channel *model.Channel) {
 		channel.ChannelInfo.MultiKeyDisabledReason = nil
 		channel.ChannelInfo.MultiKeyDisabledTime = nil
 	}
+	// Populate current RPM usage from runtime tracker
+	if channel.MaxRPM > 0 {
+		channel.CurrentRPM = service.GetCurrentRpmForChannel(channel.Id)
+	}
 }
 
 func GetAllChannels(c *gin.Context) {

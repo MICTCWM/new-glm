@@ -1,12 +1,24 @@
 package controller
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
+
+// GetQueueStatus returns the current RPM queue length for the admin dashboard.
+func GetQueueStatus(c *gin.Context) {
+	queueLen := service.GetQueueLength()
+	c.JSON(http.StatusOK, gin.H{
+		"success":     true,
+		"queue_count": queueLen,
+	})
+}
 
 func GetSubscription(c *gin.Context) {
 	var remainQuota int

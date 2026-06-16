@@ -85,6 +85,11 @@ const (
 	// quota error
 	ErrorCodeInsufficientUserQuota      ErrorCode = "insufficient_user_quota"
 	ErrorCodePreConsumeTokenQuotaFailed ErrorCode = "pre_consume_token_quota_failed"
+
+	// rpm queue error
+	ErrorCodeChannelRpmFull     ErrorCode = "channel:rpm_full"
+	ErrorCodeRpmQueueTimeout    ErrorCode = "channel:rpm_queue_timeout"
+	ErrorCodeRpmHardInferFailed ErrorCode = "channel:rpm_hard_infer_failed"
 )
 
 type NewAPIError struct {
@@ -151,6 +156,12 @@ func (e *NewAPIError) ErrorWithStatusCode() string {
 func (e *NewAPIError) GetUserFriendlyMessage() string {
 	if e == nil {
 		return ""
+	}
+	if e.errorCode == ErrorCodeRpmQueueTimeout {
+		return common.UserMessageRpmQueue
+	}
+	if e.errorCode == ErrorCodeRpmHardInferFailed {
+		return common.UserMessageRpmFailed
 	}
 	if e.StatusCode == 429 {
 		return common.UserMessage429
