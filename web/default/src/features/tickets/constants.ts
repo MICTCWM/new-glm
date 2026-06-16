@@ -22,16 +22,16 @@ export const TICKET_STATUS_MAP: Record<
   TicketStatus,
   { label: string; variant: 'default' | 'success' | 'warning' | 'destructive' | 'outline' }
 > = {
-  open: { label: 'Open', variant: 'warning' },
-  closed: { label: 'Closed', variant: 'success' },
-  replied: { label: 'Replied', variant: 'default' },
+  open: { label: '待处理', variant: 'warning' },
+  closed: { label: '已完成', variant: 'success' },
+  replied: { label: '已回复', variant: 'default' },
 }
 
 export const TICKET_STATUS_FILTER_OPTIONS = [
-  { value: '', label: 'All' },
-  { value: 'open', label: 'Open' },
-  { value: 'replied', label: 'Replied' },
-  { value: 'closed', label: 'Closed' },
+  { value: '', label: '全部' },
+  { value: 'open', label: '待处理' },
+  { value: 'replied', label: '已回复' },
+  { value: 'closed', label: '已完成' },
 ] as const
 
 export const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10MB

@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback } from 'react'
-import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { ArrowLeft, Clock, User, CheckCircle, Send, Paperclip } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
@@ -40,7 +39,6 @@ interface TicketDetailProps {
 }
 
 export function TicketDetail({ ticketId }: TicketDetailProps) {
-  const { t } = useTranslation()
   const navigate = useNavigate()
   const { auth } = useAuthStore()
   const [ticket, setTicket] = useState<Ticket | null>(null)
@@ -76,7 +74,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
         close_on_reply: closeOnReply,
       })
       if (res.success) {
-        toast.success(t('Reply sent successfully!'))
+        toast.success('回复发送成功！')
         setReplyContent('')
         setCloseOnReply(false)
         fetchDetail()
@@ -90,7 +88,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
     try {
       const res = await updateTicketStatus(ticketId, 'closed')
       if (res.success) {
-        toast.success(t('Ticket marked as completed'))
+        toast.success('工单已标记为已完成')
         fetchDetail()
       }
     } catch {
@@ -102,7 +100,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
     try {
       const res = await updateTicketStatus(ticketId, 'open')
       if (res.success) {
-        toast.success(t('Ticket reopened'))
+        toast.success('工单已重新打开')
         fetchDetail()
       }
     } catch {
@@ -118,7 +116,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
     const config = TICKET_STATUS_MAP[status as TicketStatus]
     if (!config) return <Badge variant='outline'>{status}</Badge>
     const variant = config.variant as 'default' | 'success' | 'warning' | 'destructive' | 'outline'
-    return <Badge variant={variant}>{t(config.label)}</Badge>
+    return <Badge variant={variant}>{config.label}</Badge>
   }
 
   if (loading) {
@@ -132,7 +130,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
   }
 
   if (!ticket) {
-    return <Empty description={t('Ticket not found')} />
+    return <Empty description='工单不存在' />
   }
 
   return (
@@ -140,7 +138,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
       {/* Back button */}
       <Button variant='ghost' onClick={() => navigate({ to: '/tickets' })} className='-ml-2'>
         <ArrowLeft className='h-4 w-4 mr-2' />
-        {t('Back to Tickets')}
+        返回工单列表
       </Button>
 
       {/* Ticket header */}
@@ -172,7 +170,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
                   onClick={handleMarkClosed}
                 >
                   <CheckCircle className='h-4 w-4 mr-1' />
-                  {t('Mark Completed')}
+                  标记完成
                 </Button>
               )}
               {isAdmin && ticket.status === 'closed' && (
@@ -181,7 +179,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
                   size='sm'
                   onClick={handleMarkOpen}
                 >
-                  {t('Reopen')}
+                  重新打开
                 </Button>
               )}
             </div>
@@ -199,7 +197,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
               <Separator className='my-3' />
               <div className='flex items-center gap-2 mb-2 text-sm font-medium'>
                 <Paperclip className='h-4 w-4' />
-                {t('Attachments')} ({ticket.images.length})
+                附件 ({ticket.images.length})
               </div>
               <div className='flex flex-wrap gap-2'>
                 {ticket.images.map((img) => (
@@ -227,7 +225,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
       {ticket.replies && ticket.replies.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className='text-base'>{t('Replies')}</CardTitle>
+            <CardTitle className='text-base'>回复</CardTitle>
           </CardHeader>
           <CardContent className='space-y-4'>
             {ticket.replies.map((reply) => (
@@ -251,11 +249,11 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
       {isAdmin && (
         <Card>
           <CardHeader>
-            <CardTitle className='text-base'>{t('Reply to Ticket')}</CardTitle>
+            <CardTitle className='text-base'>回复工单</CardTitle>
           </CardHeader>
           <CardContent className='space-y-3'>
             <Textarea
-              placeholder={t('Enter your reply...')}
+              placeholder='请输入回复内容...'
               value={replyContent}
               onChange={(e) => setReplyContent(e.target.value)}
               rows={4}
@@ -269,17 +267,17 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
                 disabled={submitting}
               />
               <Label htmlFor='close-on-reply' className='text-sm cursor-pointer'>
-                {t('Mark as completed after replying')}
+                回复后标记为已完成
               </Label>
             </div>
             <Button onClick={handleReply} disabled={submitting || !replyContent.trim()}>
               {submitting ? (
                 <span className='flex items-center gap-2'>
-                  <span className='animate-spin'>⏳</span> {t('Sending...')}
+                  <span className='animate-spin'>⏳</span> 发送中...
                 </span>
               ) : (
                 <span className='flex items-center gap-2'>
-                  <Send className='h-4 w-4' /> {t('Send Reply')}
+                  <Send className='h-4 w-4' /> 发送回复
                 </span>
               )}
             </Button>
@@ -291,7 +289,7 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
       {!isAdmin && (!ticket.replies || ticket.replies.length === 0) && (
         <Card>
           <CardContent className='py-8 text-center text-muted-foreground'>
-            <p>{t('No replies yet. An administrator will respond to your ticket soon.')}</p>
+            <p>暂无回复，管理员会尽快处理您的工单。</p>
           </CardContent>
         </Card>
       )}

@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Plus, List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SectionPageLayout } from '@/components/layout'
@@ -26,9 +25,8 @@ import { TicketForm } from './components/ticket-form'
 import { TicketList } from './components/ticket-list'
 
 export function Tickets() {
-  const { t } = useTranslation()
   const { auth } = useAuthStore()
-  const isAdmin = auth.user && auth.user.role >= 10
+  const isAdmin = !!(auth.user && auth.user.role >= 10)
   const [showForm, setShowForm] = useState(!isAdmin)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -41,9 +39,9 @@ export function Tickets() {
 
   return (
     <SectionPageLayout>
-      <SectionPageLayout.Title>{t('Tickets')}</SectionPageLayout.Title>
+      <SectionPageLayout.Title>工单</SectionPageLayout.Title>
       <SectionPageLayout.Description>
-        {t('Submit and manage support tickets')}
+        提交和管理支持工单
       </SectionPageLayout.Description>
       <SectionPageLayout.Actions>
         <div className='flex items-center gap-2'>
@@ -53,7 +51,7 @@ export function Tickets() {
             onClick={() => setShowForm(true)}
           >
             <Plus className='h-4 w-4 mr-1' />
-            {t('New Ticket')}
+            新建工单
           </Button>
           <Button
             variant={!showForm ? 'default' : 'outline'}
@@ -61,7 +59,7 @@ export function Tickets() {
             onClick={() => setShowForm(false)}
           >
             <List className='h-4 w-4 mr-1' />
-            {isAdmin ? t('All Tickets') : t('My Tickets')}
+            {isAdmin ? '所有工单' : '我的工单'}
           </Button>
         </div>
       </SectionPageLayout.Actions>

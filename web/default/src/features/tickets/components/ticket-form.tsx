@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -33,7 +32,6 @@ interface TicketFormProps {
 }
 
 export function TicketForm({ onSuccess }: TicketFormProps) {
-  const { t } = useTranslation()
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [images, setImages] = useState<File[]>([])
@@ -43,10 +41,10 @@ export function TicketForm({ onSuccess }: TicketFormProps) {
   const validate = (): boolean => {
     const newErrors: { title?: string; content?: string } = {}
     if (!title.trim()) {
-      newErrors.title = t('Title is required')
+      newErrors.title = '请输入标题'
     }
     if (!content.trim()) {
-      newErrors.content = t('Content is required')
+      newErrors.content = '请输入内容'
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -63,7 +61,7 @@ export function TicketForm({ onSuccess }: TicketFormProps) {
         images: images.length > 0 ? images : undefined,
       })
       if (res.success) {
-        toast.success(t('Ticket submitted successfully!'))
+        toast.success('工单提交成功！')
         setTitle('')
         setContent('')
         setImages([])
@@ -78,9 +76,9 @@ export function TicketForm({ onSuccess }: TicketFormProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('Submit a Ticket')}</CardTitle>
+        <CardTitle>提交工单</CardTitle>
         <CardDescription>
-          {t('Describe your issue or question in detail. We will get back to you as soon as possible.')}
+          请详细描述您遇到的问题或疑问，我们会尽快回复您。
         </CardDescription>
       </CardHeader>
       <CardContent
@@ -93,11 +91,11 @@ export function TicketForm({ onSuccess }: TicketFormProps) {
         }}
       >
         <div className='space-y-2'>
-          <Label htmlFor='ticket-title'>{t('Title')} *</Label>
+          <Label htmlFor='ticket-title'>标题 *</Label>
           <Input
             id='ticket-title'
             maxLength={255}
-            placeholder={t('Enter a brief title for your ticket')}
+            placeholder='请输入工单标题'
             value={title}
             onChange={(e) => {
               setTitle(e.target.value)
@@ -109,10 +107,10 @@ export function TicketForm({ onSuccess }: TicketFormProps) {
         </div>
 
         <div className='space-y-2'>
-          <Label htmlFor='ticket-content'>{t('Description')} *</Label>
+          <Label htmlFor='ticket-content'>描述 *</Label>
           <Textarea
             id='ticket-content'
-            placeholder={t('Describe your issue in detail...')}
+            placeholder='请详细描述您遇到的问题...'
             value={content}
             onChange={(e) => {
               setContent(e.target.value)
@@ -125,18 +123,18 @@ export function TicketForm({ onSuccess }: TicketFormProps) {
         </div>
 
         <div className='space-y-2'>
-          <Label>{t('Attachments (optional)')}</Label>
+          <Label>附件（可选）</Label>
           <ImageUpload images={images} onChange={setImages} disabled={submitting} />
         </div>
 
         <Button onClick={handleSubmit} disabled={submitting} className='w-full sm:w-auto'>
           {submitting ? (
             <span className='flex items-center gap-2'>
-              <span className='animate-spin'>⏳</span> {t('Submitting...')}
+              <span className='animate-spin'>⏳</span> 提交中...
             </span>
           ) : (
             <span className='flex items-center gap-2'>
-              <Send className='h-4 w-4' /> {t('Submit Ticket')}
+              <Send className='h-4 w-4' /> 提交工单
             </span>
           )}
         </Button>

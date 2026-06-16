@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useRef, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
 import { ImagePlus, X } from 'lucide-react'
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_SIZE, MAX_IMAGES_PER_TICKET } from '../constants'
 
@@ -28,7 +27,6 @@ interface ImageUploadProps {
 }
 
 export function ImageUpload({ images, onChange, disabled }: ImageUploadProps) {
-  const { t } = useTranslation()
   const inputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,17 +35,17 @@ export function ImageUpload({ images, onChange, disabled }: ImageUploadProps) {
     setError(null)
 
     if (images.length + files.length > MAX_IMAGES_PER_TICKET) {
-      setError(t('Maximum {{count}} images allowed', { count: MAX_IMAGES_PER_TICKET }))
+      setError(`最多上传 ${MAX_IMAGES_PER_TICKET} 张图片`)
       return
     }
 
     for (const file of files) {
       if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-        setError(t('Unsupported image format. Supported: JPG, PNG, GIF, WebP'))
+        setError('不支持的图片格式，支持：JPG、PNG、GIF、WebP')
         return
       }
       if (file.size > MAX_IMAGE_SIZE) {
-        setError(t('Image size cannot exceed 10MB'))
+        setError('图片大小不能超过 10MB')
         return
       }
     }
@@ -136,7 +134,7 @@ export function ImageUpload({ images, onChange, disabled }: ImageUploadProps) {
             className='flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground hover:border-primary hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
           >
             <ImagePlus className='h-5 w-5' />
-            <span className='text-[10px]'>{t('Add Image')}</span>
+            <span className='text-[10px]'>添加图片</span>
           </button>
         )}
       </div>
@@ -150,9 +148,7 @@ export function ImageUpload({ images, onChange, disabled }: ImageUploadProps) {
       />
       {error && <p className='text-sm text-destructive'>{error}</p>}
       <p className='text-xs text-muted-foreground'>
-        {t('Supports JPG, PNG, GIF, WebP. Maximum {{count}} images, each up to 10MB.', {
-          count: MAX_IMAGES_PER_TICKET,
-        })}
+        支持 JPG、PNG、GIF、WebP 格式，最多 {MAX_IMAGES_PER_TICKET} 张，每张不超过 10MB。
       </p>
     </div>
   )

@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback } from 'react'
-import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import { RefreshCw, ChevronLeft, ChevronRight, Clock, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -35,7 +34,6 @@ interface TicketListProps {
 }
 
 export function TicketList({ isAdmin = false }: TicketListProps) {
-  const { t } = useTranslation()
   const navigate = useNavigate()
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [loading, setLoading] = useState(true)
@@ -72,13 +70,13 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
     const config = TICKET_STATUS_MAP[status as TicketStatus]
     if (!config) return <Badge variant='outline'>{status}</Badge>
     const variant = config.variant as 'default' | 'success' | 'warning' | 'destructive' | 'outline'
-    return <Badge variant={variant}>{t(config.label)}</Badge>
+    return <Badge variant={variant}>{config.label}</Badge>
   }
 
   return (
     <Card>
       <CardHeader className='flex flex-row items-center justify-between'>
-        <CardTitle>{isAdmin ? t('All Tickets') : t('My Tickets')}</CardTitle>
+        <CardTitle>{isAdmin ? '所有工单' : '我的工单'}</CardTitle>
         <div className='flex items-center gap-2'>
           <NativeSelect
             value={statusFilter}
@@ -90,11 +88,11 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
           >
             {TICKET_STATUS_FILTER_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
-                {t(opt.label)}
+                {opt.label}
               </option>
             ))}
           </NativeSelect>
-          <Button variant='outline' size='icon' onClick={fetchTickets} title={t('Refresh')}>
+          <Button variant='outline' size='icon' onClick={fetchTickets} title='刷新'>
             <RefreshCw className='h-4 w-4' />
           </Button>
         </div>
@@ -107,7 +105,7 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
             ))}
           </div>
         ) : tickets.length === 0 ? (
-          <Empty description={t('No tickets found')} />
+          <Empty description='暂无工单' />
         ) : (
           <>
             <div className='space-y-2'>
@@ -140,7 +138,7 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
                       </span>
                       {ticket.replies && ticket.replies.length > 0 && (
                         <span>
-                          {t('{{count}} replies', { count: ticket.replies.length })}
+                          {ticket.replies.length} 条回复
                         </span>
                       )}
                     </div>
@@ -153,7 +151,7 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
             {totalPages > 1 && (
               <div className='flex items-center justify-between mt-4 pt-4 border-t'>
                 <span className='text-sm text-muted-foreground'>
-                  {t('Total {{total}} tickets', { total })}
+                  共 {total} 条工单
                 </span>
                 <div className='flex items-center gap-2'>
                   <Button
