@@ -487,7 +487,7 @@ function AnimatedRpmBar({
             isFull ? 'bg-destructive' : isWarning ? 'bg-warning' : 'bg-primary'
           )}
           animate={{ width: `${pct}%` }}
-          transition={MOTION_TRANSITION.spring}
+          transition={MOTION_TRANSITION.damped}
         />
       </div>
     </div>

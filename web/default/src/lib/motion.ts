@@ -32,6 +32,9 @@ export const MOTION_TRANSITION: Record<string, Transition> = {
   fast: { duration: DURATION.fast, ease: EASE_OUT_CUBIC },
   slow: { duration: DURATION.slow, ease: EASE_OUT_CUBIC },
   spring: { type: 'spring', damping: 20, stiffness: 300 },
+  /** Critically-damped spring — no overshoot, smooth settle.
+   *  Ideal for gauges / meters (RPM, usage bars) where bounce is misleading. */
+  damped: { type: 'spring', damping: 42, stiffness: 350, mass: 1 },
   none: { duration: DURATION.instant },
 }
 
