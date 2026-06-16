@@ -27,6 +27,7 @@ import {
   ListOrdered,
   Shuffle,
 } from 'lucide-react'
+import { motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { getCurrencyLabel } from '@/lib/currency'
@@ -35,6 +36,7 @@ import {
   formatQuota as formatQuotaValue,
 } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
+import { MOTION_TRANSITION } from '@/lib/motion'
 import { cn, truncateText } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -444,6 +446,55 @@ function BalanceCell({ channel }: { channel: Channel }) {
 }
 
 /**
+ * Animated RPM progress bar with spring physics for smooth growth/shrink.
+ * Uses framer-motion spring animation to avoid jarring jumps when
+ * the RPM value changes during periodic polling.
+ */
+function AnimatedRpmBar({
+  currentRpm,
+  maxRpm,
+}: {
+  currentRpm: number
+  maxRpm: number
+}) {
+  if (maxRpm <= 0) {
+    return (
+      <div className='flex items-center gap-1.5'>
+        <span className='text-muted-foreground text-xs tabular-nums'>-</span>
+      </div>
+    )
+  }
+
+  const ratio = Math.min(currentRpm / maxRpm, 1)
+  const pct = Math.round(ratio * 100)
+  const isFull = ratio >= 1
+  const isWarning = ratio > 0.8
+
+  return (
+    <div className='flex flex-col gap-0.5 min-w-[80px]'>
+      <span className='text-xs font-mono tabular-nums'>
+        <span
+          className={cn(isFull ? 'text-destructive font-semibold' : 'text-foreground')}
+        >
+          {currentRpm}
+        </span>
+        <span className='text-muted-foreground'>/{maxRpm}</span>
+      </span>
+      <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
+        <motion.div
+          className={cn(
+            'h-full rounded-full',
+            isFull ? 'bg-destructive' : isWarning ? 'bg-warning' : 'bg-primary'
+          )}
+          animate={{ width: `${pct}%` }}
+          transition={MOTION_TRANSITION.spring}
+        />
+      </div>
+    </div>
+  )
+}
+
+/**
  * Generate channels columns configuration
  */
 export function useChannelsColumns(): ColumnDef<Channel>[] {
@@ -626,43 +677,12 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title='RPM' />
       ),
-      cell: ({ row }) => {
-        const channel = row.original
-        const maxRpm = channel.max_rpm ?? 0
-        const currentRpm = channel.current_rpm ?? 0
-
-        if (maxRpm <= 0) {
-          return (
-            <div className='flex items-center gap-1.5'>
-              <span className='text-muted-foreground text-xs tabular-nums'>-</span>
-            </div>
-          )
-        }
-
-        const ratio = maxRpm > 0 ? currentRpm / maxRpm : 0
-        const pct = Math.min(Math.round(ratio * 100), 100)
-        const isFull = ratio >= 1
-
-        return (
-          <div className='flex flex-col gap-0.5 min-w-[80px]'>
-            <span className='text-xs font-mono tabular-nums'>
-              <span className={cn(isFull ? 'text-destructive font-semibold' : 'text-foreground')}>
-                {currentRpm}
-              </span>
-              <span className='text-muted-foreground'>/{maxRpm}</span>
-            </span>
-            <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all duration-300',
-                  isFull ? 'bg-destructive' : pct > 80 ? 'bg-warning' : 'bg-primary'
-                )}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-        )
-      },
+      cell: ({ row }) => (
+        <AnimatedRpmBar
+          currentRpm={row.original.current_rpm ?? 0}
+          maxRpm={row.original.max_rpm ?? 0}
+        />
+      ),
       size: 110,
       enableSorting: false,
     },
