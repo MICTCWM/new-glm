@@ -1,4 +1,7 @@
-FROM oven/bun:1-alpine AS builder
+# syntax=docker/dockerfile:1
+
+# Build frontend (default) - always on native platform, no QEMU
+FROM --platform=$BUILDPLATFORM oven/bun:1-alpine AS builder
 
 WORKDIR /build
 COPY web/default/package.json web/default/bun.lock ./
@@ -7,7 +10,8 @@ COPY ./web/default .
 COPY ./VERSION .
 RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run build
 
-FROM oven/bun:1-alpine AS builder-classic
+# Build frontend (classic) - always on native platform, no QEMU
+FROM --platform=$BUILDPLATFORM oven/bun:1-alpine AS builder-classic
 
 WORKDIR /build
 COPY web/classic/package.json web/classic/bun.lock ./
@@ -16,7 +20,8 @@ COPY ./web/classic .
 COPY ./VERSION .
 RUN VITE_REACT_APP_VERSION=$(cat VERSION) bun run build
 
-FROM golang:1.26.1-alpine AS builder2
+# Build Go binary - cross-compile for target platform on native host
+FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS builder2
 ENV GO111MODULE=on CGO_ENABLED=0 GOPROXY=https://goproxy.cn,direct
 
 ARG TARGETOS
@@ -36,6 +41,7 @@ COPY --from=builder-classic /build/dist ./web/classic/dist
 RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
 
+# Final image - per platform, only copies files (fast even via QEMU)
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata wget

@@ -54,7 +54,7 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
           tags: |
             ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
