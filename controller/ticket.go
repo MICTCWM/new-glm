@@ -3,7 +3,9 @@ package controller
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,6 +17,70 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	ticketUploadRoot   = "ticket_images"
+	ticketMaxFileSize  = 10 * 1024 * 1024 // 10MB
+	ticketMaxImageName = 255
+)
+
+var allowedImageExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true,
+	".gif": true, ".webp": true,
+}
+
+func isAllowedImageExt(ext string) bool {
+	return allowedImageExts[strings.ToLower(ext)]
+}
+
+// sanitizeImageFilename returns a safe filename using only the extension from user input
+func sanitizeImageFilename(fname string, timestamp int64) (string, error) {
+	ext := strings.ToLower(filepath.Ext(fname))
+	if !isAllowedImageExt(ext) {
+		return "", fmt.Errorf("unsupported file type: %s", ext)
+	}
+	return fmt.Sprintf("%d%s", timestamp, ext), nil
+}
+
+// nolint
+// collectTicketUserIds gathers all user IDs from tickets and replies
+func collectTicketUserIds(tickets []model.Ticket) []int {
+	idSet := make(map[int]bool)
+	for i := range tickets {
+		idSet[tickets[i].UserId] = true
+		for j := range tickets[i].Replies {
+			idSet[tickets[i].Replies[j].UserId] = true
+		}
+	}
+	ids := make([]int, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// populateTicketUsernames batch-fetches usernames from user IDs and fills them into tickets
+func populateTicketUsernames(tickets []model.Ticket) {
+	ids := collectTicketUserIds(tickets)
+	if len(ids) == 0 {
+		return
+	}
+	var users []model.User
+	if err := model.DB.Select("id, username").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		common.SysLog(fmt.Sprintf("failed to batch-fetch usernames for tickets: %v", err))
+		return
+	}
+	usernameMap := make(map[int]string, len(users))
+	for _, u := range users {
+		usernameMap[u.Id] = u.Username
+	}
+	for i := range tickets {
+		tickets[i].Username = usernameMap[tickets[i].UserId]
+		for j := range tickets[i].Replies {
+			tickets[i].Replies[j].Username = usernameMap[tickets[i].Replies[j].UserId]
+		}
+	}
+}
+
 // CreateTicket handles ticket creation with optional image uploads
 func CreateTicket(c *gin.Context) {
 	userId := c.GetInt("id")
@@ -23,6 +89,10 @@ func CreateTicket(c *gin.Context) {
 
 	if title == "" || content == "" {
 		common.ApiError(c, fmt.Errorf("title and content are required"))
+		return
+	}
+	if len(title) > 255 {
+		common.ApiError(c, fmt.Errorf("title must not exceed 255 characters"))
 		return
 	}
 
@@ -42,16 +112,24 @@ func CreateTicket(c *gin.Context) {
 	form, err := c.MultipartForm()
 	if err == nil {
 		files := form.File["images"]
-		uploadDir := filepath.Join("ticket_images", strconv.Itoa(ticket.Id))
+		uploadDir := filepath.Join(ticketUploadRoot, strconv.Itoa(ticket.Id))
 		if err := os.MkdirAll(uploadDir, 0755); err != nil {
 			common.ApiError(c, fmt.Errorf("failed to create upload directory: %v", err))
 			return
 		}
 
 		for _, file := range files {
+			// Validate file size
+			if file.Size > ticketMaxFileSize {
+				continue
+			}
+
+			// Sanitize filename — only use the extension
 			timestamp := time.Now().UnixNano()
-			ext := filepath.Ext(file.Filename)
-			savedName := fmt.Sprintf("%d_%s%s", timestamp, strings.TrimSuffix(file.Filename, ext), ext)
+			savedName, err := sanitizeImageFilename(file.Filename, timestamp)
+			if err != nil {
+				continue
+			}
 			savePath := filepath.Join(uploadDir, savedName)
 
 			src, err := file.Open()
@@ -66,14 +144,18 @@ func CreateTicket(c *gin.Context) {
 			}
 
 			if _, err := io.Copy(dst, src); err == nil {
+				filePath := "/uploads/" + filepath.ToSlash(savePath)
 				ticketImage := model.TicketImage{
 					TicketId: ticket.Id,
-					Filename: file.Filename,
-					FilePath: "/uploads/" + filepath.ToSlash(savePath),
+					Filename: filepath.Base(file.Filename),
+					FilePath: filePath,
 					FileSize: file.Size,
 				}
-				model.DB.Create(&ticketImage)
-				ticket.Images = append(ticket.Images, ticketImage)
+				if err := model.DB.Create(&ticketImage).Error; err != nil {
+					common.SysLog(fmt.Sprintf("failed to save ticket %d image record: %v", ticket.Id, err))
+				} else {
+					ticket.Images = append(ticket.Images, ticketImage)
+				}
 			}
 
 			dst.Close()
@@ -110,19 +192,8 @@ func GetUserTickets(c *gin.Context) {
 	query.Preload("Images").Preload("Replies").Order("created_at DESC").
 		Offset((page - 1) * pageSize).Limit(pageSize).Find(&tickets)
 
-	// Populate username for each ticket
-	for i := range tickets {
-		var user model.User
-		if err := model.DB.Select("username").First(&user, tickets[i].UserId).Error; err == nil {
-			tickets[i].Username = user.Username
-		}
-		for j := range tickets[i].Replies {
-			var replyUser model.User
-			if err := model.DB.Select("username").First(&replyUser, tickets[i].Replies[j].UserId).Error; err == nil {
-				tickets[i].Replies[j].Username = replyUser.Username
-			}
-		}
-	}
+	// Batch-fetch usernames
+	populateTicketUsernames(tickets)
 
 	if tickets == nil {
 		tickets = []model.Ticket{}
@@ -161,19 +232,8 @@ func GetAllTickets(c *gin.Context) {
 	query.Preload("Images").Preload("Replies").Order("created_at DESC").
 		Offset((page - 1) * pageSize).Limit(pageSize).Find(&tickets)
 
-	// Populate username for each ticket
-	for i := range tickets {
-		var user model.User
-		if err := model.DB.Select("username").First(&user, tickets[i].UserId).Error; err == nil {
-			tickets[i].Username = user.Username
-		}
-		for j := range tickets[i].Replies {
-			var replyUser model.User
-			if err := model.DB.Select("username").First(&replyUser, tickets[i].Replies[j].UserId).Error; err == nil {
-				tickets[i].Replies[j].Username = replyUser.Username
-			}
-		}
-	}
+	// Batch-fetch usernames
+	populateTicketUsernames(tickets)
 
 	if tickets == nil {
 		tickets = []model.Ticket{}
@@ -210,17 +270,8 @@ func GetTicketDetail(c *gin.Context) {
 		return
 	}
 
-	// Populate username
-	var user model.User
-	if err := model.DB.Select("username").First(&user, ticket.UserId).Error; err == nil {
-		ticket.Username = user.Username
-	}
-	for j := range ticket.Replies {
-		var replyUser model.User
-		if err := model.DB.Select("username").First(&replyUser, ticket.Replies[j].UserId).Error; err == nil {
-			ticket.Replies[j].Username = replyUser.Username
-		}
-	}
+	// Batch-fetch usernames
+	populateTicketUsernames([]model.Ticket{ticket})
 
 	common.ApiSuccess(c, ticket)
 }
@@ -236,8 +287,8 @@ func AddTicketReply(c *gin.Context) {
 	userId := c.GetInt("id")
 
 	var req struct {
-		Content        string `json:"content"`
-		CloseOnReply   bool   `json:"close_on_reply"`
+		Content      string `json:"content"`
+		CloseOnReply bool   `json:"close_on_reply"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ApiError(c, fmt.Errorf("invalid request body"))
@@ -272,9 +323,11 @@ func AddTicketReply(c *gin.Context) {
 	if req.CloseOnReply {
 		newStatus = model.TicketStatusClosed
 	}
-	model.DB.Model(&ticket).Updates(map[string]interface{}{
+	if err := model.DB.Model(&ticket).Updates(map[string]interface{}{
 		"status": newStatus,
-	})
+	}).Error; err != nil {
+		common.SysLog(fmt.Sprintf("failed to update ticket %d status after reply: %v", ticketId, err))
+	}
 
 	// Populate username
 	var user model.User
@@ -312,7 +365,10 @@ func UpdateTicketStatus(c *gin.Context) {
 		return
 	}
 
-	model.DB.Model(&ticket).Update("status", req.Status)
+	if err := model.DB.Model(&ticket).Update("status", req.Status).Error; err != nil {
+		common.ApiError(c, fmt.Errorf("failed to update ticket status: %v", err))
+		return
+	}
 
 	common.ApiSuccess(c, gin.H{"id": ticketId, "status": req.Status})
 }
@@ -325,15 +381,26 @@ func UploadTicketImage(c *gin.Context) {
 		return
 	}
 
-	uploadDir := "ticket_images/temp"
+	// Validate file size
+	if file.Size > ticketMaxFileSize {
+		common.ApiError(c, fmt.Errorf("file size exceeds maximum allowed 10MB"))
+		return
+	}
+
+	// Validate file type
+	timestamp := time.Now().UnixNano()
+	savedName, err := sanitizeImageFilename(file.Filename, timestamp)
+	if err != nil {
+		common.ApiError(c, fmt.Errorf("unsupported file type: %v", err))
+		return
+	}
+
+	uploadDir := filepath.Join(ticketUploadRoot, "temp")
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		common.ApiError(c, fmt.Errorf("failed to create upload directory: %v", err))
 		return
 	}
 
-	timestamp := time.Now().UnixNano()
-	ext := filepath.Ext(file.Filename)
-	savedName := fmt.Sprintf("%d_%s%s", timestamp, strings.TrimSuffix(file.Filename, ext), ext)
 	savePath := filepath.Join(uploadDir, savedName)
 
 	if err := c.SaveUploadedFile(file, savePath); err != nil {
@@ -342,8 +409,32 @@ func UploadTicketImage(c *gin.Context) {
 	}
 
 	common.ApiSuccess(c, gin.H{
-		"filename": file.Filename,
+		"filename": filepath.Base(file.Filename),
 		"filepath": "/uploads/" + filepath.ToSlash(savePath),
 		"filesize": file.Size,
 	})
+}
+
+// ServeTicketImage serves uploaded ticket images behind authentication,
+// only allowing safe image extensions and preventing path traversal.
+func ServeTicketImage(c *gin.Context) {
+	reqPath := c.Param("filepath")
+
+	// Only allow safe image extensions
+	ext := strings.ToLower(path.Ext(reqPath))
+	if !isAllowedImageExt(ext) {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+
+	// Prevent path traversal by resolving and comparing absolute paths
+	absBase, _ := filepath.Abs(ticketUploadRoot)
+	fullPath := filepath.Join(ticketUploadRoot, reqPath)
+	absTarget, err := filepath.Abs(fullPath)
+	if err != nil || !strings.HasPrefix(absTarget, absBase) {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+
+	c.File(fullPath)
 }

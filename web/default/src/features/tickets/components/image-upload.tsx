@@ -16,10 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ImagePlus, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_SIZE, MAX_IMAGES_PER_TICKET } from '../constants'
 
 interface ImageUploadProps {
@@ -58,8 +57,51 @@ export function ImageUpload({ images, onChange, disabled }: ImageUploadProps) {
     if (inputRef.current) inputRef.current.value = ''
   }
 
+  // Track blob URLs for cleanup
+  const blobUrlsRef = useRef<Set<string>>(new Set())
+
+  // Clean up blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      blobUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      blobUrlsRef.current.clear()
+    }
+  }, [])
+
+  // Cache blob URLs to avoid re-creating on every render and enable cleanup
+  const blobUrlCacheRef = useRef<Map<File, string>>(new Map())
+
+  // Get or create a blob URL for a file
+  const getBlobUrl = (file: File): string => {
+    if (blobUrlCacheRef.current.has(file)) {
+      return blobUrlCacheRef.current.get(file)!
+    }
+    const url = URL.createObjectURL(file)
+    blobUrlCacheRef.current.set(file, url)
+    return url
+  }
+
+  // Revoke blob URLs for removed files and clear cache on unmount
+  const cleanupBlobUrls = (newFiles: File[]) => {
+    const newSet = new Set(newFiles)
+    blobUrlCacheRef.current.forEach((url, file) => {
+      if (!newSet.has(file)) {
+        URL.revokeObjectURL(url)
+        blobUrlCacheRef.current.delete(file)
+      }
+    })
+  }
+
+  useEffect(() => {
+    return () => {
+      blobUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url))
+      blobUrlCacheRef.current.clear()
+    }
+  }, [])
+
   const removeImage = (index: number) => {
     const newImages = images.filter((_, i) => i !== index)
+    cleanupBlobUrls(newImages)
     onChange(newImages)
   }
 
@@ -68,11 +110,11 @@ export function ImageUpload({ images, onChange, disabled }: ImageUploadProps) {
       <div className='flex flex-wrap gap-3'>
         {images.map((file, index) => (
           <div
-            key={`${file.name}-${index}`}
+            key={`${file.name}-${index}-${file.size}`}
             className='relative group h-20 w-20 rounded-lg border overflow-hidden flex-shrink-0'
           >
             <img
-              src={URL.createObjectURL(file)}
+              src={getBlobUrl(file)}
               alt={file.name}
               className='h-full w-full object-cover'
             />

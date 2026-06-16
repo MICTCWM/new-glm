@@ -83,11 +83,20 @@ export function TicketForm({ onSuccess }: TicketFormProps) {
           {t('Describe your issue or question in detail. We will get back to you as soon as possible.')}
         </CardDescription>
       </CardHeader>
-      <CardContent className='space-y-4'>
+      <CardContent
+        className='space-y-4'
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && e.target instanceof HTMLInputElement) {
+            e.preventDefault()
+            handleSubmit()
+          }
+        }}
+      >
         <div className='space-y-2'>
           <Label htmlFor='ticket-title'>{t('Title')} *</Label>
           <Input
             id='ticket-title'
+            maxLength={255}
             placeholder={t('Enter a brief title for your ticket')}
             value={title}
             onChange={(e) => {

@@ -1,8 +1,6 @@
 package router
 
 import (
-	"net/http"
-
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 
@@ -356,8 +354,8 @@ func SetApiRouter(router *gin.Engine) {
 		}
 
 		// Ticket routes
-		// Static file serving for uploaded ticket images
-		apiRouter.StaticFS("/uploads", http.Dir("ticket_images"))
+		// Serve uploaded ticket images behind authentication
+		apiRouter.GET("/uploads/*filepath", middleware.UserAuth(), controller.ServeTicketImage)
 
 		ticketRoute := apiRouter.Group("/ticket")
 		ticketRoute.Use(middleware.UserAuth())
