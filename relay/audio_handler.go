@@ -99,6 +99,11 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		}
 
 		if resp != nil {
+			// Drain and close previous response body to prevent resource leak during retries
+			if httpResp != nil && httpResp.Body != nil {
+				io.Copy(io.Discard, httpResp.Body)
+				httpResp.Body.Close()
+			}
 			httpResp = resp.(*http.Response)
 			if httpResp.StatusCode != http.StatusOK {
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)

@@ -180,6 +180,11 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 			continue
 		}
 
+		// Drain and close previous response body to prevent resource leak during retries
+		if httpResp != nil && httpResp.Body != nil {
+			io.Copy(io.Discard, httpResp.Body)
+			httpResp.Body.Close()
+		}
 		httpResp = resp.(*http.Response)
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		if httpResp.StatusCode != http.StatusOK {

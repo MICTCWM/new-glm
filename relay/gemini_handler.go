@@ -210,6 +210,11 @@ delay = common.RetryDelays[attempt]
 		}
 
 		if resp != nil {
+			// Drain and close previous response body to prevent resource leak during retries
+			if httpResp != nil && httpResp.Body != nil {
+				io.Copy(io.Discard, httpResp.Body)
+				httpResp.Body.Close()
+			}
 			httpResp = resp.(*http.Response)
 			info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 			if httpResp.StatusCode != http.StatusOK {
@@ -370,6 +375,11 @@ delay = common.RetryDelays[attempt]
 		}
 
 		if resp != nil {
+			// Drain and close previous response body to prevent resource leak during retries
+			if httpResp != nil && httpResp.Body != nil {
+				io.Copy(io.Discard, httpResp.Body)
+				httpResp.Body.Close()
+			}
 			httpResp = resp.(*http.Response)
 			if httpResp.StatusCode != http.StatusOK {
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
