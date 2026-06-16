@@ -1,15 +1,38 @@
+# VCS & IDE
 .github
 .git
-*.md
 .vscode
+.clinerules
 .gitignore
-Makefile
+.gitattributes
+
+# Documentation & config
+*.md
+!THIRD-PARTY-LICENSES.md
 docs
-.eslintcache
-.gocache
+Makefile
+makefile
+.env.example
+
+# Frontend build artifacts & deps
 /web/node_modules
 /web/default/node_modules
 /web/default/dist
 /web/classic/node_modules
 /web/classic/dist
-!THIRD-PARTY-LICENSES.md
+
+# Electron (not needed for Docker)
+electron
+
+# Docker files (avoid recursive context)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Test & misc
+bin
+fix-delay-scope.ps1
+new-api.service
+test-workflow-trigger.txt
+.eslintcache
+.gocache

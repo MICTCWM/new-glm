@@ -17,7 +17,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Get version info
         id: version
@@ -44,34 +44,20 @@ jobs:
           username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
           password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
 
-      - name: Build Docker image
+      - name: Build and push Docker image
         id: build
-        run: |
-          echo "Starting Docker image build..." | tee -a build.log
-          echo "Image: ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" | tee -a build.log
-          echo "Platforms: linux/amd64, linux/arm64" | tee -a build.log
-          echo "Time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" | tee -a build.log
-          echo "----------------------------------------" | tee -a build.log
-
-          if docker buildx build \
-            --build-arg VERSION=${{ steps.version.outputs.version }} \
-            --platform linux/amd64,linux/arm64 \
-            --cache-from type=gha \
-            --cache-to type=gha,mode=max \
-            -t ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
-            -t ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest \
-            --push \
-            . 2>&1 | tee -a build.log; then
-            echo "build_status=success" >> $GITHUB_OUTPUT
-            echo "Build and push succeeded" | tee -a build.log
-          else
-            echo "build_status=failed" >> $GITHUB_OUTPUT
-            echo "Build or push failed" | tee -a build.log
-            exit 1
-          fi
-
-          echo "----------------------------------------" | tee -a build.log
-          echo "Completed: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" | tee -a build.log
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
 
       - name: Send success email
         if: success()
@@ -95,10 +81,8 @@ jobs:
             - Commit: ${{ github.event.head_commit.message }}
             - Author: ${{ github.event.head_commit.author.name }}
 
-            See attached build.log for details.
           to: ${{ secrets.NOTIFY_EMAIL_RECIPIENT }}
           from: Docker Build Notification
-          attachments: build.log
 
       - name: Send failure email
         if: failure()
@@ -119,17 +103,5 @@ jobs:
             - Commit: ${{ github.event.head_commit.message }}
             - Author: ${{ github.event.head_commit.author.name }}
 
-            See attached build.log for error details.
           to: ${{ secrets.NOTIFY_EMAIL_RECIPIENT }}
           from: Docker Build Notification
-          attachments: build.log
-
-      - name: Build summary
-        if: always()
-        run: |
-          echo "### Build Result" >> $GITHUB_STEP_SUMMARY
-          if [ -f build.log ]; then
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -50 build.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
