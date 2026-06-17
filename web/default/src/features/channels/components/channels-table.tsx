@@ -33,6 +33,7 @@ import { useDebounce, useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { useIsAdmin } from '@/hooks/use-admin'
 import { Input } from '@/components/ui/input'
 import {
   DISABLED_ROW_DESKTOP,
@@ -77,6 +78,7 @@ function isDisabledChannelRow(channel: Channel) {
 export function ChannelsTable() {
   const { t } = useTranslation()
   const { enableTagMode, idSort } = useChannels()
+  const isAdmin = useIsAdmin()
   const isMobile = useMediaQuery('(max-width: 640px)')
 
   // Table state
@@ -259,7 +261,11 @@ export function ChannelsTable() {
       }
     },
     placeholderData: (previousData) => previousData,
-    refetchInterval: 10000, // refresh every 10s for real-time RPM display
+    // Refresh every 1s for real-time RPM display — only when an admin
+    // is viewing this page.  TanStack Query v5 defaults to NOT polling
+    // when the browser tab is unfocused (refetchIntervalInBackground: false),
+    // so background tabs won't waste resources.
+    refetchInterval: isAdmin ? 1000 : false,
   })
 
   // Apply tag aggregation if tag mode is enabled
