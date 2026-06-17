@@ -576,6 +576,7 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
  */
 export function useChannelsColumns(): ColumnDef<Channel>[] {
   const { t } = useTranslation()
+  // Re-create columns only when the translation function changes
   return useMemo(() => [
     // Checkbox column
     {
@@ -1211,7 +1212,5 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
       enableSorting: false,
       enableHiding: false,
     },
-  ]
-  // Re-create columns only when the translation function changes
-  }, [t])
+  ], [t])
 }
