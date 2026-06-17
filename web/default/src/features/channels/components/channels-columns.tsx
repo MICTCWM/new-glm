@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, memo, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import {
@@ -446,27 +446,35 @@ function BalanceCell({ channel }: { channel: Channel }) {
 
 /**
  * Animated RPM progress bar with spring physics for smooth growth/shrink.
- * Uses framer-motion spring animation to avoid jarring jumps when
- * the RPM value changes during periodic polling.
- * Both the numeric value and the bar width are spring-animated
- * to eliminate bouncing/jittering during polling refreshes.
+ *
+ * Wrapped in `React.memo` so that when the channels table polls for fresh
+ * data, only the rows whose `currentRpm` / `maxRpm` actually changed will
+ * re-render.  Without memo, every poll causes ALL bars to re-render and
+ * their springs to re-evaluate — producing a visible "bounce" on bars that
+ * haven't changed.
+ *
+ * Springs are initialised to the incoming prop values (not 0) so that
+ * mount / remount doesn't animate from 0 → actual value.
  */
-function AnimatedRpmBar({
+const AnimatedRpmBar = memo(function AnimatedRpmBar({
   currentRpm,
   maxRpm,
 }: {
   currentRpm: number
   maxRpm: number
 }) {
-  // Spring-animate the numeric RPM value so it glides between values
-  const rpmSpring = useSpring(0, {
+  // Spring-animate the numeric RPM value — initialise to currentRpm so
+  // there's no 0 → value animation on mount.
+  const rpmSpring = useSpring(currentRpm, {
     stiffness: 220,
     damping: 36,
     mass: 0.7,
   })
 
-  // Spring-animate the bar width percentage
-  const widthSpring = useSpring(0, {
+  // Spring-animate the bar width percentage — initialise to the correct
+  // percentage so the bar doesn't grow from 0 on mount.
+  const initialPct = maxRpm > 0 ? Math.min(currentRpm / maxRpm, 1) * 100 : 0
+  const widthSpring = useSpring(initialPct, {
     stiffness: 260,
     damping: 34,
     mass: 0.8,
@@ -476,21 +484,34 @@ function AnimatedRpmBar({
   const ratioSpring = useTransform(widthSpring, [0, 100], [0, 1])
 
   // State subscriptions for rendering animated values
-  const [displayRpm, setDisplayRpm] = useState(0)
-  const [animatedRatio, setAnimatedRatio] = useState(0)
+  const [displayRpm, setDisplayRpm] = useState(currentRpm)
+  const [animatedRatio, setAnimatedRatio] = useState(initialPct / 100)
 
-  // Drive springs from incoming props
+  // Refs to guard against redundant .set() calls when the value hasn't
+  // actually changed — prevents triggering spring animations on every
+  // re-render even when props are identical.
+  const lastRpmRef = useRef(currentRpm)
+  const lastPctRef = useRef(initialPct)
+
+  // Drive springs from incoming props — only when value truly changed
   useEffect(() => {
-    rpmSpring.set(currentRpm)
+    if (lastRpmRef.current !== currentRpm) {
+      lastRpmRef.current = currentRpm
+      rpmSpring.set(currentRpm)
+    }
   }, [currentRpm, rpmSpring])
 
   useEffect(() => {
-    if (maxRpm > 0) {
-      widthSpring.set(Math.min(currentRpm / maxRpm, 1) * 100)
+    if (maxRpm <= 0) return
+    const targetPct = Math.min(currentRpm / maxRpm, 1) * 100
+    if (lastPctRef.current !== targetPct) {
+      lastPctRef.current = targetPct
+      widthSpring.set(targetPct)
     }
   }, [currentRpm, maxRpm, widthSpring])
 
-  // Subscribe to animated values for renders
+  // Subscribe to animated values for renders — these subscriptions are
+  // stable because the spring instances don't change across re-renders.
   useEffect(() => {
     const unsubRpm = rpmSpring.on('change', (v) => setDisplayRpm(Math.round(v)))
     return unsubRpm
@@ -542,14 +563,20 @@ function AnimatedRpmBar({
       </div>
     </div>
   )
-}
+})
 
 /**
- * Generate channels columns configuration
+ * Generate channels columns configuration.
+ *
+ * Memoised so that the column array identity stays stable across re-renders
+ * (e.g. during 10s polling refreshes).  Without memo, a new array is returned
+ * every render, causing TanStack Table to re-process all columns and re-render
+ * every cell — which in turn makes every AnimatedRpmBar re-evaluate its
+ * springs even when the underlying RPM values haven't changed.
  */
 export function useChannelsColumns(): ColumnDef<Channel>[] {
   const { t } = useTranslation()
-  return [
+  return useMemo(() => [
     // Checkbox column
     {
       id: 'select',
@@ -1185,4 +1212,6 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
       enableHiding: false,
     },
   ]
+  // Re-create columns only when the translation function changes
+  }, [t])
 }
