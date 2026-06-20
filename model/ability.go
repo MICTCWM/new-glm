@@ -136,40 +136,54 @@ func GetChannel(group string, model string, retry int, usedChannelIds ...[]int) 
 		usedIds = usedChannelIds[0]
 	}
 
-	channel := Channel{}
-	if len(abilities) > 0 {
-		// Randomly choose one
-		weightSum := uint(0)
-		for _, ability_ := range abilities {
-			// Skip used channels
-			if len(usedIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedIds) {
+	type abilityCandidate struct {
+		ability Ability
+		channel Channel
+	}
+	candidates := make([]abilityCandidate, 0, len(abilities))
+	anyRpmLimited := false
+	for _, ability_ := range abilities {
+		if len(usedIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedIds) {
+			continue
+		}
+		candidateChannel := Channel{}
+		if err = DB.First(&candidateChannel, "id = ?", ability_.ChannelId).Error; err != nil {
+			return nil, err
+		}
+		if candidateChannel.MaxRPM > 0 {
+			anyRpmLimited = true
+			if CheckChannelRpmFullFunc != nil && CheckChannelRpmFullFunc(candidateChannel.Id) {
 				continue
 			}
-			weightSum += ability_.Weight + 10
 		}
-		// If all channels are used, return nil
+		candidates = append(candidates, abilityCandidate{
+			ability: ability_,
+			channel: candidateChannel,
+		})
+	}
+
+	if len(abilities) > 0 {
+		weightSum := uint(0)
+		for _, candidate := range candidates {
+			weightSum += candidate.ability.Weight + 10
+		}
 		if weightSum == 0 {
+			if anyRpmLimited {
+				return nil, ErrAllChannelsRpmFull
+			}
 			return nil, nil
 		}
-		// Randomly choose one
 		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
-			// Skip used channels
-			if len(usedIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedIds) {
-				continue
-			}
-			weight -= int(ability_.Weight) + 10
-			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
+		for _, candidate := range candidates {
+			weight -= int(candidate.ability.Weight) + 10
 			if weight <= 0 {
-				channel.Id = ability_.ChannelId
-				break
+				return &candidate.channel, nil
 			}
 		}
 	} else {
 		return nil, nil
 	}
-	err = DB.First(&channel, "id = ?", channel.Id).Error
-	return &channel, err
+	return nil, nil
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {

@@ -17,6 +17,7 @@ func GetQueueStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success":     true,
 		"queue_count": queueLen,
+		"queue_items": service.GetQueueSnapshot(),
 	})
 }
 

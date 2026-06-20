@@ -25,7 +25,7 @@ import { ChevronLeft } from 'lucide-react';
 import { useSidebarCollapsed } from '../../hooks/common/useSidebarCollapsed';
 import { useSidebar } from '../../hooks/common/useSidebar';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
-import { isAdmin, isRoot, showError } from '../../helpers';
+import { API, isAdmin, isRoot, showError } from '../../helpers';
 import SkeletonWrapper from './components/SkeletonWrapper';
 
 import { Nav, Divider, Button } from '@douyinfe/semi-ui';
@@ -65,8 +65,35 @@ const SiderBar = ({ onNavigate = () => {} }) => {
   const [selectedKeys, setSelectedKeys] = useState(['home']);
   const [chatItems, setChatItems] = useState([]);
   const [openedKeys, setOpenedKeys] = useState([]);
+  const [queueItems, setQueueItems] = useState([]);
   const location = useLocation();
   const [routerMapState, setRouterMapState] = useState(routerMap);
+
+  useEffect(() => {
+    if (!isAdmin()) {
+      setQueueItems([]);
+      return undefined;
+    }
+    let mounted = true;
+    const loadQueueStatus = async () => {
+      try {
+        const res = await API.get('/dashboard/queue-status', {
+          skipErrorHandler: true,
+        });
+        if (mounted) {
+          setQueueItems(res.data?.queue_items || []);
+        }
+      } catch {
+        if (mounted) setQueueItems([]);
+      }
+    };
+    loadQueueStatus();
+    const timer = setInterval(loadQueueStatus, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const workspaceItems = useMemo(() => {
     const items = [
@@ -488,6 +515,56 @@ const SiderBar = ({ onNavigate = () => {} }) => {
                   <div className='sidebar-group-label'>{t('管理员')}</div>
                 )}
                 {adminItems.map((item) => renderNavItem(item))}
+              </div>
+            </>
+          )}
+
+          {isAdmin() && !collapsed && queueItems.length > 0 && (
+            <>
+              <Divider className='sidebar-divider' />
+              <div className='sidebar-section'>
+                <div className='sidebar-group-label'>{t('正在排队')}</div>
+                {queueItems.slice(0, 5).map((item, index) => (
+                  <div
+                    key={item.request_id || index}
+                    style={{
+                      margin: '6px 12px',
+                      padding: '8px',
+                      border: '1px solid var(--semi-color-border)',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: 'var(--semi-color-text-1)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.username || `#${item.user_id || '-'}`}
+                      </span>
+                      <span style={{ color: 'var(--semi-color-text-2)' }}>
+                        {item.wait_seconds || 0}s
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 4,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        color: 'var(--semi-color-text-2)',
+                      }}
+                    >
+                      {item.model_name || '-'}
+                    </div>
+                    <div style={{ marginTop: 4, color: 'var(--semi-color-text-2)' }}>
+                      {t('输入Token')}: {item.prompt_tokens || 0}
+                    </div>
+                  </div>
+                ))}
               </div>
             </>
           )}

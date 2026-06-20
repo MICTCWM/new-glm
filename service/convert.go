@@ -258,6 +258,10 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 	}
 
 	var claudeResponses []*dto.ClaudeResponse
+	if info.RpmQueueThinkingNoticeSent && info.ClaudeConvertInfo.LastMessagesType == relaycommon.LastMessageTypeNone {
+		info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeThinking
+		info.ClaudeConvertInfo.Index = 0
+	}
 	// stopOpenBlocks emits the required content_block_stop event(s) for the currently open block(s)
 	// according to Anthropic's SSE streaming state machine:
 	// content_block_start -> content_block_delta* -> content_block_stop (per index).
@@ -296,7 +300,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		}
 		info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeNone
 	}
-	if info.SendResponseCount == 1 {
+	if info.SendResponseCount == 1 && !info.RpmQueueThinkingNoticeSent {
 		msg := &dto.ClaudeMediaMessage{
 			Id:    openAIResponse.Id,
 			Model: openAIResponse.Model,
@@ -990,8 +994,15 @@ func StreamResponseOpenAI2Gemini(openAIResponse *dto.ChatCompletionsStreamRespon
 			}
 		} else {
 			// 处理文本内容
+			reasoningContent := choice.Delta.GetReasoningContent()
 			textContent := choice.Delta.GetContentString()
-			if textContent != "" {
+			if reasoningContent != "" {
+				part := dto.GeminiPart{
+					Text:    reasoningContent,
+					Thought: true,
+				}
+				content.Parts = append(content.Parts, part)
+			} else if textContent != "" {
 				part := dto.GeminiPart{
 					Text: textContent,
 				}

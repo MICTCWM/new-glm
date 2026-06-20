@@ -172,6 +172,11 @@ type RelayInfo struct {
 
 	StreamStatus *StreamStatus
 
+	RpmQueueThinkingNoticeSent   bool
+	ClaudeRpmQueueThinkingOpen   bool
+	ClaudeRpmQueueMergedThinking bool
+	ClaudeRpmQueueIndexOffset    int
+
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo

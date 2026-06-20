@@ -2,10 +2,14 @@ package claude
 
 import (
 	"encoding/base64"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -379,4 +383,79 @@ func TestRequestOpenAI2ClaudeMessage_ConvertsTextFileContentToText(t *testing.T)
 	require.Equal(t, "text", content[0].Type)
 	require.NotNil(t, content[0].Text)
 	require.Equal(t, "alpha\nbeta", *content[0].Text)
+}
+
+func TestAdjustQueuedClaudeThinkingMergeKeepsFollowingIndexes(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		RpmQueueThinkingNoticeSent: true,
+		ClaudeRpmQueueThinkingOpen: true,
+	}
+	start := &dto.ClaudeResponse{
+		Type:  "content_block_start",
+		Index: common.GetPointer(0),
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Type: "thinking",
+		},
+	}
+
+	require.Empty(t, adjustQueuedClaudeContentBlockStart(nil, info, start, `{"type":"content_block_start","index":0}`))
+	require.True(t, info.ClaudeRpmQueueThinkingOpen)
+	require.True(t, info.ClaudeRpmQueueMergedThinking)
+
+	deltaData := `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"later"}}`
+	delta := &dto.ClaudeResponse{
+		Type:  "content_block_delta",
+		Index: common.GetPointer(0),
+		Delta: &dto.ClaudeMediaMessage{
+			Type:     "thinking_delta",
+			Thinking: common.GetPointer("later"),
+		},
+	}
+	require.Equal(t, deltaData, adjustQueuedClaudeIndexedEvent(nil, info, delta, deltaData))
+
+	stopData := `{"type":"content_block_stop","index":0}`
+	stop := &dto.ClaudeResponse{Type: "content_block_stop", Index: common.GetPointer(0)}
+	require.Equal(t, stopData, adjustQueuedClaudeIndexedEvent(nil, info, stop, stopData))
+	require.False(t, info.ClaudeRpmQueueThinkingOpen)
+	require.False(t, info.ClaudeRpmQueueMergedThinking)
+	require.Equal(t, 0, info.ClaudeRpmQueueIndexOffset)
+
+	textData := `{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`
+	text := &dto.ClaudeResponse{
+		Type:  "content_block_start",
+		Index: common.GetPointer(1),
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Type: "text",
+			Text: common.GetPointer(""),
+		},
+	}
+	var adjusted map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(adjustQueuedClaudeContentBlockStart(nil, info, text, textData), &adjusted))
+	require.Equal(t, float64(1), adjusted["index"])
+}
+
+func TestAdjustQueuedClaudeNonThinkingFirstBlockClosesNoticeAndOffsets(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	info := &relaycommon.RelayInfo{
+		RpmQueueThinkingNoticeSent: true,
+		ClaudeRpmQueueThinkingOpen: true,
+	}
+	text := &dto.ClaudeResponse{
+		Type:  "content_block_start",
+		Index: common.GetPointer(0),
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Type: "text",
+			Text: common.GetPointer(""),
+		},
+	}
+	data := `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`
+
+	adjusted := adjustQueuedClaudeContentBlockStart(c, info, text, data)
+
+	require.Contains(t, w.Body.String(), `"type":"content_block_stop"`)
+	require.False(t, info.ClaudeRpmQueueThinkingOpen)
+	require.Equal(t, 1, info.ClaudeRpmQueueIndexOffset)
+	require.Contains(t, adjusted, `"index":1`)
 }

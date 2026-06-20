@@ -10,10 +10,34 @@ import (
 
 // RpmQueueItem represents a request waiting in the RPM queue.
 type RpmQueueItem struct {
-	Group       string
-	ModelName   string
-	EnqueueTime time.Time
-	NotifyCh    chan struct{} // closed when the request should be retried
+	RequestID    string
+	Username     string
+	UserID       int
+	Group        string
+	ModelName    string
+	PromptTokens int
+	EnqueueTime  time.Time
+	NotifyCh     chan struct{} // closed when the request should be retried
+}
+
+type RpmQueueItemMeta struct {
+	RequestID    string
+	Username     string
+	UserID       int
+	Group        string
+	ModelName    string
+	PromptTokens int
+}
+
+type RpmQueueSnapshotItem struct {
+	RequestID    string `json:"request_id"`
+	Username     string `json:"username"`
+	UserID       int    `json:"user_id"`
+	Group        string `json:"group"`
+	ModelName    string `json:"model_name"`
+	PromptTokens int    `json:"prompt_tokens"`
+	EnqueueTime  int64  `json:"enqueue_time"`
+	WaitSeconds  int64  `json:"wait_seconds"`
 }
 
 // RpmQueueManager manages a FIFO queue of requests waiting for RPM capacity.
@@ -49,10 +73,18 @@ func GetRpmQueue() *RpmQueueManager {
 // Enqueue adds a request to the queue and returns a channel that will be
 // closed when the request should be retried (i.e., RPM capacity freed up).
 // Returns also a timeout channel for the caller to handle 60s timeout.
-func (q *RpmQueueManager) Enqueue() *RpmQueueItem {
+func (q *RpmQueueManager) Enqueue(meta ...RpmQueueItemMeta) *RpmQueueItem {
 	item := &RpmQueueItem{
 		EnqueueTime: time.Now(),
 		NotifyCh:    make(chan struct{}),
+	}
+	if len(meta) > 0 {
+		item.RequestID = meta[0].RequestID
+		item.Username = meta[0].Username
+		item.UserID = meta[0].UserID
+		item.Group = meta[0].Group
+		item.ModelName = meta[0].ModelName
+		item.PromptTokens = meta[0].PromptTokens
 	}
 
 	q.mu.Lock()
@@ -123,9 +155,34 @@ func (q *RpmQueueManager) GetQueueLength() int {
 	return int(queueLength.Load())
 }
 
+func (q *RpmQueueManager) Snapshot() []RpmQueueSnapshotItem {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	now := time.Now()
+	items := make([]RpmQueueSnapshotItem, 0, len(q.queue))
+	for _, item := range q.queue {
+		items = append(items, RpmQueueSnapshotItem{
+			RequestID:    item.RequestID,
+			Username:     item.Username,
+			UserID:       item.UserID,
+			Group:        item.Group,
+			ModelName:    item.ModelName,
+			PromptTokens: item.PromptTokens,
+			EnqueueTime:  item.EnqueueTime.Unix(),
+			WaitSeconds:  int64(now.Sub(item.EnqueueTime).Seconds()),
+		})
+	}
+	return items
+}
+
 // GetQueueLength exported for use by controller
 func GetQueueLength() int {
 	return GetRpmQueue().GetQueueLength()
+}
+
+func GetQueueSnapshot() []RpmQueueSnapshotItem {
+	return GetRpmQueue().Snapshot()
 }
 
 // WaitWithTimeout waits for either the notify channel or a timeout.
@@ -165,4 +222,16 @@ func (q *RpmQueueManager) RemoveItem(target *RpmQueueItem) bool {
 		}
 	}
 	return false
+}
+
+func (q *RpmQueueManager) TryRemoveFront(target *RpmQueueItem) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if len(q.queue) == 0 || q.queue[0] != target {
+		return false
+	}
+	q.queue = q.queue[1:]
+	queueLength.Add(-1)
+	return true
 }

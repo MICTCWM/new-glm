@@ -807,11 +807,24 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 			if claudeResponse.Message != nil {
 				info.UpstreamModelName = claudeResponse.Message.Model
 			}
+			if info.RpmQueueThinkingNoticeSent {
+				return nil
+			}
 		} else if claudeResponse.Type == "message_delta" {
 			// 确保 message_delta 的 usage 包含完整的 input_tokens 和 cache 相关字段
 			// 解决 AWS Bedrock 等上游返回的 message_delta 缺少这些字段的问题
 			if !shouldSkipClaudeMessageDeltaUsagePatch(info) {
 				data = patchClaudeMessageDeltaUsageData(data, buildMessageDeltaPatchUsage(&claudeResponse, claudeInfo))
+			}
+		} else if info.RpmQueueThinkingNoticeSent && claudeResponse.Type == "content_block_start" {
+			data = adjustQueuedClaudeContentBlockStart(c, info, &claudeResponse, data)
+			if data == "" {
+				return nil
+			}
+		} else if info.RpmQueueThinkingNoticeSent && (claudeResponse.Type == "content_block_delta" || claudeResponse.Type == "content_block_stop") {
+			data = adjustQueuedClaudeIndexedEvent(c, info, &claudeResponse, data)
+			if data == "" {
+				return nil
 			}
 		}
 		helper.ClaudeChunkData(c, claudeResponse, data)
@@ -828,6 +841,70 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	}
 	return nil
+}
+
+func adjustQueuedClaudeContentBlockStart(c *gin.Context, info *relaycommon.RelayInfo, resp *dto.ClaudeResponse, data string) string {
+	if info.ClaudeRpmQueueThinkingOpen && resp.ContentBlock != nil && resp.ContentBlock.Type == "thinking" && isClaudeIndexZero(resp) {
+		info.ClaudeRpmQueueMergedThinking = true
+		return ""
+	}
+	if info.ClaudeRpmQueueThinkingOpen {
+		closeQueuedClaudeThinking(c, info)
+	}
+	if resp.Index == nil {
+		return data
+	}
+	return patchClaudeEventIndex(data, *resp.Index+info.ClaudeRpmQueueIndexOffset)
+}
+
+func adjustQueuedClaudeIndexedEvent(c *gin.Context, info *relaycommon.RelayInfo, resp *dto.ClaudeResponse, data string) string {
+	if info.ClaudeRpmQueueThinkingOpen && isClaudeIndexZero(resp) {
+		if resp.Type == "content_block_stop" {
+			info.ClaudeRpmQueueThinkingOpen = false
+			info.ClaudeRpmQueueMergedThinking = false
+			info.ClaudeRpmQueueIndexOffset = 0
+			return data
+		}
+		if info.ClaudeRpmQueueMergedThinking && resp.Type == "content_block_delta" && resp.Delta != nil && (resp.Delta.Type == "thinking_delta" || resp.Delta.Type == "signature_delta") {
+			return data
+		}
+		closeQueuedClaudeThinking(c, info)
+	}
+	if info.ClaudeRpmQueueIndexOffset == 0 {
+		return data
+	}
+	if resp.Index == nil {
+		return data
+	}
+	return patchClaudeEventIndex(data, *resp.Index+info.ClaudeRpmQueueIndexOffset)
+}
+
+func closeQueuedClaudeThinking(c *gin.Context, info *relaycommon.RelayInfo) {
+	stop := dto.ClaudeResponse{
+		Type:  "content_block_stop",
+		Index: common.GetPointer(0),
+	}
+	helper.ClaudeData(c, stop)
+	info.ClaudeRpmQueueThinkingOpen = false
+	info.ClaudeRpmQueueMergedThinking = false
+	info.ClaudeRpmQueueIndexOffset = 1
+}
+
+func isClaudeIndexZero(resp *dto.ClaudeResponse) bool {
+	return resp.Index == nil || *resp.Index == 0
+}
+
+func patchClaudeEventIndex(data string, index int) string {
+	var payload map[string]any
+	if err := common.UnmarshalJsonStr(data, &payload); err != nil {
+		return data
+	}
+	payload["index"] = index
+	patched, err := common.Marshal(payload)
+	if err != nil {
+		return data
+	}
+	return string(patched)
 }
 
 func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {

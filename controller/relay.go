@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -201,12 +202,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	var retryDelays []int
 	var selectedChannel *model.Channel // track selected channel for RPM management
-	wasQueued := false                  // track whether request ever entered the RPM queue
+	wasQueued := false                 // track whether request ever entered the RPM queue
+	queueDeadline := time.Time{}
+	queueNoticeSent := false
 
 	defer func() {
-		// Notify RPM queue when request completes (success or final failure)
+		// Wake one queued request when a request completes so it can re-check RPM capacity.
 		if selectedChannel != nil {
-			// RPM occupied via TryIncrement; notify queue that a slot might have freed
 			service.GetRpmQueue().NotifyRpmRelease()
 		}
 	}()
@@ -219,8 +221,29 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if errors.Is(channelErr.Err, service.ErrAllChannelsRpmFull) {
 				logger.LogInfo(c, "All channels RPM full, entering queue...")
 				wasQueued = true
-				queueItem := service.GetRpmQueue().Enqueue()
-				if queueItem.WaitWithTimeout() {
+				if queueDeadline.IsZero() {
+					queueDeadline = time.Now().Add(common.RpmQueueTimeout)
+				}
+				if !time.Now().Before(queueDeadline) {
+					newAPIError = types.NewErrorWithStatusCode(
+						errors.New(common.UserMessageRpmQueue),
+						types.ErrorCodeRpmQueueTimeout,
+						http.StatusTooManyRequests,
+					)
+					break
+				}
+				if !queueNoticeSent {
+					queueNoticeSent = sendRpmQueueThinkingNotice(c, relayInfo)
+				}
+				queueItem := service.GetRpmQueue().Enqueue(service.RpmQueueItemMeta{
+					RequestID:    relayInfo.RequestId,
+					Username:     c.GetString("username"),
+					UserID:       relayInfo.UserId,
+					Group:        relayInfo.TokenGroup,
+					ModelName:    relayInfo.OriginModelName,
+					PromptTokens: relayInfo.GetEstimatePromptTokens(),
+				})
+				if waitRpmQueueTurn(queueItem, queueDeadline) {
 					// Dequeued successfully, retry channel selection
 					logger.LogInfo(c, "Dequeued from RPM queue, retrying...")
 					retryParam.ResetRetryNextTry()
@@ -331,6 +354,84 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 }
 
+func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	if info == nil || !info.IsStream || info.RelayMode != relayconstant.RelayModeChatCompletions {
+		return false
+	}
+	notice := common.UserMessageRpmQueuedThinking + "\n"
+	chunk := &dto.ChatCompletionsStreamResponse{
+		Id:      helper.GetResponseID(c),
+		Object:  "chat.completion.chunk",
+		Created: time.Now().Unix(),
+		Model:   info.OriginModelName,
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Index: 0,
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					Role: "assistant",
+				},
+			},
+		},
+	}
+	chunk.Choices[0].Delta.SetReasoningContent(notice)
+
+	switch info.RelayFormat {
+	case types.RelayFormatOpenAI:
+		data, err := common.Marshal(chunk)
+		if err != nil {
+			logger.LogWarn(c, "failed to marshal rpm queue notice: "+err.Error())
+			return false
+		}
+		if err := openai.HandleStreamFormat(c, info, string(data), info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			logger.LogWarn(c, "failed to send rpm queue notice: "+err.Error())
+			return false
+		}
+		info.RpmQueueThinkingNoticeSent = true
+		return true
+	case types.RelayFormatClaude, types.RelayFormatGemini:
+		data, err := common.Marshal(chunk)
+		if err != nil {
+			logger.LogWarn(c, "failed to marshal rpm queue notice: "+err.Error())
+			return false
+		}
+		if err := openai.HandleStreamFormat(c, info, string(data), false, false); err != nil {
+			logger.LogWarn(c, "failed to send rpm queue notice: "+err.Error())
+			return false
+		}
+		info.RpmQueueThinkingNoticeSent = true
+		if info.RelayFormat == types.RelayFormatClaude {
+			info.ClaudeRpmQueueThinkingOpen = true
+		}
+		return true
+	}
+	return false
+}
+
+func waitRpmQueueTurn(item *service.RpmQueueItem, deadline time.Time) bool {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		service.GetRpmQueue().RemoveItem(item)
+		return false
+	}
+
+	probeInterval := time.Second
+	if remaining < probeInterval {
+		probeInterval = remaining
+	}
+	timer := time.NewTimer(probeInterval)
+	defer timer.Stop()
+
+	select {
+	case <-item.NotifyCh:
+		return true
+	case <-timer.C:
+		if service.GetRpmQueue().TryRemoveFront(item) {
+			return true
+		}
+		return waitRpmQueueTurn(item, deadline)
+	}
+}
+
 var upgrader = websocket.Upgrader{
 	Subprotocols: []string{"realtime"}, // WS 握手支持的协议，如果有使用 Sec-WebSocket-Protocol，则必须在此声明对应的 Protocol TODO add other protocol
 	CheckOrigin: func(r *http.Request) bool {
@@ -392,7 +493,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
 	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.OriginModelName, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
