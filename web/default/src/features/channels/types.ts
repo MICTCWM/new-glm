@@ -88,6 +88,8 @@ export interface ChannelSettings {
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
+  special_user_enabled?: boolean
+  special_user_ids?: number[]
 }
 
 export interface ChannelOtherSettings {

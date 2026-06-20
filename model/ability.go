@@ -113,7 +113,7 @@ func isAbilityChannelUsed(channelId int, usedChannelIds []int) bool {
 	return false
 }
 
-func GetChannel(group string, model string, retry int, usedChannelIds ...[]int) (*Channel, error) {
+func GetChannel(group string, model string, retry int, usedChannelIds []int, userId ...int) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
@@ -130,26 +130,28 @@ func GetChannel(group string, model string, retry int, usedChannelIds ...[]int) 
 		return nil, err
 	}
 
-	// Filter out used channels if provided
-	var usedIds []int
-	if len(usedChannelIds) > 0 {
-		usedIds = usedChannelIds[0]
-	}
-
 	type abilityCandidate struct {
 		ability Ability
 		channel Channel
 	}
 	candidates := make([]abilityCandidate, 0, len(abilities))
 	anyRpmLimited := false
+	anySpecialUserRestricted := false
+	anySpecialUserAllowed := false
+	requestUserId := firstUserId(userId...)
 	for _, ability_ := range abilities {
-		if len(usedIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedIds) {
+		if len(usedChannelIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedChannelIds) {
 			continue
 		}
 		candidateChannel := Channel{}
 		if err = DB.First(&candidateChannel, "id = ?", ability_.ChannelId).Error; err != nil {
 			return nil, err
 		}
+		if !candidateChannel.AllowsSpecialUser(requestUserId) {
+			anySpecialUserRestricted = true
+			continue
+		}
+		anySpecialUserAllowed = true
 		if candidateChannel.MaxRPM > 0 {
 			anyRpmLimited = true
 			if CheckChannelRpmFullFunc != nil && CheckChannelRpmFullFunc(candidateChannel.Id) {
@@ -168,6 +170,9 @@ func GetChannel(group string, model string, retry int, usedChannelIds ...[]int) 
 			weightSum += candidate.ability.Weight + 10
 		}
 		if weightSum == 0 {
+			if anySpecialUserRestricted && !anySpecialUserAllowed {
+				return nil, ErrChannelSpecialUserUnauthorized
+			}
 			if anyRpmLimited {
 				return nil, ErrAllChannelsRpmFull
 			}

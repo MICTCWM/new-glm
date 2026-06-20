@@ -33,7 +33,10 @@ interface MultiSelectProps {
   options: Option[]
   selected: string[]
   onChange: (values: string[]) => void
+  onSearchChange?: (value: string) => void
   placeholder?: string
+  emptyText?: string
+  isLoading?: boolean
   className?: string
 }
 
@@ -41,7 +44,10 @@ export function MultiSelect({
   options,
   selected,
   onChange,
+  onSearchChange,
   placeholder,
+  emptyText,
+  isLoading,
   className,
 }: MultiSelectProps) {
   const { t } = useTranslation()
@@ -49,6 +55,7 @@ export function MultiSelect({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [open, setOpen] = React.useState(false)
   const [inputValue, setInputValue] = React.useState('')
+  const resolvedEmptyText = emptyText ?? t('No results found')
 
   const handleUnselect = (value: string) => {
     onChange(selected.filter((s) => s !== value))
@@ -71,6 +78,11 @@ export function MultiSelect({
   const selectables = options.filter(
     (option) => !selected.includes(option.value)
   )
+
+  const handleInputChange = (value: string) => {
+    setInputValue(value)
+    onSearchChange?.(value)
+  }
 
   return (
     <Command
@@ -111,7 +123,7 @@ export function MultiSelect({
           <CommandPrimitive.Input
             ref={inputRef}
             value={inputValue}
-            onValueChange={setInputValue}
+            onValueChange={handleInputChange}
             onBlur={() => setOpen(false)}
             onFocus={() => setOpen(true)}
             placeholder={selected.length === 0 ? resolvedPlaceholder : ''}
@@ -120,28 +132,39 @@ export function MultiSelect({
         </div>
       </div>
       <div className='relative'>
-        {open && selectables.length > 0 ? (
+        {open ? (
           <div className='bg-popover text-popover-foreground animate-in absolute top-0 z-10 w-full rounded-md border shadow-md outline-none'>
-            <CommandGroup className='h-full max-h-60 overflow-auto'>
-              {selectables.map((option) => {
-                return (
-                  <CommandItem
-                    key={option.value}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                    }}
-                    onSelect={() => {
-                      setInputValue('')
-                      onChange([...selected, option.value])
-                    }}
-                    className='cursor-pointer'
-                  >
-                    {option.label}
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
+            {isLoading ? (
+              <div className='text-muted-foreground px-3 py-2 text-sm'>
+                {t('Loading...')}
+              </div>
+            ) : selectables.length > 0 ? (
+              <CommandGroup className='h-full max-h-60 overflow-auto'>
+                {selectables.map((option) => {
+                  return (
+                    <CommandItem
+                      key={option.value}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onSelect={() => {
+                        setInputValue('')
+                        onSearchChange?.('')
+                        onChange([...selected, option.value])
+                      }}
+                      className='cursor-pointer'
+                    >
+                      {option.label}
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
+            ) : (
+              <div className='text-muted-foreground px-3 py-2 text-sm'>
+                {resolvedEmptyText}
+              </div>
+            )}
           </div>
         ) : null}
       </div>

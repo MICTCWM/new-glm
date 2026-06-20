@@ -493,6 +493,14 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
 	if err != nil {
+		if errors.Is(err, model.ErrChannelSpecialUserUnauthorized) {
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("未有权限调用模型 %s", info.OriginModelName),
+				types.ErrorCodeModelNotFound,
+				http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(),
+			)
+		}
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.OriginModelName, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {

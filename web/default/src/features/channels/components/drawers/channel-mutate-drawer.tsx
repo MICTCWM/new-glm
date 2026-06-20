@@ -50,6 +50,7 @@ import {
   Server,
   Settings,
   SlidersHorizontal,
+  Users,
   Wand2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -116,6 +117,7 @@ import {
   getGroups,
   getPrefillGroups,
   refreshCodexCredential,
+  searchChannelSpecialUsers,
   updateChannel,
 } from '../../api'
 import {
@@ -327,6 +329,7 @@ export function ChannelMutateDrawer({
   >(null)
   const [advancedSettingsOpen, setAdvancedSettingsOpen] = useState(false)
   const [paramOverrideEditorOpen, setParamOverrideEditorOpen] = useState(false)
+  const [specialUserKeyword, setSpecialUserKeyword] = useState('')
 
   const isEditing = Boolean(currentRow)
   const channelId = currentRow?.id ?? null
@@ -355,6 +358,17 @@ export function ChannelMutateDrawer({
     queryKey: ['prefill_groups', 'model'],
     queryFn: () => getPrefillGroups('model'),
   })
+
+  const { data: specialUsersData, isFetching: isFetchingSpecialUsers } =
+    useQuery({
+      queryKey: ['channel_special_users', specialUserKeyword],
+      queryFn: () =>
+        searchChannelSpecialUsers({
+          keyword: specialUserKeyword,
+          page_size: 30,
+        }),
+      enabled: open,
+    })
 
   const { copyToClipboard } = useCopyToClipboard()
 
@@ -398,6 +412,8 @@ export function ChannelMutateDrawer({
   const currentModels = form.watch('models')
   const currentModelMapping = form.watch('model_mapping')
   const awsKeyType = form.watch('aws_key_type')
+  const specialUserEnabled = form.watch('special_user_enabled')
+  const specialUserIds = form.watch('special_user_ids')
   const upstreamModelUpdateCheckEnabled = form.watch(
     'upstream_model_update_check_enabled'
   )
@@ -507,6 +523,38 @@ export function ChannelMutateDrawer({
       label: model,
     }))
   }, [allModelsList, currentModelsArray])
+
+  const specialUserOptions = useMemo(() => {
+    const users = specialUsersData?.data?.items || []
+    const selectedUserIds = specialUserIds || []
+    const optionMap = new Map<string, { value: string; label: string }>()
+
+    users.forEach((user) => {
+      const displayName = user.display_name?.trim()
+      const username = user.username?.trim()
+      const primaryName = displayName || username || `#${user.id}`
+      const secondaryName =
+        username && displayName && username !== displayName
+          ? ` / ${username}`
+          : ''
+      optionMap.set(String(user.id), {
+        value: String(user.id),
+        label: `${primaryName}${secondaryName} (#${user.id})`,
+      })
+    })
+
+    selectedUserIds.forEach((userId) => {
+      const value = String(userId)
+      if (!optionMap.has(value)) {
+        optionMap.set(value, {
+          value,
+          label: `#${userId}`,
+        })
+      }
+    })
+
+    return Array.from(optionMap.values())
+  }, [specialUsersData, specialUserIds])
 
   const modelMappingGuardrail = useMemo<ModelMappingGuardrail>(() => {
     if (!currentModelMapping?.trim()) {
@@ -996,6 +1044,17 @@ export function ChannelMutateDrawer({
         }
       }
 
+      if (
+        data.special_user_enabled === true &&
+        (!data.special_user_ids || data.special_user_ids.length === 0)
+      ) {
+        form.setError('special_user_ids', {
+          type: 'manual',
+          message: t('Please select at least one user'),
+        })
+        return
+      }
+
       // Normalize models array
       const normalizedModels = parseModelsString(data.models || '')
 
@@ -1085,6 +1144,7 @@ export function ChannelMutateDrawer({
       if (!v) {
         form.reset(CHANNEL_FORM_DEFAULT_VALUES)
         setAdvancedSettingsOpen(false)
+        setSpecialUserKeyword('')
       }
     },
     [onOpenChange, form]
@@ -3375,9 +3435,7 @@ export function ChannelMutateDrawer({
                     name='max_rpm'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>
-                          {t('Maximum RPM')}
-                        </FormLabel>
+                        <FormLabel>{t('Maximum RPM')}</FormLabel>
                         <FormControl>
                           <Input
                             type='number'
@@ -3402,6 +3460,72 @@ export function ChannelMutateDrawer({
                   />
                 </CollapsibleContent>
               </Collapsible>
+
+              <div className='flex flex-col gap-4 border-b px-4 py-4'>
+                <FormField
+                  control={form.control}
+                  name='special_user_enabled'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between gap-4'>
+                      <div className='flex items-start gap-2'>
+                        <Users className='text-muted-foreground mt-0.5 size-4' />
+                        <div className='flex flex-col gap-1'>
+                          <FormLabel>{t('Enable Special Users')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'When enabled, only selected users can call models provided by this channel. Other users can still see these models in the model list.'
+                            )}
+                          </FormDescription>
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                {specialUserEnabled && (
+                  <FormField
+                    control={form.control}
+                    name='special_user_ids'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Allowed Users')}</FormLabel>
+                        <FormControl>
+                          <MultiSelect
+                            options={specialUserOptions}
+                            selected={(field.value || []).map(String)}
+                            onChange={(values) =>
+                              field.onChange(
+                                values
+                                  .map((value) => Number(value))
+                                  .filter(
+                                    (value) =>
+                                      Number.isInteger(value) && value > 0
+                                  )
+                              )
+                            }
+                            onSearchChange={setSpecialUserKeyword}
+                            placeholder={t('Search and select users')}
+                            emptyText={t('No users found')}
+                            isLoading={isFetchingSpecialUsers}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Calls from unselected users will be rejected with no permission.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </div>
             </form>
           </Form>
 

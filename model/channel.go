@@ -917,6 +917,29 @@ func (channel *Channel) GetSetting() dto.ChannelSettings {
 	return setting
 }
 
+func firstUserId(userId ...int) int {
+	if len(userId) == 0 {
+		return 0
+	}
+	return userId[0]
+}
+
+func (channel *Channel) AllowsSpecialUser(userId int) bool {
+	setting := channel.GetSetting()
+	if !setting.SpecialUserEnabled {
+		return true
+	}
+	if userId <= 0 {
+		return false
+	}
+	for _, allowedUserId := range setting.SpecialUserIds {
+		if allowedUserId == userId {
+			return true
+		}
+	}
+	return false
+}
+
 func (channel *Channel) SetSetting(setting dto.ChannelSettings) {
 	settingBytes, err := common.Marshal(setting)
 	if err != nil {

@@ -21,6 +21,10 @@ var channelSyncLock sync.RWMutex
 // ErrAllChannelsRpmFull is returned when all matching channels have their RPM at max capacity.
 var ErrAllChannelsRpmFull = errors.New("all channels rpm full")
 
+// ErrChannelSpecialUserUnauthorized is returned when matching channels exist,
+// but all of them are restricted to other users.
+var ErrChannelSpecialUserUnauthorized = errors.New("channel special user permission denied")
+
 // CheckChannelRpmFullFunc is a hook function to check if a channel's RPM is full.
 // Registered by service/rpm_tracker.go via init().
 var CheckChannelRpmFullFunc func(channelId int) bool
@@ -112,10 +116,10 @@ func isChannelUsed(channelId int, usedChannelIds []int) bool {
 
 // GetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
 // usedChannelIds: list of channel IDs that have been tried and failed, will be excluded from selection.
-func GetRandomSatisfiedChannel(group string, model string, retry int, usedChannelIds []int) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, retry int, usedChannelIds []int, userId ...int) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, usedChannelIds)
+		return GetChannel(group, model, retry, usedChannelIds, userId...)
 	}
 
 	channelSyncLock.RLock()
@@ -150,8 +154,16 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 	// Filter out channels whose RPM is full
 	var rpmAvailableChannels []int
 	var anyRpmLimited bool
+	var anySpecialUserRestricted bool
+	var anySpecialUserAllowed bool
+	requestUserId := firstUserId(userId...)
 	for _, channelId := range availableChannels {
 		if channel, ok := channelsIDM[channelId]; ok {
+			if !channel.AllowsSpecialUser(requestUserId) {
+				anySpecialUserRestricted = true
+				continue
+			}
+			anySpecialUserAllowed = true
 			if channel.MaxRPM > 0 {
 				anyRpmLimited = true
 				if CheckChannelRpmFullFunc != nil && CheckChannelRpmFullFunc(channelId) {
@@ -164,6 +176,9 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 
 	// If all channels were filtered out by RPM, signal for queuing
 	if len(rpmAvailableChannels) == 0 {
+		if anySpecialUserRestricted && !anySpecialUserAllowed {
+			return nil, ErrChannelSpecialUserUnauthorized
+		}
 		if anyRpmLimited {
 			return nil, ErrAllChannelsRpmFull
 		}

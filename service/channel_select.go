@@ -101,6 +101,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		// startGroupIndex: 开始搜索的分组索引
 		startGroupIndex := 0
 		crossGroupRetry := common.GetContextKeyBool(param.Ctx, constant.ContextKeyTokenCrossGroupRetry)
+		anySpecialUserRestricted := false
 
 		if lastGroupIndex, exists := common.GetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex); exists {
 			if idx, ok := lastGroupIndex.(int); ok {
@@ -120,8 +121,15 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, chErr := model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.UsedChannelIds)
+			channel, chErr := model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.UsedChannelIds, common.GetContextKeyInt(param.Ctx, constant.ContextKeyUserId))
 			if channel == nil {
+				if errors.Is(chErr, model.ErrChannelSpecialUserUnauthorized) {
+					anySpecialUserRestricted = true
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+					common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
+					param.SetRetry(0)
+					continue
+				}
 				// If all channels in this group are RPM-full, try next group
 				if errors.Is(chErr, model.ErrAllChannelsRpmFull) {
 					// Check if there are more groups to try
@@ -170,11 +178,14 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			break
 		}
+		if channel == nil && anySpecialUserRestricted {
+			return nil, selectGroup, model.ErrChannelSpecialUserUnauthorized
+		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.UsedChannelIds)
+		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.UsedChannelIds, common.GetContextKeyInt(param.Ctx, constant.ContextKeyUserId))
 		if err != nil {
 			// Propagate ErrAllChannelsRpmFull to caller for queue handling
-			if errors.Is(err, model.ErrAllChannelsRpmFull) {
+			if errors.Is(err, model.ErrAllChannelsRpmFull) || errors.Is(err, model.ErrChannelSpecialUserUnauthorized) {
 				return nil, param.TokenGroup, err
 			}
 			return nil, param.TokenGroup, err

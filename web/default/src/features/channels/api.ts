@@ -18,7 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AxiosRequestConfig } from 'axios'
 import { api } from '@/lib/api'
-import { getGroups as getUserGroups } from '@/features/users/api'
+import { getGroups as getUserGroups, searchUsers } from '@/features/users/api'
+import type { User } from '@/features/users/types'
 import type {
   AddChannelRequest,
   BatchDeleteParams,
@@ -546,6 +547,26 @@ export async function getOllamaVersion(
  * Get all available groups (re-exported from users API for convenience)
  */
 export const getGroups = getUserGroups
+
+export async function searchChannelSpecialUsers(params: {
+  keyword?: string
+  page_size?: number
+}): Promise<{
+  success: boolean
+  message?: string
+  data?: {
+    items: User[]
+    total: number
+    page: number
+    page_size: number
+  }
+}> {
+  return searchUsers({
+    keyword: params.keyword || '',
+    p: 1,
+    page_size: params.page_size || 20,
+  })
+}
 
 // ============================================================================
 // Prefill Groups (Model Groups)
