@@ -12,8 +12,6 @@
 #
 # ⚠️  IMPORTANT: Change all default passwords before deploying to production!
 
-version: '3.4' # For compatibility with older Docker versions
-
 services:
   new-api:
     build:
