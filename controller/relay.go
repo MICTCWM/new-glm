@@ -205,6 +205,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	wasQueued := false                 // track whether request ever entered the RPM queue
 	queueDeadline := time.Time{}
 	queueNoticeSent := false
+	runtimeRpmFull := false
 
 	defer func() {
 		// Wake one queued request when a request completes so it can re-check RPM capacity.
@@ -218,43 +219,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			// Check if all channels are RPM-full -> enter queue
-			if errors.Is(channelErr.Err, service.ErrAllChannelsRpmFull) {
-				logger.LogInfo(c, "All channels RPM full, entering queue...")
-				wasQueued = true
-				if queueDeadline.IsZero() {
-					queueDeadline = time.Now().Add(common.RpmQueueTimeout)
-				}
-				if !time.Now().Before(queueDeadline) {
-					newAPIError = types.NewErrorWithStatusCode(
-						errors.New(common.UserMessageRpmQueue),
-						types.ErrorCodeRpmQueueTimeout,
-						http.StatusTooManyRequests,
-					)
-					break
-				}
-				if !queueNoticeSent {
-					queueNoticeSent = sendRpmQueueThinkingNotice(c, relayInfo)
-				}
-				queueItem := service.GetRpmQueue().Enqueue(service.RpmQueueItemMeta{
-					RequestID:    relayInfo.RequestId,
-					Username:     c.GetString("username"),
-					UserID:       relayInfo.UserId,
-					Group:        relayInfo.TokenGroup,
-					ModelName:    relayInfo.OriginModelName,
-					PromptTokens: relayInfo.GetEstimatePromptTokens(),
-				})
-				if waitRpmQueueTurn(queueItem, queueDeadline) {
-					// Dequeued successfully, retry channel selection
-					logger.LogInfo(c, "Dequeued from RPM queue, retrying...")
+			if errors.Is(channelErr.Err, service.ErrAllChannelsRpmFull) || runtimeRpmFull {
+				if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
+					wasQueued = true
+					runtimeRpmFull = false
 					retryParam.ResetRetryNextTry()
 					continue
 				}
-				// Queue timed out -> return user-friendly message (already queued, didn't get through)
-				newAPIError = types.NewErrorWithStatusCode(
-					errors.New(common.UserMessageRpmQueue),
-					types.ErrorCodeRpmQueueTimeout,
-					http.StatusTooManyRequests,
-				)
+				wasQueued = true
+				newAPIError = newRpmQueueTimeoutError()
 				break
 			}
 			logger.LogError(c, channelErr.Error())
@@ -268,8 +241,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if !tracker.TryIncrement() {
 				// RPM just filled up, skip this channel and retry another
 				retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
+				runtimeRpmFull = true
+				if retryParam.GetRetry() >= common.RetryTimes {
+					if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
+						wasQueued = true
+						runtimeRpmFull = false
+						retryParam.ResetRetryNextTry()
+						continue
+					}
+					wasQueued = true
+					newAPIError = newRpmQueueTimeoutError()
+					break
+				}
 				continue
 			}
+			runtimeRpmFull = false
 			selectedChannel = channel
 		}
 
@@ -407,6 +393,40 @@ func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) boo
 	return false
 }
 
+func newRpmQueueTimeoutError() *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		errors.New(common.UserMessageRpmQueue),
+		types.ErrorCodeRpmQueueTimeout,
+		http.StatusTooManyRequests,
+	)
+}
+
+func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDeadline *time.Time, queueNoticeSent *bool) bool {
+	logger.LogInfo(c, "All channels RPM full, entering queue...")
+	if queueDeadline.IsZero() {
+		*queueDeadline = time.Now().Add(common.RpmQueueTimeout)
+	}
+	if !time.Now().Before(*queueDeadline) {
+		return false
+	}
+	if !*queueNoticeSent {
+		*queueNoticeSent = sendRpmQueueThinkingNotice(c, relayInfo)
+	}
+	queueItem := service.GetRpmQueue().Enqueue(service.RpmQueueItemMeta{
+		RequestID:    relayInfo.RequestId,
+		Username:     c.GetString("username"),
+		UserID:       relayInfo.UserId,
+		Group:        relayInfo.TokenGroup,
+		ModelName:    relayInfo.OriginModelName,
+		PromptTokens: relayInfo.GetEstimatePromptTokens(),
+	})
+	if waitRpmQueueTurn(queueItem, *queueDeadline) {
+		logger.LogInfo(c, "Dequeued from RPM queue, retrying...")
+		return true
+	}
+	return false
+}
+
 func waitRpmQueueTurn(item *service.RpmQueueItem, deadline time.Time) bool {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
@@ -499,6 +519,13 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 				types.ErrorCodeModelNotFound,
 				http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(),
+			)
+		}
+		if errors.Is(err, model.ErrAllChannelsRpmFull) {
+			return nil, types.NewErrorWithStatusCode(
+				err,
+				types.ErrorCodeGetChannelFailed,
+				http.StatusTooManyRequests,
 			)
 		}
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.OriginModelName, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())

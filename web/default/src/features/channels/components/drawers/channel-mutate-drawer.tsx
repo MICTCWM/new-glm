@@ -52,6 +52,7 @@ import {
   SlidersHorizontal,
   Users,
   Wand2,
+  X,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -60,6 +61,7 @@ import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Collapsible,
@@ -163,6 +165,7 @@ import {
 } from '../dialogs/missing-models-confirmation-dialog'
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
+import { SpecialUserPickerDialog } from '../dialogs/special-user-picker-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
 
 type ChannelMutateDrawerProps = {
@@ -329,7 +332,7 @@ export function ChannelMutateDrawer({
   >(null)
   const [advancedSettingsOpen, setAdvancedSettingsOpen] = useState(false)
   const [paramOverrideEditorOpen, setParamOverrideEditorOpen] = useState(false)
-  const [specialUserKeyword, setSpecialUserKeyword] = useState('')
+  const [specialUserPickerOpen, setSpecialUserPickerOpen] = useState(false)
 
   const isEditing = Boolean(currentRow)
   const channelId = currentRow?.id ?? null
@@ -359,16 +362,15 @@ export function ChannelMutateDrawer({
     queryFn: () => getPrefillGroups('model'),
   })
 
-  const { data: specialUsersData, isFetching: isFetchingSpecialUsers } =
-    useQuery({
-      queryKey: ['channel_special_users', specialUserKeyword],
-      queryFn: () =>
-        searchChannelSpecialUsers({
-          keyword: specialUserKeyword,
-          page_size: 30,
-        }),
-      enabled: open,
-    })
+  const { data: specialUsersData } = useQuery({
+    queryKey: ['channel_special_users'],
+    queryFn: () =>
+      searchChannelSpecialUsers({
+        keyword: '',
+        page_size: 100,
+      }),
+    enabled: open,
+  })
 
   const { copyToClipboard } = useCopyToClipboard()
 
@@ -3495,26 +3497,49 @@ export function ChannelMutateDrawer({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>{t('Allowed Users')}</FormLabel>
-                        <FormControl>
-                          <MultiSelect
-                            options={specialUserOptions}
-                            selected={(field.value || []).map(String)}
-                            onChange={(values) =>
-                              field.onChange(
-                                values
-                                  .map((value) => Number(value))
-                                  .filter(
-                                    (value) =>
-                                      Number.isInteger(value) && value > 0
-                                  )
-                              )
-                            }
-                            onSearchChange={setSpecialUserKeyword}
-                            placeholder={t('Search and select users')}
-                            emptyText={t('No users found')}
-                            isLoading={isFetchingSpecialUsers}
-                          />
-                        </FormControl>
+                        <div className='flex flex-wrap items-center gap-1'>
+                          {(field.value || []).map((userId: number) => {
+                            const option = specialUserOptions.find(
+                              (o) => o.value === String(userId)
+                            )
+                            return (
+                              <Badge key={userId} variant='secondary'>
+                                {option?.label || `#${userId}`}
+                                <Button
+                                  variant='ghost'
+                                  size='icon-sm'
+                                  aria-label={t('Remove')}
+                                  className='ml-1 size-auto p-0'
+                                  onClick={() =>
+                                    field.onChange(
+                                      (field.value || []).filter(
+                                        (id: number) => id !== userId
+                                      )
+                                    )
+                                  }
+                                >
+                                  <X
+                                    className='text-muted-foreground hover:text-foreground h-3 w-3'
+                                    aria-hidden='true'
+                                  />
+                                </Button>
+                              </Badge>
+                            )
+                          })}
+                          <Button
+                            variant='outline'
+                            size='icon-sm'
+                            onClick={() => setSpecialUserPickerOpen(true)}
+                          >
+                            <Plus className='h-4 w-4' />
+                          </Button>
+                        </div>
+                        <SpecialUserPickerDialog
+                          open={specialUserPickerOpen}
+                          onOpenChange={setSpecialUserPickerOpen}
+                          selectedUserIds={field.value || []}
+                          onConfirm={(ids) => field.onChange(ids)}
+                        />
                         <FormDescription>
                           {t(
                             'Calls from unselected users will be rejected with no permission.'
