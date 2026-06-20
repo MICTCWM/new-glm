@@ -26,6 +26,11 @@ type ThinkingContentInfo struct {
 	HasSentThinkingContent  bool
 }
 
+type ThinkTagStreamState struct {
+	InThinking bool
+	Pending    string
+}
+
 const (
 	LastMessageTypeNone     = "none"
 	LastMessageTypeText     = "text"
@@ -171,6 +176,8 @@ type RelayInfo struct {
 	FinalRequestRelayFormat types.RelayFormat
 
 	StreamStatus *StreamStatus
+
+	ThinkTagStreamStates map[int]*ThinkTagStreamState
 
 	RpmQueueThinkingNoticeSent   bool
 	ClaudeRpmQueueThinkingOpen   bool

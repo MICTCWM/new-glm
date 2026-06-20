@@ -27,13 +27,16 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 		return nil
 	}
 
-	if !forceFormat && !thinkToContent {
-		return helper.StringData(c, data)
-	}
-
 	var lastStreamResponse dto.ChatCompletionsStreamResponse
 	if err := common.UnmarshalJsonStr(data, &lastStreamResponse); err != nil {
+		if !forceFormat && !thinkToContent {
+			return helper.StringData(c, data)
+		}
 		return err
+	}
+
+	if !thinkToContent && !normalizeStreamThinkTags(info, &lastStreamResponse) && !forceFormat {
+		return helper.StringData(c, data)
 	}
 
 	if !thinkToContent {
@@ -240,6 +243,11 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		forceFormat = true
 	}
 
+	thinkTagsNormalized := false
+	if info.RelayFormat == types.RelayFormatOpenAI && !info.ChannelSetting.ThinkingToContent {
+		thinkTagsNormalized = normalizeTextResponseThinkTags(&simpleResponse)
+	}
+
 	usageModified := false
 	if simpleResponse.Usage.PromptTokens == 0 {
 		completionTokens := simpleResponse.Usage.CompletionTokens
@@ -261,16 +269,22 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		if usageModified {
+		if usageModified || thinkTagsNormalized {
 			var bodyMap map[string]interface{}
-			err = common.Unmarshal(responseBody, &bodyMap)
-			if err != nil {
-				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			if !thinkTagsNormalized && !forceFormat {
+				err = common.Unmarshal(responseBody, &bodyMap)
+				if err != nil {
+					return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+				}
+				bodyMap["usage"] = simpleResponse.Usage
+				responseBody, _ = common.Marshal(bodyMap)
+			} else {
+				responseBody, err = common.Marshal(simpleResponse)
+				if err != nil {
+					return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+				}
 			}
-			bodyMap["usage"] = simpleResponse.Usage
-			responseBody, _ = common.Marshal(bodyMap)
-		}
-		if forceFormat {
+		} else if forceFormat {
 			responseBody, err = common.Marshal(simpleResponse)
 			if err != nil {
 				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)

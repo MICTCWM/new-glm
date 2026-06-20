@@ -80,6 +80,9 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		geminiResp := service.ResponseOpenAI2Gemini(chatResp, info)
 		responseBody, err = common.Marshal(geminiResp)
 	default:
+		if !info.ChannelSetting.ThinkingToContent {
+			normalizeTextResponseThinkTags(chatResp)
+		}
 		responseBody, err = common.Marshal(chatResp)
 	}
 	if err != nil {
@@ -129,6 +132,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return true
 		}
 		if info.RelayFormat == types.RelayFormatOpenAI {
+			if !info.ChannelSetting.ThinkingToContent {
+				normalizeStreamThinkTags(info, chunk)
+			}
 			if err := helper.ObjectData(c, chunk); err != nil {
 				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 				return false
