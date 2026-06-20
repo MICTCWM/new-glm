@@ -45,6 +45,7 @@ export function RpmQueueStatus() {
           '/dashboard/queue-status',
           {
             disableDuplicate: true,
+            skipErrorHandler: true,
             skipBusinessError: true,
           } as Record<string, unknown>
         )

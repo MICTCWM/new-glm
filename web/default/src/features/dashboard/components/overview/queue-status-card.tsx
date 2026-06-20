@@ -6,7 +6,10 @@ import { api } from '@/lib/api'
 import { Skeleton } from '@/components/ui/skeleton'
 
 async function fetchQueueStatus(): Promise<{ success: boolean; queue_count: number }> {
-  const res = await api.get('/dashboard/queue-status')
+  const res = await api.get('/dashboard/queue-status', {
+    skipErrorHandler: true,
+    skipBusinessError: true,
+  } as Record<string, unknown>)
   return res.data
 }
 

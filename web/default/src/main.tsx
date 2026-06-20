@@ -77,8 +77,12 @@ const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error) => {
       if (error instanceof AxiosError) {
-        // 如果 axios 拦截器已处理过此 401，跳过避免重复 toast
-        if ((error as Record<string, unknown>).handled) {
+        const errorConfig = error.config as Record<string, unknown> | undefined
+        // 如果 axios 拦截器已处理过，或请求显式要求跳过全局错误处理，则不再清理登录态。
+        if (
+          (error as Record<string, unknown>).handled ||
+          errorConfig?.skipErrorHandler
+        ) {
           return
         }
         if (error.response?.status === 401) {
