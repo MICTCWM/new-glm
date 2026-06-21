@@ -42,6 +42,32 @@ func TestClaude_LongContextTier(t *testing.T) {
 	}
 }
 
+func TestFixedPriceLongContextTier(t *testing.T) {
+	const expr = `len <= 200000 ? tier("standard_context", p * 0 + c * 0 + 10000) : tier("long_context", p * 0 + c * 0 + 20000)`
+
+	cost, trace, err := billingexpr.RunExpr(expr, billingexpr.TokenParams{P: 1000, C: 500, Len: 200000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(cost-10000) > 1e-6 {
+		t.Errorf("standard cost = %f, want 10000", cost)
+	}
+	if trace.MatchedTier != "standard_context" {
+		t.Errorf("standard tier = %q, want standard_context", trace.MatchedTier)
+	}
+
+	cost, trace, err = billingexpr.RunExpr(expr, billingexpr.TokenParams{P: 1000, C: 500, Len: 200001})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(cost-20000) > 1e-6 {
+		t.Errorf("long context cost = %f, want 20000", cost)
+	}
+	if trace.MatchedTier != "long_context" {
+		t.Errorf("long context tier = %q, want long_context", trace.MatchedTier)
+	}
+}
+
 func TestClaude_BoundaryExact(t *testing.T) {
 	cost, trace, err := billingexpr.RunExpr(claudeExpr, billingexpr.TokenParams{P: 200000, C: 1000})
 	if err != nil {

@@ -131,7 +131,15 @@ type PreviewRow = {
   multiline?: boolean
 }
 
+type ContextTierPricingState = {
+  enabled: boolean
+  thresholdK: string
+  longContextPrice: string
+}
+
 const numericDraftRegex = /^(\d+(\.\d*)?|\.\d*)?$/
+const CONTEXT_TIER_STANDARD_LABEL = 'standard_context'
+const CONTEXT_TIER_LONG_LABEL = 'long_context'
 
 const EMPTY_LANE_PRICES: Record<LaneKey, string> = {
   completion: '',
@@ -222,6 +230,48 @@ function formatNumber(value: unknown): string {
   return Number.parseFloat(num.toFixed(12)).toString()
 }
 
+function buildContextTierExpr(
+  thresholdK: string,
+  standardPrice: string,
+  longContextPrice: string
+): string {
+  const thresholdTokens = Number(thresholdK) * 1000
+  const standardRawCost = Number(standardPrice) * 1_000_000
+  const longRawCost = Number(longContextPrice) * 1_000_000
+  const standardBody = `p * 0 + c * 0 + ${formatNumber(standardRawCost)}`
+  const longBody = `p * 0 + c * 0 + ${formatNumber(longRawCost)}`
+
+  return `len <= ${formatNumber(thresholdTokens)} ? tier("${CONTEXT_TIER_STANDARD_LABEL}", ${standardBody}) : tier("${CONTEXT_TIER_LONG_LABEL}", ${longBody})`
+}
+
+function parseContextTierExpr(expr: string | undefined): {
+  thresholdK: string
+  standardPrice: string
+  longContextPrice: string
+} | null {
+  if (!expr) return null
+  const body = expr.trim().replace(/^v\d+:/, '')
+  const fixedPriceBody = `(?:p\\s*\\*\\s*0\\s*\\+\\s*c\\s*\\*\\s*0\\s*\\+\\s*)?([\\d.eE+-]+)`
+  const match = body.match(
+    new RegExp(
+      `^len\\s*<=\\s*([\\d.eE+-]+)\\s*\\?\\s*tier\\("([^"]+)",\\s*${fixedPriceBody}\\)\\s*:\\s*tier\\("([^"]+)",\\s*${fixedPriceBody}\\)\\s*$`
+    )
+  )
+  if (!match) return null
+  if (
+    match[2] !== CONTEXT_TIER_STANDARD_LABEL ||
+    match[4] !== CONTEXT_TIER_LONG_LABEL
+  ) {
+    return null
+  }
+
+  return {
+    thresholdK: formatNumber(Number(match[1]) / 1000),
+    standardPrice: formatNumber(Number(match[3]) / 1_000_000),
+    longContextPrice: formatNumber(Number(match[5]) / 1_000_000),
+  }
+}
+
 function ratioToBasePrice(ratio: unknown): string {
   const num = toNumberOrNull(ratio)
   if (num === null) return ''
@@ -295,6 +345,7 @@ function buildPreviewRows(
   promptPrice: string,
   lanePrices: Record<LaneKey, string>,
   laneEnabled: Record<LaneKey, boolean>,
+  contextTierPricing: ContextTierPricingState,
   t: (key: string) => string
 ): PreviewRow[] {
   if (mode === 'tiered_expr') {
@@ -311,6 +362,44 @@ function buildPreviewRows(
   }
 
   if (mode === 'per-request') {
+    if (contextTierPricing.enabled) {
+      return [
+        { key: 'mode', label: 'BillingMode', value: 'tiered_expr' },
+        {
+          key: 'price',
+          label: t('Standard context price'),
+          value: values.price || t('Empty'),
+        },
+        {
+          key: 'threshold',
+          label: t('Context threshold'),
+          value: contextTierPricing.thresholdK
+            ? `${contextTierPricing.thresholdK}K`
+            : t('Empty'),
+        },
+        {
+          key: 'longContextPrice',
+          label: t('Long context price'),
+          value: contextTierPricing.longContextPrice || t('Empty'),
+        },
+        {
+          key: 'expr',
+          label: t('Expression'),
+          value:
+            values.price &&
+            contextTierPricing.thresholdK &&
+            contextTierPricing.longContextPrice
+              ? buildContextTierExpr(
+                  contextTierPricing.thresholdK,
+                  values.price,
+                  contextTierPricing.longContextPrice
+                )
+              : t('Empty'),
+          multiline: true,
+        },
+      ]
+    }
+
     return [
       {
         key: 'price',
@@ -429,6 +518,12 @@ export function ModelPricingEditorPanel({
   })
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [contextTierPricing, setContextTierPricing] =
+    useState<ContextTierPricingState>({
+      enabled: false,
+      thresholdK: '',
+      longContextPrice: '',
+    })
   const [previewOpen, setPreviewOpen] = useState(true)
   const isEditMode = !!editData
 
@@ -449,11 +544,12 @@ export function ModelPricingEditorPanel({
 
   useEffect(() => {
     const nextLaneState = createInitialLaneState(editData)
+    const parsedContextTier = parseContextTierExpr(editData?.billingExpr)
 
     if (editData) {
       form.reset({
         name: editData.name,
-        price: editData.price || '',
+        price: parsedContextTier?.standardPrice || editData.price || '',
         ratio: editData.ratio || '',
         cacheRatio: editData.cacheRatio || '',
         createCacheRatio: editData.createCacheRatio || '',
@@ -463,14 +559,21 @@ export function ModelPricingEditorPanel({
         audioCompletionRatio: editData.audioCompletionRatio || '',
       })
       setPricingMode(
-        editData.billingMode === 'tiered_expr'
-          ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
+        parsedContextTier
+          ? 'per-request'
+          : editData.billingMode === 'tiered_expr'
+            ? 'tiered_expr'
+            : editData.price
+              ? 'per-request'
+              : 'per-token'
       )
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
+      setContextTierPricing({
+        enabled: !!parsedContextTier,
+        thresholdK: parsedContextTier?.thresholdK || '',
+        longContextPrice: parsedContextTier?.longContextPrice || '',
+      })
     } else {
       form.reset({
         name: '',
@@ -486,6 +589,11 @@ export function ModelPricingEditorPanel({
       setPricingMode('per-token')
       setBillingExpr('')
       setRequestRuleExpr('')
+      setContextTierPricing({
+        enabled: false,
+        thresholdK: '',
+        longContextPrice: '',
+      })
     }
 
     setPromptPrice(nextLaneState.promptPrice)
@@ -614,6 +722,12 @@ export function ModelPricingEditorPanel({
     }
   }
 
+  const updateContextTierPricing = (
+    patch: Partial<ContextTierPricingState>
+  ) => {
+    setContextTierPricing((prev) => ({ ...prev, ...patch }))
+  }
+
   const watchedValues = form.watch()
   const previewRows = useMemo(
     () =>
@@ -625,6 +739,7 @@ export function ModelPricingEditorPanel({
         promptPrice,
         lanePrices,
         laneEnabled,
+        contextTierPricing,
         t
       ),
     [
@@ -634,6 +749,7 @@ export function ModelPricingEditorPanel({
       pricingMode,
       promptPrice,
       requestRuleExpr,
+      contextTierPricing,
       t,
       watchedValues,
     ]
@@ -681,8 +797,30 @@ export function ModelPricingEditorPanel({
       nextWarnings.push(t('Audio output price requires an audio input price.'))
     }
 
+    if (pricingMode === 'per-request' && contextTierPricing.enabled) {
+      if (toNumberOrNull(watchedValues.price) === null) {
+        nextWarnings.push(t('Standard context price is required.'))
+      }
+      const threshold = toNumberOrNull(contextTierPricing.thresholdK)
+      if (threshold === null || threshold <= 0) {
+        nextWarnings.push(t('Context threshold must be greater than 0.'))
+      }
+      if (toNumberOrNull(contextTierPricing.longContextPrice) === null) {
+        nextWarnings.push(t('Long context price is required.'))
+      }
+    }
+
     return nextWarnings
-  }, [editData, laneEnabled, lanePrices, pricingMode, promptPrice, t])
+  }, [
+    contextTierPricing,
+    editData,
+    laneEnabled,
+    lanePrices,
+    pricingMode,
+    promptPrice,
+    t,
+    watchedValues.price,
+  ])
 
   const handleSubmit = (values: ModelPricingFormValues) => {
     if (
@@ -709,9 +847,33 @@ export function ModelPricingEditorPanel({
       return
     }
 
+    const contextTierEnabled =
+      pricingMode === 'per-request' && contextTierPricing.enabled
+    if (contextTierEnabled) {
+      const threshold = toNumberOrNull(contextTierPricing.thresholdK)
+      if (toNumberOrNull(values.price) === null) {
+        form.setError('price', {
+          message: t('Standard context price is required.'),
+        })
+        return
+      }
+      if (threshold === null || threshold <= 0) {
+        form.setError('price', {
+          message: t('Context threshold must be greater than 0.'),
+        })
+        return
+      }
+      if (toNumberOrNull(contextTierPricing.longContextPrice) === null) {
+        form.setError('price', {
+          message: t('Long context price is required.'),
+        })
+        return
+      }
+    }
+
     const data: ModelRatioData = {
       name: values.name.trim(),
-      billingMode: pricingMode,
+      billingMode: contextTierEnabled ? 'tiered_expr' : pricingMode,
       price: values.price || '',
       ratio: values.ratio || '',
       cacheRatio: values.cacheRatio || '',
@@ -722,7 +884,14 @@ export function ModelPricingEditorPanel({
       audioCompletionRatio: values.audioCompletionRatio || '',
     }
 
-    if (pricingMode === 'tiered_expr') {
+    if (contextTierEnabled) {
+      data.billingExpr = buildContextTierExpr(
+        contextTierPricing.thresholdK,
+        values.price || '',
+        contextTierPricing.longContextPrice
+      )
+      data.requestRuleExpr = ''
+    } else if (pricingMode === 'tiered_expr') {
       data.billingExpr = billingExpr
       data.requestRuleExpr = requestRuleExpr
     }
@@ -890,6 +1059,93 @@ export function ModelPricingEditorPanel({
                       </FormItem>
                     )}
                   />
+
+                  <Field
+                    className={cn(
+                      'rounded-lg border p-3',
+                      !contextTierPricing.enabled && 'bg-muted/35'
+                    )}
+                    data-disabled={!contextTierPricing.enabled || undefined}
+                  >
+                    <div className='flex items-start justify-between gap-3'>
+                      <FieldContent>
+                        <FieldTitle>
+                          {t('Enable long context pricing')}
+                        </FieldTitle>
+                        <FieldDescription>
+                          {t(
+                            'Charge a different fixed price when input context exceeds the threshold.'
+                          )}
+                        </FieldDescription>
+                      </FieldContent>
+                      <Switch
+                        checked={contextTierPricing.enabled}
+                        onCheckedChange={(checked) =>
+                          updateContextTierPricing({ enabled: checked })
+                        }
+                        aria-label={t('Enable long context pricing')}
+                      />
+                    </div>
+
+                    {contextTierPricing.enabled && (
+                      <div className='grid gap-3 sm:grid-cols-2'>
+                        <Field>
+                          <FieldLabel>{t('Context threshold')}</FieldLabel>
+                          <InputGroup>
+                            <InputGroupInput
+                              inputMode='decimal'
+                              value={contextTierPricing.thresholdK}
+                              placeholder='200'
+                              onChange={(event) => {
+                                const value = event.target.value
+                                if (numericDraftRegex.test(value)) {
+                                  updateContextTierPricing({
+                                    thresholdK: value,
+                                  })
+                                }
+                              }}
+                            />
+                            <InputGroupAddon align='inline-end'>
+                              {t('K tokens')}
+                            </InputGroupAddon>
+                          </InputGroup>
+                          <FieldDescription>
+                            {t(
+                              'Requests at or below this context use the fixed price above.'
+                            )}
+                          </FieldDescription>
+                        </Field>
+
+                        <Field>
+                          <FieldLabel>{t('Long context price')}</FieldLabel>
+                          <InputGroup>
+                            <InputGroupAddon>$</InputGroupAddon>
+                            <InputGroupInput
+                              inputMode='decimal'
+                              value={contextTierPricing.longContextPrice}
+                              placeholder='0.02'
+                              onChange={(event) => {
+                                const value = event.target.value
+                                if (numericDraftRegex.test(value)) {
+                                  updateContextTierPricing({
+                                    longContextPrice: value,
+                                  })
+                                }
+                              }}
+                            />
+                            <InputGroupAddon align='inline-end'>
+                              {t('per request')}
+                            </InputGroupAddon>
+                          </InputGroup>
+                          <FieldDescription>
+                            {t(
+                              'Requests above the threshold use this fixed price.'
+                            )}
+                          </FieldDescription>
+                        </Field>
+                      </div>
+                    )}
+                  </Field>
                 </TabsContent>
 
                 <TabsContent
