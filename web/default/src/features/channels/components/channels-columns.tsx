@@ -533,15 +533,21 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
     )
   }
 
-  const isFull = animatedRatio >= 1
-  const isWarning = animatedRatio > 0.8
+  const ratio = animatedRatio
+  const isLow = ratio <= 0.5
+  const isMid = ratio > 0.5 && ratio < 0.9
+  const isHigh = ratio >= 0.9
 
   return (
     <div className='flex w-[90px] flex-col gap-0.5'>
       <span className='text-xs font-mono tabular-nums'>
         <motion.span
           className={cn(
-            isFull ? 'text-destructive font-semibold' : 'text-foreground'
+            isHigh
+              ? 'text-destructive font-semibold'
+              : isMid
+                ? 'text-warning font-semibold'
+                : 'text-foreground'
           )}
         >
           {displayRpm}
@@ -552,11 +558,11 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
         <motion.div
           className={cn(
             'h-full rounded-full will-change-[width]',
-            isFull
+            isHigh
               ? 'bg-destructive'
-              : isWarning
+              : isMid
                 ? 'bg-warning'
-                : 'bg-primary'
+                : 'bg-foreground'
           )}
           style={{ width: barWidthStyle }}
         />
