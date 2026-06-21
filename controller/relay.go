@@ -202,14 +202,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	var retryDelays []int
 	var selectedChannel *model.Channel // track selected channel for RPM management
-	wasQueued := false                 // track whether request ever entered the RPM queue
+	acquiredTrackers := make([]*service.RpmTracker, 0)
+	wasQueued := false // track whether request ever entered the RPM queue
 	queueDeadline := time.Time{}
 	queueNoticeSent := false
 	runtimeRpmFull := false
 
 	defer func() {
-		// Wake one queued request when a request completes so it can re-check RPM capacity.
-		if selectedChannel != nil {
+		// Release the RPM slot and wake one queued request when a request completes.
+		for _, tracker := range acquiredTrackers {
+			tracker.Decrement()
+		}
+		if selectedChannel != nil || len(acquiredTrackers) > 0 {
 			service.GetRpmQueue().NotifyRpmRelease()
 		}
 	}()
@@ -257,6 +261,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			runtimeRpmFull = false
 			selectedChannel = channel
+			acquiredTrackers = append(acquiredTrackers, tracker)
 		}
 
 		addUsedChannel(c, channel.Id)
@@ -496,6 +501,9 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
+		if channel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel); ok && channel != nil {
+			return channel, nil
+		}
 		autoBan := c.GetBool("auto_ban")
 		autoBanInt := 1
 		if !autoBan {

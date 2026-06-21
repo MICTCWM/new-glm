@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
@@ -66,4 +67,34 @@ func TestGetChannelPreservesRpmFullForQueue(t *testing.T) {
 	require.NotNil(t, apiErr)
 	require.Equal(t, http.StatusTooManyRequests, apiErr.StatusCode)
 	require.True(t, errors.Is(apiErr.Err, service.ErrAllChannelsRpmFull))
+}
+
+func TestGetChannelUsesSelectedChannelForSpecificChannelRpm(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	selected := &model.Channel{
+		Id:      702,
+		Name:    "specific-rpm-channel",
+		Type:    1,
+		MaxRPM:  1,
+		AutoBan: common.GetPointer(1),
+	}
+	common.SetContextKey(ctx, constant.ContextKeySelectedChannel, selected)
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "rpm-model",
+		TokenGroup:      "default",
+	}
+	retryParam := &service.RetryParam{
+		Ctx:            ctx,
+		TokenGroup:     "default",
+		ModelName:      "rpm-model",
+		Retry:          common.GetPointer(0),
+		UsedChannelIds: []int{},
+	}
+
+	channel, apiErr := getChannel(ctx, info, retryParam)
+
+	require.Nil(t, apiErr)
+	require.Same(t, selected, channel)
+	require.Equal(t, 1, channel.MaxRPM)
 }
