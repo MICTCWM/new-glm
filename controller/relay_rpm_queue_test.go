@@ -4,13 +4,16 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -151,4 +154,86 @@ func TestGetChannelUsesSelectedChannelForSpecificChannelRpm(t *testing.T) {
 	require.Nil(t, apiErr)
 	require.Same(t, selected, channel)
 	require.Equal(t, 1, channel.MaxRPM)
+}
+
+func TestSendRpmQueueThinkingNoticeByRelayFormat(t *testing.T) {
+	tests := []struct {
+		name        string
+		format      types.RelayFormat
+		mode        int
+		path        string
+		assertions  []string
+		notExpected []string
+	}{
+		{
+			name:   "openai chat",
+			format: types.RelayFormatOpenAI,
+			mode:   relayconstant.RelayModeChatCompletions,
+			path:   "/v1/chat/completions",
+			assertions: []string{
+				`"object":"chat.completion.chunk"`,
+				`"reasoning_content":"` + common.UserMessageRpmQueuedThinking,
+			},
+		},
+		{
+			name:   "claude messages",
+			format: types.RelayFormatClaude,
+			mode:   relayconstant.RelayModeChatCompletions,
+			path:   "/v1/messages",
+			assertions: []string{
+				"event: message_start",
+				"event: content_block_start",
+				"event: content_block_delta",
+				`"type":"thinking_delta"`,
+				common.UserMessageRpmQueuedThinking,
+			},
+		},
+		{
+			name:   "gemini native",
+			format: types.RelayFormatGemini,
+			mode:   relayconstant.RelayModeGemini,
+			path:   "/v1beta/models/gemini:streamGenerateContent",
+			assertions: []string{
+				`"thought":true`,
+				common.UserMessageRpmQueuedThinking,
+			},
+		},
+		{
+			name:   "responses",
+			format: types.RelayFormatOpenAI,
+			mode:   relayconstant.RelayModeResponses,
+			path:   "/v1/responses",
+			assertions: []string{
+				"event: response.reasoning_summary_part.added",
+				"event: response.reasoning_summary_text.delta",
+				common.UserMessageRpmQueuedThinking,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, tt.path, nil)
+			info := &relaycommon.RelayInfo{
+				IsStream:        true,
+				RelayFormat:     tt.format,
+				RelayMode:       tt.mode,
+				OriginModelName: "rpm-model",
+				ChannelMeta:     &relaycommon.ChannelMeta{},
+			}
+			info.SetEstimatePromptTokens(123)
+
+			require.True(t, sendRpmQueueThinkingNotice(ctx, info))
+			require.True(t, info.RpmQueueThinkingNoticeSent)
+			body := recorder.Body.String()
+			for _, expected := range tt.assertions {
+				require.Truef(t, strings.Contains(body, expected), "body should contain %q, got %s", expected, body)
+			}
+			for _, unexpected := range tt.notExpected {
+				require.Falsef(t, strings.Contains(body, unexpected), "body should not contain %q, got %s", unexpected, body)
+			}
+		})
+	}
 }

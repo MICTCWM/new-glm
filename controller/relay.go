@@ -350,7 +350,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 }
 
 func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
-	if info == nil || !info.IsStream || info.RelayMode != relayconstant.RelayModeChatCompletions {
+	if info == nil || !info.IsStream {
 		return false
 	}
 	if info.ChannelMeta == nil {
@@ -360,6 +360,25 @@ func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) boo
 		logger.LogWarn(c, "failed to send rpm queue notice: channel meta is nil")
 		return false
 	}
+	switch info.RelayFormat {
+	case types.RelayFormatClaude:
+		return sendClaudeRpmQueueThinkingNotice(c, info)
+	case types.RelayFormatGemini:
+		if info.RelayMode == relayconstant.RelayModeGemini {
+			return sendGeminiRpmQueueThinkingNotice(c, info)
+		}
+	case types.RelayFormatOpenAI:
+		if info.RelayMode == relayconstant.RelayModeResponses || info.RelayMode == relayconstant.RelayModeResponsesCompact {
+			return sendResponsesRpmQueueThinkingNotice(c, info)
+		}
+	}
+	if info.RelayMode != relayconstant.RelayModeChatCompletions {
+		return false
+	}
+	return sendOpenAIChatRpmQueueThinkingNotice(c, info)
+}
+
+func sendOpenAIChatRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	notice := common.UserMessageRpmQueuedThinking + "\n"
 	chunk := &dto.ChatCompletionsStreamResponse{
 		Id:      helper.GetResponseID(c),
@@ -407,6 +426,126 @@ func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) boo
 		return true
 	}
 	return false
+}
+
+func sendClaudeRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	msg := &dto.ClaudeMediaMessage{
+		Id:    helper.GetResponseID(c),
+		Model: info.OriginModelName,
+		Type:  "message",
+		Role:  "assistant",
+		Usage: &dto.ClaudeUsage{
+			InputTokens:  info.GetEstimatePromptTokens(),
+			OutputTokens: 0,
+		},
+	}
+	msg.SetContent(make([]any, 0))
+	if err := helper.ClaudeData(c, dto.ClaudeResponse{Type: "message_start", Message: msg}); err != nil {
+		logger.LogWarn(c, "failed to send rpm queue claude message_start: "+err.Error())
+		return false
+	}
+	idx := 0
+	if err := helper.ClaudeData(c, dto.ClaudeResponse{
+		Type:  "content_block_start",
+		Index: &idx,
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Type:     "thinking",
+			Thinking: common.GetPointer(""),
+		},
+	}); err != nil {
+		logger.LogWarn(c, "failed to send rpm queue claude thinking start: "+err.Error())
+		return false
+	}
+	thinking := common.UserMessageRpmQueuedThinking + "\n"
+	if err := helper.ClaudeData(c, dto.ClaudeResponse{
+		Type:  "content_block_delta",
+		Index: &idx,
+		Delta: &dto.ClaudeMediaMessage{
+			Type:     "thinking_delta",
+			Thinking: &thinking,
+		},
+	}); err != nil {
+		logger.LogWarn(c, "failed to send rpm queue claude thinking delta: "+err.Error())
+		return false
+	}
+	info.RpmQueueThinkingNoticeSent = true
+	info.ClaudeRpmQueueThinkingOpen = true
+	return true
+}
+
+func sendGeminiRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	notice := common.UserMessageRpmQueuedThinking + "\n"
+	resp := dto.GeminiChatResponse{
+		Candidates: []dto.GeminiChatCandidate{
+			{
+				Index:         0,
+				SafetyRatings: []dto.GeminiChatSafetyRating{},
+				Content: dto.GeminiChatContent{
+					Role: "model",
+					Parts: []dto.GeminiPart{
+						{
+							Text:    notice,
+							Thought: true,
+						},
+					},
+				},
+			},
+		},
+		UsageMetadata: dto.GeminiUsageMetadata{
+			PromptTokenCount: info.GetEstimatePromptTokens(),
+			TotalTokenCount:  info.GetEstimatePromptTokens(),
+		},
+	}
+	data, err := common.Marshal(resp)
+	if err != nil {
+		logger.LogWarn(c, "failed to marshal rpm queue gemini notice: "+err.Error())
+		return false
+	}
+	c.Render(-1, common.CustomEvent{Data: "data: " + string(data)})
+	if err := helper.FlushWriter(c); err != nil {
+		logger.LogWarn(c, "failed to send rpm queue gemini notice: "+err.Error())
+		return false
+	}
+	info.RpmQueueThinkingNoticeSent = true
+	return true
+}
+
+func sendResponsesRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	itemID := fmt.Sprintf("rs_%s", helper.GetResponseID(c))
+	events := []dto.ResponsesStreamResponse{
+		{
+			Type: "response.reasoning_summary_part.added",
+			Item: &dto.ResponsesOutput{
+				Type:   "reasoning",
+				ID:     itemID,
+				Status: "in_progress",
+			},
+			ItemID:       itemID,
+			OutputIndex:  common.GetPointer(0),
+			SummaryIndex: common.GetPointer(0),
+			Part: &dto.ResponsesReasoningSummaryPart{
+				Type: "summary_text",
+				Text: "",
+			},
+		},
+		{
+			Type:         "response.reasoning_summary_text.delta",
+			Delta:        common.UserMessageRpmQueuedThinking + "\n",
+			ItemID:       itemID,
+			OutputIndex:  common.GetPointer(0),
+			SummaryIndex: common.GetPointer(0),
+		},
+	}
+	for _, event := range events {
+		data, err := common.Marshal(event)
+		if err != nil {
+			logger.LogWarn(c, "failed to marshal rpm queue responses notice: "+err.Error())
+			return false
+		}
+		helper.ResponseChunkData(c, event, string(data))
+	}
+	info.RpmQueueThinkingNoticeSent = true
+	return true
 }
 
 func newRpmQueueTimeoutError() *types.NewAPIError {
