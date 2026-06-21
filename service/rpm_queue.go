@@ -52,20 +52,12 @@ var (
 	queueLength        atomic.Int64
 )
 
-// rpmQueueWakeInterval 是后台唤醒循环的轮询间隔。
-// RPM 名额是通过时间戳滑出 60s 滑动窗口而释放的——这是一个纯时间事件，
-// 没有任何"请求完成"回调与之对应。因此当所有请求都堵在队列里、没有正在执行的
-// 请求可以触发 NotifyRpmRelease 时，必须靠这个循环主动唤醒排队请求去复查名额。
-const rpmQueueWakeInterval = 1 * time.Second
-
 // GetRpmQueue returns the singleton RpmQueueManager.
 func GetRpmQueue() *RpmQueueManager {
 	globalRpmQueueOnce.Do(func() {
 		globalRpmQueue = &RpmQueueManager{
 			queue: make([]*RpmQueueItem, 0),
 		}
-		// 启动后台唤醒循环，让排队请求在窗口名额过期后能够被唤醒复查。
-		go globalRpmQueue.wakeLoop()
 	})
 	return globalRpmQueue
 }
@@ -119,35 +111,6 @@ func (q *RpmQueueManager) NotifyRpmRelease() {
 		return
 	}
 	close(item.NotifyCh)
-}
-
-// wakeLoop periodically wakes all queued requests so they can re-check RPM
-// capacity. This is the primary release mechanism for the sliding-window model:
-// slots free up when timestamps age out of the window, a time-based event with
-// no completion callback, so we poll and let woken requests re-attempt selection.
-func (q *RpmQueueManager) wakeLoop() {
-	ticker := time.NewTicker(rpmQueueWakeInterval)
-	defer ticker.Stop()
-	for range ticker.C {
-		if queueLength.Load() == 0 {
-			continue
-		}
-		q.wakeAll()
-	}
-}
-
-// wakeAll dequeues and notifies every currently queued item, letting each one
-// re-attempt channel selection. Items that still find no capacity will re-enqueue.
-func (q *RpmQueueManager) wakeAll() {
-	q.mu.Lock()
-	items := q.queue
-	q.queue = make([]*RpmQueueItem, 0)
-	queueLength.Store(0)
-	q.mu.Unlock()
-
-	for _, item := range items {
-		close(item.NotifyCh)
-	}
 }
 
 // GetQueueLength returns the current number of queued requests.

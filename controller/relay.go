@@ -227,6 +227,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
 					wasQueued = true
 					runtimeRpmFull = false
+					retryParam.UsedChannelIds = retryParam.UsedChannelIds[:0]
+					retryParam.SetRetry(0)
 					retryParam.ResetRetryNextTry()
 					continue
 				}
@@ -250,6 +252,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
 						wasQueued = true
 						runtimeRpmFull = false
+						retryParam.UsedChannelIds = retryParam.UsedChannelIds[:0]
+						retryParam.SetRetry(0)
 						retryParam.ResetRetryNextTry()
 						continue
 					}
@@ -349,6 +353,13 @@ func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) boo
 	if info == nil || !info.IsStream || info.RelayMode != relayconstant.RelayModeChatCompletions {
 		return false
 	}
+	if info.ChannelMeta == nil {
+		info.InitChannelMeta(c)
+	}
+	if info.ChannelMeta == nil {
+		logger.LogWarn(c, "failed to send rpm queue notice: channel meta is nil")
+		return false
+	}
 	notice := common.UserMessageRpmQueuedThinking + "\n"
 	chunk := &dto.ChatCompletionsStreamResponse{
 		Id:      helper.GetResponseID(c),
@@ -425,35 +436,35 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 		ModelName:    relayInfo.OriginModelName,
 		PromptTokens: relayInfo.GetEstimatePromptTokens(),
 	})
-	if waitRpmQueueTurn(queueItem, *queueDeadline) {
+	var done <-chan struct{}
+	if c != nil && c.Request != nil {
+		done = c.Request.Context().Done()
+	}
+	if waitRpmQueueTurn(queueItem, *queueDeadline, done) {
 		logger.LogInfo(c, "Dequeued from RPM queue, retrying...")
 		return true
 	}
 	return false
 }
 
-func waitRpmQueueTurn(item *service.RpmQueueItem, deadline time.Time) bool {
+func waitRpmQueueTurn(item *service.RpmQueueItem, deadline time.Time, done <-chan struct{}) bool {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		service.GetRpmQueue().RemoveItem(item)
 		return false
 	}
 
-	probeInterval := time.Second
-	if remaining < probeInterval {
-		probeInterval = remaining
-	}
-	timer := time.NewTimer(probeInterval)
+	timer := time.NewTimer(remaining)
 	defer timer.Stop()
 
 	select {
 	case <-item.NotifyCh:
 		return true
 	case <-timer.C:
-		if service.GetRpmQueue().TryRemoveFront(item) {
-			return true
-		}
-		return waitRpmQueueTurn(item, deadline)
+		return !service.GetRpmQueue().RemoveItem(item)
+	case <-done:
+		service.GetRpmQueue().RemoveItem(item)
+		return false
 	}
 }
 

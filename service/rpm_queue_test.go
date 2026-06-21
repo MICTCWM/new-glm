@@ -53,3 +53,20 @@ func TestRpmQueueWaitWithTimeoutRemovesTimedOutItem(t *testing.T) {
 	require.False(t, item.WaitWithTimeout())
 	require.Equal(t, 0, q.GetQueueLength())
 }
+
+func TestRpmQueueDoesNotAutoDequeueWithoutRelease(t *testing.T) {
+	q := newTestRpmQueue()
+	item := q.Enqueue()
+
+	time.Sleep(1100 * time.Millisecond)
+
+	require.Equal(t, 1, q.GetQueueLength())
+
+	q.NotifyRpmRelease()
+	select {
+	case <-item.NotifyCh:
+	case <-time.After(time.Second):
+		t.Fatal("expected rpm release to notify queued item")
+	}
+	require.Equal(t, 0, q.GetQueueLength())
+}
