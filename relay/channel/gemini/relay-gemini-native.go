@@ -43,6 +43,9 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 
 	// 计算使用量（基于 UsageMetadata）
 	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
+	if relaycommon.ShouldRetryZeroOutputUsage(info, &usage) {
+		return nil, relaycommon.NewZeroOutputRetryError(info, &usage)
+	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 

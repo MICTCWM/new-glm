@@ -6,13 +6,14 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
 
-func OaiResponsesCompactionHandler(c *gin.Context, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+func OaiResponsesCompactionHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
 
 	responseBody, err := io.ReadAll(resp.Body)
@@ -28,8 +29,6 @@ func OaiResponsesCompactionHandler(c *gin.Context, resp *http.Response) (*dto.Us
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
-	service.IOCopyBytesGracefully(c, resp, responseBody)
-
 	usage := dto.Usage{}
 	if compactResp.Usage != nil {
 		usage.PromptTokens = compactResp.Usage.InputTokens
@@ -39,6 +38,11 @@ func OaiResponsesCompactionHandler(c *gin.Context, resp *http.Response) (*dto.Us
 			usage.PromptTokensDetails.CachedTokens = compactResp.Usage.InputTokensDetails.CachedTokens
 		}
 	}
+	if shouldRetryZeroOutputUsage(info, &usage) {
+		return nil, zeroOutputRetryError(info, &usage)
+	}
+
+	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &usage, nil
 }

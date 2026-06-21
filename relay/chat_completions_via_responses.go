@@ -214,6 +214,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		usage, napiErr := openaichannel.OaiResponsesToChatHandler(c, info, httpResp)
 		if napiErr != nil {
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
+			if napiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
+				return nil, napiErr
+			}
 			lastApiErr = napiErr
 			if attempt >= upstreamRetryTimes {
 				return nil, lastApiErr

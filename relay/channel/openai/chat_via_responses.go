@@ -70,6 +70,9 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		chatResp.Usage = *usage
 	}
+	if shouldRetryZeroOutputUsage(info, usage) {
+		return nil, zeroOutputRetryError(info, usage)
+	}
 
 	var responseBody []byte
 	switch info.RelayFormat {

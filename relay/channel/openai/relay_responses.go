@@ -40,9 +40,6 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		c.Set("image_generation_call_size", responsesResponse.GetSize())
 	}
 
-	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
-
 	// compute usage
 	usage := dto.Usage{}
 	if responsesResponse.Usage != nil {
@@ -53,6 +50,13 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			usage.PromptTokensDetails.CachedTokens = responsesResponse.Usage.InputTokensDetails.CachedTokens
 		}
 	}
+	if shouldRetryZeroOutputUsage(info, &usage) {
+		return nil, zeroOutputRetryError(info, &usage)
+	}
+
+	// 写入新的 response body
+	service.IOCopyBytesGracefully(c, resp, responseBody)
+
 	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
 		return &usage, nil
 	}

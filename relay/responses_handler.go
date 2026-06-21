@@ -181,6 +181,9 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		usage, napiErr := adaptor.DoResponse(c, httpResp, info)
 		if napiErr != nil {
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
+			if napiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
+				return napiErr
+			}
 			lastApiErr = napiErr
 			if attempt >= upstreamRetryTimes {
 				return lastApiErr

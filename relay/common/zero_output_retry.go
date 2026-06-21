@@ -1,0 +1,46 @@
+package common
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/types"
+)
+
+func ShouldRetryZeroOutputUsage(info *RelayInfo, usage *dto.Usage) bool {
+	if info == nil || usage == nil || info.IsStream {
+		return false
+	}
+	inputTokens := usage.PromptTokens
+	if inputTokens == 0 {
+		inputTokens = usage.InputTokens
+	}
+	if inputTokens == 0 && info.GetEstimatePromptTokens() > 0 {
+		inputTokens = info.GetEstimatePromptTokens()
+	}
+	outputTokens := usage.CompletionTokens
+	if outputTokens == 0 {
+		outputTokens = usage.OutputTokens
+	}
+	return inputTokens > 0 && outputTokens == 0
+}
+
+func NewZeroOutputRetryError(info *RelayInfo, usage *dto.Usage) *types.NewAPIError {
+	inputTokens := 0
+	if usage != nil {
+		inputTokens = usage.PromptTokens
+		if inputTokens == 0 {
+			inputTokens = usage.InputTokens
+		}
+	}
+	if inputTokens == 0 && info != nil {
+		inputTokens = info.GetEstimatePromptTokens()
+	}
+	return types.NewErrorWithStatusCode(
+		fmt.Errorf("upstream returned zero output tokens, input_tokens=%d", inputTokens),
+		types.ErrorCodeChannelZeroOutputTokens,
+		http.StatusBadGateway,
+		types.ErrOptionWithNoRecordErrorLog(),
+	)
+}

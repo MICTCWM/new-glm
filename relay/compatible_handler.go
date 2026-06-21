@@ -257,6 +257,9 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		usage, newApiErr := adaptor.DoResponse(c, httpResp, info)
 		if newApiErr != nil {
 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+			if newApiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
+				return newApiErr
+			}
 			lastApiErr = newApiErr
 			if attempt >= upstreamRetryTimes {
 				return lastApiErr

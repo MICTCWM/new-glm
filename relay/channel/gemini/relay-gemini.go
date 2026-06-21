@@ -1432,6 +1432,9 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 	if len(geminiResponse.Candidates) == 0 {
 		usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
+		if relaycommon.ShouldRetryZeroOutputUsage(info, &usage) {
+			return nil, relaycommon.NewZeroOutputRetryError(info, &usage)
+		}
 
 		var newAPIError *types.NewAPIError
 		if geminiResponse.PromptFeedback != nil && geminiResponse.PromptFeedback.BlockReason != nil {
@@ -1463,11 +1466,14 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 				"error": newAPIError.ToOpenAIError(),
 			})
 		}
-		return &usage, nil
+		return nil, newAPIError
 	}
 	fullTextResponse := responseGeminiChat2OpenAI(c, &geminiResponse)
 	fullTextResponse.Model = info.UpstreamModelName
 	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
+	if relaycommon.ShouldRetryZeroOutputUsage(info, &usage) {
+		return nil, relaycommon.NewZeroOutputRetryError(info, &usage)
+	}
 
 	fullTextResponse.Usage = usage
 

@@ -991,6 +991,9 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		claudeInfo.Usage.ClaudeCacheCreation5mTokens = claudeResponse.Usage.GetCacheCreation5mTokens()
 		claudeInfo.Usage.ClaudeCacheCreation1hTokens = claudeResponse.Usage.GetCacheCreation1hTokens()
 	}
+	if relaycommon.ShouldRetryZeroOutputUsage(info, claudeInfo.Usage) {
+		return relaycommon.NewZeroOutputRetryError(info, claudeInfo.Usage)
+	}
 	var responseData []byte
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:

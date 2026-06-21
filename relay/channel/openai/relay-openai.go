@@ -266,6 +266,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	applyUsagePostProcessing(info, &simpleResponse.Usage, responseBody)
+	if shouldRetryZeroOutputUsage(info, &simpleResponse.Usage) {
+		return nil, zeroOutputRetryError(info, &simpleResponse.Usage)
+	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
