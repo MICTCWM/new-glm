@@ -111,7 +111,7 @@ func Distribute() func(c *gin.Context) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
 							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) {
+								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && !isChannelRpmFull(preferred) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
@@ -119,7 +119,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) {
+						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && !isChannelRpmFull(preferred) {
 							channel = preferred
 							selectGroup = usingGroup
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
@@ -139,20 +139,24 @@ func Distribute() func(c *gin.Context) {
 							abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorSpecialUserForbidden, map[string]any{"Model": modelRequest.Model}))
 							return
 						}
-						showGroup := usingGroup
-						if usingGroup == "auto" {
-							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
+						if errors.Is(err, model.ErrAllChannelsRpmFull) {
+							common.SetContextKey(c, constant.ContextKeyRpmQueuePending, true)
+						} else {
+							showGroup := usingGroup
+							if usingGroup == "auto" {
+								showGroup = fmt.Sprintf("auto(%s)", selectGroup)
+							}
+							message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
+							// 如果错误，但是渠道不为空，说明是数据库一致性问题
+							//if channel != nil {
+							//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
+							//	message = "数据库一致性已被破坏，请联系管理员"
+							//}
+							abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
+							return
 						}
-						message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
-						// 如果错误，但是渠道不为空，说明是数据库一致性问题
-						//if channel != nil {
-						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
-						//	message = "数据库一致性已被破坏，请联系管理员"
-						//}
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, message, types.ErrorCodeModelNotFound)
-						return
 					}
-					if channel == nil {
+					if channel == nil && !common.GetContextKeyBool(c, constant.ContextKeyRpmQueuePending) {
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
 						return
 					}
@@ -160,12 +164,26 @@ func Distribute() func(c *gin.Context) {
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		if channel != nil {
+			SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		} else {
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, modelRequest.Model)
+		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
 	}
+}
+
+func isChannelRpmFull(channel *model.Channel) bool {
+	if channel == nil || channel.MaxRPM <= 0 {
+		return false
+	}
+	if model.CheckChannelRpmFullFunc == nil {
+		return false
+	}
+	return model.CheckChannelRpmFullFunc(channel.Id)
 }
 
 // getModelFromRequest 从请求中读取模型信息

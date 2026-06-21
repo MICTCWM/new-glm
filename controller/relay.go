@@ -501,6 +501,27 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
+		if common.GetContextKeyBool(c, constant.ContextKeyRpmQueuePending) {
+			channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+			if err != nil {
+				if errors.Is(err, model.ErrAllChannelsRpmFull) {
+					return nil, types.NewErrorWithStatusCode(
+						err,
+						types.ErrorCodeGetChannelFailed,
+						http.StatusTooManyRequests,
+					)
+				}
+				return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.OriginModelName, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+			}
+			if channel == nil {
+				return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+			}
+			newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
+			if newAPIError != nil {
+				return nil, newAPIError
+			}
+			return channel, nil
+		}
 		if channel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel); ok && channel != nil {
 			return channel, nil
 		}

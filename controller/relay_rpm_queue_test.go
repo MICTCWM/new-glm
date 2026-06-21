@@ -69,6 +69,60 @@ func TestGetChannelPreservesRpmFullForQueue(t *testing.T) {
 	require.True(t, errors.Is(apiErr.Err, service.ErrAllChannelsRpmFull))
 }
 
+func TestGetChannelPreservesMiddlewareRpmFullForQueue(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	oldCheckChannelRpmFullFunc := model.CheckChannelRpmFullFunc
+	common.MemoryCacheEnabled = false
+	model.CheckChannelRpmFullFunc = func(channelId int) bool {
+		return channelId == 703
+	}
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+		model.CheckChannelRpmFullFunc = oldCheckChannelRpmFullFunc
+	})
+
+	priority := int64(1)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:      703,
+		Name:    "middleware-rpm-full-channel",
+		Key:     "sk-test",
+		Group:   "default",
+		Models:  "rpm-model",
+		Status:  common.ChannelStatusEnabled,
+		MaxRPM:  1,
+		AutoBan: common.GetPointer(1),
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "rpm-model",
+		ChannelId: 703,
+		Enabled:   true,
+		Priority:  &priority,
+	}).Error)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyRpmQueuePending, true)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "rpm-model",
+		TokenGroup:      "default",
+	}
+	retryParam := &service.RetryParam{
+		Ctx:            ctx,
+		TokenGroup:     "default",
+		ModelName:      "rpm-model",
+		Retry:          common.GetPointer(0),
+		UsedChannelIds: []int{},
+	}
+
+	channel, apiErr := getChannel(ctx, info, retryParam)
+
+	require.Nil(t, channel)
+	require.NotNil(t, apiErr)
+	require.Equal(t, http.StatusTooManyRequests, apiErr.StatusCode)
+	require.True(t, errors.Is(apiErr.Err, service.ErrAllChannelsRpmFull))
+}
+
 func TestGetChannelUsesSelectedChannelForSpecificChannelRpm(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	selected := &model.Channel{
