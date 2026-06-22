@@ -204,7 +204,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			if httpResp != nil && httpResp.Body != nil {
 				defer httpResp.Body.Close()
 				if _, err := io.Copy(io.Discard, httpResp.Body); err != nil {
-					logger.LogWarning(c, "Failed to discard response body: "+err.Error())
+					logger.LogWarn(c, "Failed to discard response body: "+err.Error())
 				}
 			}
 			httpResp = resp.(*http.Response)
@@ -265,7 +265,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		} else {
 			logger.LogError(c, "Invalid usage type in response")
 			return types.NewError(fmt.Errorf("invalid usage type: expected *dto.Usage, got %T", usage),
-				types.ErrorCodeConvertResponseFailed, types.ErrOptionWithSkipRetry())
+				types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
 		}
 		return nil
 	}
@@ -281,7 +281,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		} else {
 			logger.LogError(c, "Invalid usage type in response")
 			return types.NewError(fmt.Errorf("invalid usage type: expected *dto.Usage, got %T", usage),
-				types.ErrorCodeConvertResponseFailed, types.ErrOptionWithSkipRetry())
+				types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
 		}
 		return nil
 	}
@@ -391,7 +391,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 			if httpResp != nil && httpResp.Body != nil {
 				defer httpResp.Body.Close()
 				if _, err := io.Copy(io.Discard, httpResp.Body); err != nil {
-					logger.LogWarning(c, "Failed to discard response body: "+err.Error())
+					logger.LogWarn(c, "Failed to discard response body: "+err.Error())
 				}
 			}
 			httpResp = resp.(*http.Response)
@@ -432,7 +432,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 		} else {
 			logger.LogError(c, "Invalid usage type in response")
 			return types.NewError(fmt.Errorf("invalid usage type: expected *dto.Usage, got %T", usage),
-				types.ErrorCodeConvertResponseFailed, types.ErrOptionWithSkipRetry())
+				types.ErrorCodeBadResponseBody, types.ErrOptionWithSkipRetry())
 		}
 	}
 
