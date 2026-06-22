@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -236,4 +237,56 @@ func TestSendRpmQueueThinkingNoticeByRelayFormat(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWaitForRpmQueueSendsStreamNoticeAfterEnqueue(t *testing.T) {
+	oldTimeout := common.RpmQueueTimeout
+	common.RpmQueueTimeout = 5 * time.Second
+	t.Cleanup(func() {
+		common.RpmQueueTimeout = oldTimeout
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		RequestId:       "rpm-queue-notice-test",
+		IsStream:        true,
+		RelayFormat:     types.RelayFormatOpenAI,
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+		OriginModelName: "rpm-model",
+		TokenGroup:      "default",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	info.SetEstimatePromptTokens(123)
+
+	var queueDeadline time.Time
+	queueNoticeSent := false
+	done := make(chan bool, 1)
+	go func() {
+		done <- waitForRpmQueue(ctx, info, &queueDeadline, &queueNoticeSent)
+	}()
+
+	require.Eventually(t, func() bool {
+		queued := false
+		for _, item := range service.GetQueueSnapshot() {
+			if item.RequestID == info.RequestId {
+				queued = true
+				break
+			}
+		}
+		return queued &&
+			strings.Contains(recorder.Body.String(), common.UserMessageRpmQueuedThinking) &&
+			recorder.Flushed
+	}, time.Second, 10*time.Millisecond)
+
+	service.GetRpmQueue().NotifyRpmRelease()
+	select {
+	case ok := <-done:
+		require.True(t, ok)
+	case <-time.After(time.Second):
+		t.Fatal("expected queued request to wake after RPM release")
+	}
+	require.True(t, queueNoticeSent)
+	require.True(t, info.RpmQueueThinkingNoticeSent)
 }

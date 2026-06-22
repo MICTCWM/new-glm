@@ -378,6 +378,14 @@ func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) boo
 	return sendOpenAIChatRpmQueueThinkingNotice(c, info)
 }
 
+func flushRpmQueueThinkingNotice(c *gin.Context) bool {
+	if err := helper.FlushWriter(c); err != nil {
+		logger.LogWarn(c, "failed to flush rpm queue notice: "+err.Error())
+		return false
+	}
+	return true
+}
+
 func sendOpenAIChatRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	notice := common.UserMessageRpmQueuedThinking + "\n"
 	chunk := &dto.ChatCompletionsStreamResponse{
@@ -408,7 +416,7 @@ func sendOpenAIChatRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.Rela
 			return false
 		}
 		info.RpmQueueThinkingNoticeSent = true
-		return true
+		return flushRpmQueueThinkingNotice(c)
 	case types.RelayFormatClaude, types.RelayFormatGemini:
 		data, err := common.Marshal(chunk)
 		if err != nil {
@@ -423,7 +431,7 @@ func sendOpenAIChatRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.Rela
 		if info.RelayFormat == types.RelayFormatClaude {
 			info.ClaudeRpmQueueThinkingOpen = true
 		}
-		return true
+		return flushRpmQueueThinkingNotice(c)
 	}
 	return false
 }
@@ -545,7 +553,7 @@ func sendResponsesRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.Relay
 		helper.ResponseChunkData(c, event, string(data))
 	}
 	info.RpmQueueThinkingNoticeSent = true
-	return true
+	return flushRpmQueueThinkingNotice(c)
 }
 
 func newRpmQueueTimeoutError() *types.NewAPIError {
@@ -564,9 +572,6 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 	if !time.Now().Before(*queueDeadline) {
 		return false
 	}
-	if !*queueNoticeSent {
-		*queueNoticeSent = sendRpmQueueThinkingNotice(c, relayInfo)
-	}
 	queueItem := service.GetRpmQueue().Enqueue(service.RpmQueueItemMeta{
 		RequestID:    relayInfo.RequestId,
 		Username:     c.GetString("username"),
@@ -575,6 +580,9 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 		ModelName:    relayInfo.OriginModelName,
 		PromptTokens: relayInfo.GetEstimatePromptTokens(),
 	})
+	if !*queueNoticeSent {
+		*queueNoticeSent = sendRpmQueueThinkingNotice(c, relayInfo)
+	}
 	var done <-chan struct{}
 	if c != nil && c.Request != nil {
 		done = c.Request.Context().Done()
