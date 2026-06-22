@@ -33,6 +33,7 @@ export type VisualTier = {
   conditions: TierConditionInput[]
   input_unit_cost: number
   output_unit_cost: number
+  fixed_price?: number
   cache_mode: CacheMode
   cache_read_unit_cost?: number
   cache_create_unit_cost?: number
@@ -65,6 +66,7 @@ export function normalizeVisualTier(
     label: tier.label ?? '',
     input_unit_cost: Number(tier.input_unit_cost) || 0,
     output_unit_cost: Number(tier.output_unit_cost) || 0,
+    fixed_price: Number(tier.fixed_price) || 0,
     cache_mode: getTierCacheMode(tier),
     conditions: Array.isArray(tier.conditions) ? tier.conditions : [],
     ...tier,
@@ -112,15 +114,24 @@ function buildConditionStr(conditions: TierConditionInput[]): string {
     .join(' && ')
 }
 
+function formatNumericLiteral(value: number): string {
+  if (!Number.isFinite(value)) return '0'
+  return Number.parseFloat(value.toFixed(12)).toString()
+}
+
 function buildTierBodyExpr(tier: VisualTier): string {
   const parts: string[] = []
   const ic = Number(tier.input_unit_cost) || 0
   const oc = Number(tier.output_unit_cost) || 0
+  const fixedPrice = Number(tier.fixed_price) || 0
   parts.push(`p * ${ic}`)
   parts.push(`c * ${oc}`)
   for (const cv of BILLING_CACHE_VAR_MAP) {
     const v = Number((tier as Record<string, unknown>)[cv.field]) || 0
     if (v !== 0) parts.push(`${cv.exprVar} * ${v}`)
+  }
+  if (fixedPrice !== 0) {
+    parts.push(formatNumericLiteral(fixedPrice * 1_000_000))
   }
   return parts.join(' + ')
 }
@@ -173,7 +184,9 @@ export function tryParseVisualConfig(
       .map((v) => `(?:\\s*\\+\\s*${v}\\s*\\*\\s*([\\d.eE+-]+))?`)
       .join('')
 
-    const bodyPat = `p\\s*\\*\\s*([\\d.eE+-]+)\\s*\\+\\s*c\\s*\\*\\s*([\\d.eE+-]+)${optCacheStr}`
+    const fixedPricePat = `(?:\\s*\\+\\s*([\\d.eE+-]+))?`
+    const bodyPat = `p\\s*\\*\\s*([\\d.eE+-]+)\\s*\\+\\s*c\\s*\\*\\s*([\\d.eE+-]+)${optCacheStr}${fixedPricePat}`
+    const fixedPriceIndex = 4 + BILLING_CACHE_VAR_MAP.length
 
     const singleRe = new RegExp(`^tier\\("([^"]*)",\\s*${bodyPat}\\)$`)
     const simple = body.match(singleRe)
@@ -188,6 +201,9 @@ export function tryParseVisualConfig(
         const val = simple[4 + i]
         if (val != null) tier[cv.field] = Number(val)
       })
+      if (simple[fixedPriceIndex] != null) {
+        tier.fixed_price = Number(simple[fixedPriceIndex]) / 1_000_000
+      }
       return normalizeVisualConfig({
         tiers: [normalizeVisualTier(tier as Partial<VisualTier>)],
       })
@@ -228,6 +244,10 @@ export function tryParseVisualConfig(
         const val = m[5 + i]
         if (val != null) tier[cv.field] = Number(val)
       })
+      const fixedPrice = m[5 + BILLING_CACHE_VAR_MAP.length]
+      if (fixedPrice != null) {
+        tier.fixed_price = Number(fixedPrice) / 1_000_000
+      }
       tiers.push(normalizeVisualTier(tier as Partial<VisualTier>))
     }
     if (tiers.length === 0) return null

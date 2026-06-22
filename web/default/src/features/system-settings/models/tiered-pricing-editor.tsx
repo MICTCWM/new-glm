@@ -100,6 +100,7 @@ import {
 } from '@/features/pricing/lib/tier-expr'
 
 const PRICE_SUFFIX = '$/1M tokens'
+const MAX_TIER_CONDITIONS = 4
 const CACHE_PRICE_VARS = BILLING_EXTRA_VARS.filter(
   (variable) => variable.group === 'cache'
 )
@@ -365,12 +366,7 @@ function DraftNumberInput({
 }: DraftNumberInputProps) {
   const [draft, setDraft] = useState(() => formatNumberDraft(value))
   const [focused, setFocused] = useState(false)
-
-  useEffect(() => {
-    if (!focused) {
-      setDraft(formatNumberDraft(value))
-    }
-  }, [focused, value])
+  const displayValue = focused ? draft : formatNumberDraft(value)
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextDraft = event.target.value
@@ -380,6 +376,7 @@ function DraftNumberInput({
 
   const handleFocus = (event: FocusEvent<HTMLInputElement>) => {
     setFocused(true)
+    setDraft(event.currentTarget.value)
     onFocus?.(event)
     if (selectZeroOnFocus && isZeroDraft(event.currentTarget.value)) {
       event.currentTarget.select()
@@ -406,7 +403,7 @@ function DraftNumberInput({
     <Input
       {...props}
       type='number'
-      value={draft}
+      value={displayValue}
       onChange={handleChange}
       onFocus={handleFocus}
       onMouseUp={handleMouseUp}
@@ -587,15 +584,13 @@ function VisualTierCard({
 
   const inputUnitPrice = unitCostToPrice(tier.input_unit_cost)
   const outputUnitPrice = unitCostToPrice(tier.output_unit_cost)
+  const fixedPrice = unitCostToPrice((tier.fixed_price as number) ?? 0)
   const hasMediaPricing = MEDIA_PRICE_VARS.some((variable) => {
     const fieldKey = variable.tierField as keyof VisualTier
     return unitCostToPrice((tier[fieldKey] as number | undefined) ?? 0) > 0
   })
   const [mediaOpen, setMediaOpen] = useState(hasMediaPricing)
-
-  useEffect(() => {
-    if (hasMediaPricing) setMediaOpen(true)
-  }, [hasMediaPricing])
+  const effectiveMediaOpen = mediaOpen || hasMediaPricing
 
   const renderPriceVariable = (
     variable: (typeof BILLING_EXTRA_VARS)[number]
@@ -651,7 +646,7 @@ function VisualTierCard({
             variant='ghost'
             size='sm'
             onClick={onAddCondition}
-            disabled={tier.conditions.length >= 2}
+            disabled={tier.conditions.length >= MAX_TIER_CONDITIONS}
             className='h-7 px-2 text-xs'
           >
             <Plus className='mr-1 h-3 w-3' />
@@ -696,6 +691,14 @@ function VisualTierCard({
               value={outputUnitPrice}
               onChange={(value) =>
                 handlePriceChange('output_unit_cost', priceToUnitCost(value))
+              }
+            />
+            <PriceField
+              label={t('Fixed price')}
+              hint={t('USD per request')}
+              value={fixedPrice}
+              onChange={(value) =>
+                handlePriceChange('fixed_price', priceToUnitCost(value))
               }
             />
           </div>
@@ -748,12 +751,12 @@ function VisualTierCard({
           <ChevronDown
             className={cn(
               'mr-1 h-3 w-3 transition-transform',
-              mediaOpen && 'rotate-180'
+              effectiveMediaOpen && 'rotate-180'
             )}
           />
           {t('Media pricing')}
         </Button>
-        {mediaOpen && (
+        {effectiveMediaOpen && (
           <div className='flex flex-wrap gap-x-4 gap-y-2'>
             {MEDIA_PRICE_VARS.map(renderPriceVariable)}
           </div>
@@ -815,7 +818,7 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
 
   const handleAddCondition = (index: number) => {
     const tier = config.tiers[index]
-    if (tier.conditions.length >= 2) return
+    if (tier.conditions.length >= MAX_TIER_CONDITIONS) return
     // Prefer `len` (input length) over `p`/`c` for tier conditions because
     // `p` is subject to auto-exclusion when sub-categories like `cr` are
     // priced separately, which can misroute long-input requests into shorter
@@ -842,7 +845,7 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
     <div className='space-y-2'>
       <p className='text-muted-foreground text-xs'>
         {t(
-          'Each tier supports up to 2 conditions. The last tier without conditions is the fallback.'
+          'Each tier supports multiple token conditions. Use full token counts such as 200000 for 200K tokens; the last tier without conditions is the fallback.'
         )}
       </p>
       {config.tiers.map((tier, index) => (

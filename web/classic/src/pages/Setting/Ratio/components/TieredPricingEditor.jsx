@@ -78,6 +78,7 @@ const VAR_OPTIONS = [
 
 const CACHE_MODE_TIMED = 'timed';
 const CACHE_MODE_GENERIC = 'generic';
+const MAX_TIER_CONDITIONS = 4;
 
 function formatTokenHint(n) {
   if (n == null || n === '' || Number.isNaN(Number(n))) return '';
@@ -102,6 +103,11 @@ function buildConditionStr(conditions) {
 
 const CACHE_VAR_MAP = BILLING_CACHE_VAR_MAP;
 
+function formatNumericLiteral(value) {
+  if (!Number.isFinite(value)) return '0';
+  return Number.parseFloat(value.toFixed(12)).toString();
+}
+
 function getTierCacheMode(tier) {
   if (tier?.cache_mode === CACHE_MODE_TIMED) {
     return CACHE_MODE_TIMED;
@@ -117,6 +123,9 @@ function getTierCacheMode(tier) {
 function normalizeVisualTier(tier = {}) {
   return {
     ...tier,
+    input_unit_cost: Number(tier.input_unit_cost) || 0,
+    output_unit_cost: Number(tier.output_unit_cost) || 0,
+    fixed_price: Number(tier.fixed_price) || 0,
     conditions: Array.isArray(tier.conditions) ? tier.conditions : [],
     cache_mode: getTierCacheMode(tier),
   };
@@ -150,11 +159,15 @@ function buildTierBodyExpr(tier) {
   const parts = [];
   const ic = Number(tier.input_unit_cost) || 0;
   const oc = Number(tier.output_unit_cost) || 0;
+  const fixedPrice = Number(tier.fixed_price) || 0;
   parts.push(`p * ${ic}`);
   parts.push(`c * ${oc}`);
   for (const cv of CACHE_VAR_MAP) {
     const v = Number(tier[cv.field]) || 0;
     if (v !== 0) parts.push(`${cv.exprVar} * ${v}`);
+  }
+  if (fixedPrice !== 0) {
+    parts.push(formatNumericLiteral(fixedPrice * 1000000));
   }
   return parts.join(' + ');
 }
@@ -205,8 +218,10 @@ function tryParseVisualConfig(exprStr) {
       .map((v) => `(?:\\s*\\+\\s*${v}\\s*\\*\\s*([\\d.eE+-]+))?`)
       .join('');
 
-    // Body pattern: p * X + c * Y [+ cr * A] [+ cc * B] [+ cc1h * C]
-    const bodyPat = `p\\s*\\*\\s*([\\d.eE+-]+)\\s*\\+\\s*c\\s*\\*\\s*([\\d.eE+-]+)${optCacheStr}`;
+    // Body pattern: p * X + c * Y [+ cr * A] [+ ...] [+ fixedRawCost]
+    const fixedPricePat = `(?:\\s*\\+\\s*([\\d.eE+-]+))?`;
+    const bodyPat = `p\\s*\\*\\s*([\\d.eE+-]+)\\s*\\+\\s*c\\s*\\*\\s*([\\d.eE+-]+)${optCacheStr}${fixedPricePat}`;
+    const fixedPriceIndex = 4 + CACHE_VAR_MAP.length;
 
     // Single-tier: tier("label", body)
     const singleRe = new RegExp(`^tier\\("([^"]*)",\\s*${bodyPat}\\)$`);
@@ -222,6 +237,9 @@ function tryParseVisualConfig(exprStr) {
         const val = simple[4 + i];
         if (val != null) tier[cv.field] = Number(val);
       });
+      if (simple[fixedPriceIndex] != null) {
+        tier.fixed_price = Number(simple[fixedPriceIndex]) / 1000000;
+      }
       return normalizeVisualConfig({ tiers: [normalizeVisualTier(tier)] });
     }
 
@@ -255,6 +273,10 @@ function tryParseVisualConfig(exprStr) {
         const val = match[5 + i];
         if (val != null) tier[cv.field] = Number(val);
       });
+      const fixedPrice = match[5 + CACHE_VAR_MAP.length];
+      if (fixedPrice != null) {
+        tier.fixed_price = Number(fixedPrice) / 1000000;
+      }
       tiers.push(normalizeVisualTier(tier));
     }
     if (tiers.length === 0) return null;
@@ -338,7 +360,7 @@ function ConditionRow({ cond, onChange, onRemove, t }) {
 // Price input that preserves intermediate text like "7." or "0.5"
 // ---------------------------------------------------------------------------
 
-function PriceInput({ unitCost, field, index, onUpdate, placeholder }) {
+function PriceInput({ unitCost, field, index, onUpdate, placeholder, suffix = PRICE_SUFFIX }) {
   const priceFromModel = unitCostToPrice(unitCost);
   const [text, setText] = useState(priceFromModel === 0 ? '' : String(priceFromModel));
 
@@ -365,7 +387,7 @@ function PriceInput({ unitCost, field, index, onUpdate, placeholder }) {
     <Input
       value={text}
       placeholder={placeholder || '0'}
-      suffix={PRICE_SUFFIX}
+      suffix={suffix}
       onChange={handleChange}
       style={{ width: '100%', marginTop: 2 }}
     />
@@ -525,7 +547,7 @@ function VisualTierCard({ tier, index, isLast, isOnly, onUpdate, onRemove, t }) 
   };
 
   const addCondition = () => {
-    if (conditions.length >= 2) return;
+    if (conditions.length >= MAX_TIER_CONDITIONS) return;
     const usedVars = conditions.map((c) => c.var);
     const nextVar = usedVars.includes('len') ? 'c' : 'len';
     onUpdate(index, 'conditions', [
@@ -609,7 +631,7 @@ function VisualTierCard({ tier, index, isLast, isOnly, onUpdate, onRemove, t }) 
               t={t}
             />
           ))}
-          {conditions.length < 2 && (
+          {conditions.length < MAX_TIER_CONDITIONS && (
             <Button
               icon={<IconPlus />}
               size='small'
@@ -638,7 +660,7 @@ function VisualTierCard({ tier, index, isLast, isOnly, onUpdate, onRemove, t }) 
 
       {/* Prices */}
       <div
-        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}
+        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}
       >
         <div>
           <Text size='small' style={{ color: 'var(--semi-color-text-2)' }}>
@@ -660,6 +682,19 @@ function VisualTierCard({ tier, index, isLast, isOnly, onUpdate, onRemove, t }) 
             field='output_unit_cost'
             index={index}
             onUpdate={onUpdate}
+          />
+        </div>
+        <div>
+          <Text size='small' style={{ color: 'var(--semi-color-text-2)' }}>
+            {t('固定价格')}
+          </Text>
+          <PriceInput
+            unitCost={tier.fixed_price}
+            field='fixed_price'
+            index={index}
+            onUpdate={onUpdate}
+            placeholder='0'
+            suffix={t('$/次')}
           />
         </div>
       </div>
@@ -725,7 +760,7 @@ function VisualEditor({ visualConfig, onChange, t }) {
     <div>
       <Banner
         type='info'
-        description={t('每个档位可设置 0~2 个条件（对 len、p 和 c），最后一档为兜底档无需条件。len 为输入上下文总长度（含缓存），推荐用于阶梯条件。')}
+        description={t('每个档位可设置多个条件（对 len、p 和 c）。例如 len >= 200000 且 len < 1000000 表示 200K 到 1M token 区间；最后一档为兜底档无需条件。固定价格单位为美元/次。')}
         style={{ marginBottom: 12 }}
       />
 
