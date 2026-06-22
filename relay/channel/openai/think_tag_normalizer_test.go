@@ -91,6 +91,43 @@ func TestNormalizeStreamThinkTagsAcrossChunks(t *testing.T) {
 	}
 }
 
+func TestNormalizeStreamThinkTagsKeepsOpenThinkingAcrossChunks(t *testing.T) {
+	info := &relaycommon.RelayInfo{}
+
+	first := streamChunk("<think>思")
+	if !normalizeStreamThinkTags(info, first) {
+		t.Fatal("expected first chunk to change")
+	}
+	if got := first.Choices[0].Delta.GetContentString(); got != "" {
+		t.Fatalf("first content = %q", got)
+	}
+	if got := first.Choices[0].Delta.GetReasoningContent(); got != "思" {
+		t.Fatalf("first reasoning = %q", got)
+	}
+
+	second := streamChunk("考内容还没有结束")
+	if !normalizeStreamThinkTags(info, second) {
+		t.Fatal("expected open thinking chunk to change")
+	}
+	if got := second.Choices[0].Delta.GetContentString(); got != "" {
+		t.Fatalf("second content = %q", got)
+	}
+	if got := second.Choices[0].Delta.GetReasoningContent(); got != "考内容还没有结束" {
+		t.Fatalf("second reasoning = %q", got)
+	}
+
+	third := streamChunk("</think>正文")
+	if !normalizeStreamThinkTags(info, third) {
+		t.Fatal("expected closing chunk to change")
+	}
+	if got := third.Choices[0].Delta.GetContentString(); got != "正文" {
+		t.Fatalf("third content = %q", got)
+	}
+	if got := third.Choices[0].Delta.GetReasoningContent(); got != "" {
+		t.Fatalf("third reasoning = %q", got)
+	}
+}
+
 func TestNormalizeStreamThinkTagsFlushesPendingOnFinish(t *testing.T) {
 	info := &relaycommon.RelayInfo{}
 

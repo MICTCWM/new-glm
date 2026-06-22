@@ -18,6 +18,10 @@ func WaitBeforeRetry(c *gin.Context, info *relaycommon.RelayInfo, delay time.Dur
 		label = "retry"
 	}
 	logger.LogInfo(c, fmt.Sprintf("%s #%d: waiting %v before next attempt", label, retryNumber, delay))
-	streamnotice.SendRetryWaitNotice(c, info)
+	SendRetryWaitNotice(c, info)
 	time.Sleep(delay)
+}
+
+func SendRetryWaitNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	return streamnotice.SendRetryWaitNotice(c, info)
 }

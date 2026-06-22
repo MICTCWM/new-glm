@@ -289,4 +289,10 @@ func TestWaitForRpmQueueSendsStreamNoticeAfterEnqueue(t *testing.T) {
 	}
 	require.True(t, queueNoticeSent)
 	require.True(t, info.RpmQueueThinkingNoticeSent)
+	body := recorder.Body.String()
+	queueNoticeIndex := strings.Index(body, common.UserMessageRpmQueuedThinking)
+	waitNoticeIndex := strings.LastIndex(body, common.UserMessageRetryWaitThinking)
+	require.NotEqual(t, -1, queueNoticeIndex)
+	require.NotEqual(t, -1, waitNoticeIndex)
+	require.Greater(t, waitNoticeIndex, queueNoticeIndex)
 }

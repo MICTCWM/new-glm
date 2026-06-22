@@ -588,6 +588,7 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 	}
 	if waitRpmQueueTurn(queueItem, *queueDeadline, done) {
 		logger.LogInfo(c, "Dequeued from RPM queue, retrying...")
+		relay.SendRetryWaitNotice(c, relayInfo)
 		return true
 	}
 	return false

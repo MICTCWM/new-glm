@@ -119,9 +119,10 @@ func splitThinkTagsStreaming(chunk string, state *relaycommon.ThinkTagStreamStat
 			}
 
 			hold := longestTagPrefixSuffix(input, thinkCloseTag)
-			reasoningBuilder.WriteString(input[:len(input)-hold])
+			reasoningPart := input[:len(input)-hold]
+			reasoningBuilder.WriteString(reasoningPart)
 			state.Pending = input[len(input)-hold:]
-			if hold > 0 {
+			if reasoningPart != "" || hold > 0 {
 				changed = true
 			}
 			break
