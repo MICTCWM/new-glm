@@ -528,6 +528,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		usage = service.ResponseText2Usage(c, usageText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 	}
 
+	if relaycommon.ShouldRetryZeroOutputUsageAfterStream(info, usage) {
+		return nil, relaycommon.NewZeroOutputRetryError(info, usage)
+	}
+
 	if !sentStart {
 		if !sendChatChunk(helper.GenerateStartEmptyResponse(responseId, createAt, model, nil)) {
 			return nil, streamErr

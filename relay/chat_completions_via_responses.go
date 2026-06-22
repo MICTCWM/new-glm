@@ -210,7 +210,19 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		if napiErr != nil {
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			if napiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
-				return nil, napiErr
+				lastApiErr = napiErr
+				if attempt >= upstreamRetryTimes {
+					return nil, lastApiErr
+				}
+				info.UpstreamRetryCount = attempt + 1
+				var delay time.Duration
+				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+					delay = common.RetryDelays[attempt]
+				}
+				if delay > 0 {
+					WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry")
+				}
+				continue
 			}
 			lastApiErr = napiErr
 			if attempt >= upstreamRetryTimes {
@@ -232,10 +244,10 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return usage, nil
 	}
 
+	// 流式响应：在循环外处理，不重试（stream handler 内部已处理零输出检测）
 	if info.IsStream {
 		usage, napiErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
 		if napiErr != nil {
-			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			return nil, napiErr
 		}
 		return usage, nil

@@ -82,6 +82,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	var completedStreamResponse *dto.ResponsesStreamResponse
+	var completedData string
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -92,9 +94,11 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
 		case "response.completed":
+			completed := streamResponse
+			completedStreamResponse = &completed
+			completedData = data
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
 					if streamResponse.Response.Usage.InputTokens != 0 {
@@ -131,6 +135,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					}
 				}
 			}
+		default:
+			sendResponsesStreamData(c, streamResponse, data)
 		}
 	})
 
@@ -149,6 +155,14 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+
+	if relaycommon.ShouldRetryZeroOutputUsageAfterStream(info, usage) {
+		return nil, relaycommon.NewZeroOutputRetryError(info, usage)
+	}
+
+	if completedStreamResponse != nil {
+		sendResponsesStreamData(c, *completedStreamResponse, completedData)
+	}
 
 	return usage, nil
 }

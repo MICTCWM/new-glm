@@ -12,6 +12,17 @@ func ShouldRetryZeroOutputUsage(info *RelayInfo, usage *dto.Usage) bool {
 	if info == nil || usage == nil || info.IsStream {
 		return false
 	}
+	return hasZeroOutputUsage(info, usage)
+}
+
+func ShouldRetryZeroOutputUsageAfterStream(info *RelayInfo, usage *dto.Usage) bool {
+	if info == nil || usage == nil || !info.IsStream {
+		return false
+	}
+	return hasZeroOutputUsage(info, usage)
+}
+
+func hasZeroOutputUsage(info *RelayInfo, usage *dto.Usage) bool {
 	inputTokens := usage.PromptTokens
 	if inputTokens == 0 {
 		inputTokens = usage.InputTokens

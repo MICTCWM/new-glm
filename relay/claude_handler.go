@@ -258,7 +258,19 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		if napiErr != nil {
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			if napiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
-				return napiErr
+				lastApiErr = napiErr
+				if attempt >= upstreamRetryTimes {
+					return lastApiErr
+				}
+				info.UpstreamRetryCount = attempt + 1
+				var delay time.Duration
+				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+					delay = common.RetryDelays[attempt]
+				}
+				if delay > 0 {
+					WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry")
+				}
+				continue
 			}
 			lastApiErr = napiErr
 			if attempt >= upstreamRetryTimes {
@@ -282,13 +294,12 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return nil
 	}
 
+	// 流式响应：在循环外处理，不重试（stream handler 内部已处理零输出检测）
 	if info.IsStream {
 		usage, napiErr := adaptor.DoResponse(c, httpResp, info)
 		if napiErr != nil {
-			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			return napiErr
 		}
-
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 		return nil
 	}

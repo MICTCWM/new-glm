@@ -1408,6 +1408,10 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		return usage, err
 	}
 
+	if relaycommon.ShouldRetryZeroOutputUsageAfterStream(info, usage) {
+		return nil, relaycommon.NewZeroOutputRetryError(info, usage)
+	}
+
 	response := helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)
 	handleErr := handleFinalStream(c, info, response)
 	if handleErr != nil {

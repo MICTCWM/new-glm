@@ -166,6 +166,44 @@ func processCompletions(streamResp string, streamItems []string, responseTextBui
 	return nil
 }
 
+func streamDataHasOutput(relayMode int, data string) bool {
+	if data == "" {
+		return false
+	}
+	switch relayMode {
+	case relayconstant.RelayModeCompletions:
+		return completionsStreamDataHasOutput(data)
+	default:
+		return chatStreamDataHasOutput(data)
+	}
+}
+
+func chatStreamDataHasOutput(data string) bool {
+	var streamResponse dto.ChatCompletionsStreamResponse
+	if err := common.Unmarshal(common.StringToByteSlice(data), &streamResponse); err != nil {
+		return true
+	}
+	for _, choice := range streamResponse.Choices {
+		if choice.Delta.GetContentString() != "" || choice.Delta.GetReasoningContent() != "" || len(choice.Delta.ToolCalls) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func completionsStreamDataHasOutput(data string) bool {
+	var streamResponse dto.CompletionsStreamResponse
+	if err := common.Unmarshal(common.StringToByteSlice(data), &streamResponse); err != nil {
+		return true
+	}
+	for _, choice := range streamResponse.Choices {
+		if choice.Text != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func handleLastResponse(lastStreamData string, responseId *string, createAt *int64,
 	systemFingerprint *string, model *string, usage **dto.Usage,
 	containStreamUsage *bool, info *relaycommon.RelayInfo,

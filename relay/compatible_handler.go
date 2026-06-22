@@ -248,14 +248,25 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			}
 		}
 
-		if info.IsStream {
-			break
-		}
-
 		usage, newApiErr := adaptor.DoResponse(c, httpResp, info)
 		if newApiErr != nil {
 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 			if newApiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
+				lastApiErr = newApiErr
+				if attempt >= upstreamRetryTimes {
+					return lastApiErr
+				}
+				info.UpstreamRetryCount = attempt + 1
+				var delay time.Duration
+				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+					delay = common.RetryDelays[attempt]
+				}
+				if delay > 0 {
+					WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry")
+				}
+				continue
+			}
+			if info.IsStream {
 				return newApiErr
 			}
 			lastApiErr = newApiErr
@@ -275,24 +286,6 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		}
 
 		info.UpstreamRetryCount = attempt
-
-		var containAudioTokens = usage.(*dto.Usage).CompletionTokenDetails.AudioTokens > 0 || usage.(*dto.Usage).PromptTokensDetails.AudioTokens > 0
-		var containsAudioRatios = ratio_setting.ContainsAudioRatio(info.OriginModelName) || ratio_setting.ContainsAudioCompletionRatio(info.OriginModelName)
-
-		if containAudioTokens && containsAudioRatios {
-			service.PostAudioConsumeQuota(c, info, usage.(*dto.Usage), "")
-		} else {
-			service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
-		}
-		return nil
-	}
-
-	if info.IsStream {
-		usage, newApiErr := adaptor.DoResponse(c, httpResp, info)
-		if newApiErr != nil {
-			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
-			return newApiErr
-		}
 
 		var containAudioTokens = usage.(*dto.Usage).CompletionTokenDetails.AudioTokens > 0 || usage.(*dto.Usage).PromptTokensDetails.AudioTokens > 0
 		var containsAudioRatios = ratio_setting.ContainsAudioRatio(info.OriginModelName) || ratio_setting.ContainsAudioCompletionRatio(info.OriginModelName)

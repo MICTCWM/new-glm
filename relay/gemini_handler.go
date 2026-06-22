@@ -22,32 +22,31 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	ModelSuffixNoThinking = "-nothinking"
+	ModelSuffixThinking   = "-thinking"
+	ModelPrefixModels     = "models/"
+)
+
 func isNoThinkingRequest(req *dto.GeminiChatRequest) bool {
-	if req.GenerationConfig.ThinkingConfig != nil && req.GenerationConfig.ThinkingConfig.ThinkingBudget != nil {
-		configBudget := req.GenerationConfig.ThinkingConfig.ThinkingBudget
-		if configBudget != nil && *configBudget == 0 {
-			// 如果思考预算为 0，则认为是非思考请求
-			return true
-		}
+	if req.GenerationConfig.ThinkingConfig == nil {
+		return false
 	}
-	return false
+	budget := req.GenerationConfig.ThinkingConfig.ThinkingBudget
+	return budget != nil && *budget == 0
 }
 
 func trimModelThinking(modelName string) string {
-	// 去除模型名称中的 -nothinking 后缀
-	if strings.HasSuffix(modelName, "-nothinking") {
-		return strings.TrimSuffix(modelName, "-nothinking")
+	if strings.HasSuffix(modelName, ModelSuffixNoThinking) {
+		return strings.TrimSuffix(modelName, ModelSuffixNoThinking)
 	}
-	// 去除模型名称中的 -thinking 后缀
-	if strings.HasSuffix(modelName, "-thinking") {
-		return strings.TrimSuffix(modelName, "-thinking")
+	if strings.HasSuffix(modelName, ModelSuffixThinking) {
+		return strings.TrimSuffix(modelName, ModelSuffixThinking)
 	}
-
-	// 去除模型名称中的 -thinking-number
-	if strings.Contains(modelName, "-thinking-") {
-		parts := strings.Split(modelName, "-thinking-")
+	if strings.Contains(modelName, ModelSuffixThinking) {
+		parts := strings.Split(modelName, ModelSuffixThinking)
 		if len(parts) > 1 {
-			return parts[0] + "-thinking"
+			return parts[0] + ModelSuffixThinking
 		}
 	}
 	return modelName
@@ -66,7 +65,6 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return types.NewError(fmt.Errorf("failed to copy request to GeminiChatRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
-	// model mapped 模型映射
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
@@ -74,10 +72,8 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled {
 		if isNoThinkingRequest(request) {
-			// check is thinking
-			if !strings.Contains(info.OriginModelName, "-nothinking") {
-				// try to get no thinking model price
-				noThinkingModelName := info.OriginModelName + "-nothinking"
+			if !strings.Contains(info.OriginModelName, ModelSuffixNoThinking) {
+				noThinkingModelName := info.OriginModelName + ModelSuffixNoThinking
 				containPrice := helper.HasModelBillingConfig(noThinkingModelName)
 				if containPrice {
 					info.OriginModelName = noThinkingModelName
@@ -94,7 +90,6 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	if adaptor == nil {
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
-
 	adaptor.Init(info)
 
 	if info.ChannelSetting.SystemPrompt != "" {
@@ -123,7 +118,6 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 	}
 
-	// Clean up empty system instruction
 	if request.SystemInstructions != nil {
 		hasContent := false
 		for _, part := range request.SystemInstructions.Parts {
@@ -166,7 +160,6 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 
 		logger.LogDebug(c, "Gemini request body: "+string(jsonData))
-
 		requestBody = bytes.NewReader(jsonData)
 	}
 
@@ -197,7 +190,6 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			// Add retry delay before next attempt
 			var delay time.Duration
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
@@ -209,10 +201,11 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 
 		if resp != nil {
-			// Drain and close previous response body to prevent resource leak during retries
 			if httpResp != nil && httpResp.Body != nil {
-				io.Copy(io.Discard, httpResp.Body)
-				httpResp.Body.Close()
+				defer httpResp.Body.Close()
+				if _, err := io.Copy(io.Discard, httpResp.Body); err != nil {
+					logger.LogWarning(c, "Failed to discard response body: "+err.Error())
+				}
 			}
 			httpResp = resp.(*http.Response)
 			info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
@@ -224,7 +217,6 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
-				// Add retry delay before next attempt
 				var delay time.Duration
 				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
@@ -240,11 +232,24 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			break
 		}
 
+		// 非流式处理：零输出可以重试
 		usage, openaiErr := adaptor.DoResponse(c, httpResp, info)
 		if openaiErr != nil {
 			service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 			if openaiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
-				return openaiErr
+				lastApiErr = openaiErr
+				if attempt >= upstreamRetryTimes {
+					return lastApiErr
+				}
+				info.UpstreamRetryCount = attempt + 1
+				var delay time.Duration
+				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
+					delay = common.RetryDelays[attempt]
+				}
+				if delay > 0 {
+					WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry")
+				}
+				continue
 			}
 			lastApiErr = openaiErr
 			if attempt >= upstreamRetryTimes {
@@ -255,19 +260,29 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 
 		info.UpstreamRetryCount = attempt
-
-		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
+		if usageDto, ok := usage.(*dto.Usage); ok {
+			service.PostTextConsumeQuota(c, info, usageDto, nil)
+		} else {
+			logger.LogError(c, "Invalid usage type in response")
+			return types.NewError(fmt.Errorf("invalid usage type: expected *dto.Usage, got %T", usage),
+				types.ErrorCodeConvertResponseFailed, types.ErrOptionWithSkipRetry())
+		}
 		return nil
 	}
 
+	// 流式响应：在循环外处理，不重试（stream handler 内部已处理零输出检测）
 	if info.IsStream {
 		usage, openaiErr := adaptor.DoResponse(c, httpResp, info)
 		if openaiErr != nil {
-			service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 			return openaiErr
 		}
-
-		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
+		if usageDto, ok := usage.(*dto.Usage); ok {
+			service.PostTextConsumeQuota(c, info, usageDto, nil)
+		} else {
+			logger.LogError(c, "Invalid usage type in response")
+			return types.NewError(fmt.Errorf("invalid usage type: expected *dto.Usage, got %T", usage),
+				types.ErrorCodeConvertResponseFailed, types.ErrOptionWithSkipRetry())
+		}
 		return nil
 	}
 
@@ -317,7 +332,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
 
-	req.SetModelName("models/" + info.UpstreamModelName)
+	req.SetModelName(ModelPrefixModels + info.UpstreamModelName)
 
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
@@ -331,7 +346,6 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 		return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 
-	// apply param override
 	if len(info.ParamOverride) > 0 {
 		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 		if err != nil {
@@ -363,7 +377,6 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			// Add retry delay before next attempt
 			var delay time.Duration
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
@@ -375,10 +388,11 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 		}
 
 		if resp != nil {
-			// Drain and close previous response body to prevent resource leak during retries
 			if httpResp != nil && httpResp.Body != nil {
-				io.Copy(io.Discard, httpResp.Body)
-				httpResp.Body.Close()
+				defer httpResp.Body.Close()
+				if _, err := io.Copy(io.Discard, httpResp.Body); err != nil {
+					logger.LogWarning(c, "Failed to discard response body: "+err.Error())
+				}
 			}
 			httpResp = resp.(*http.Response)
 			if httpResp.StatusCode != http.StatusOK {
@@ -389,7 +403,6 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
-				// Add retry delay before next attempt
 				var delay time.Duration
 				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
@@ -412,10 +425,15 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 			continue
 		}
 
-		info.UpstreamRetryCount = attempt
-
-		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
-		return nil
+		if usageDto, ok := usage.(*dto.Usage); ok {
+			info.UpstreamRetryCount = attempt
+			service.PostTextConsumeQuota(c, info, usageDto, nil)
+			return nil
+		} else {
+			logger.LogError(c, "Invalid usage type in response")
+			return types.NewError(fmt.Errorf("invalid usage type: expected *dto.Usage, got %T", usage),
+				types.ErrorCodeConvertResponseFailed, types.ErrOptionWithSkipRetry())
+		}
 	}
 
 	return lastApiErr
