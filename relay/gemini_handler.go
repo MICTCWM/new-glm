@@ -203,8 +203,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				delay = common.RetryDelays[attempt]
 			}
 			if delay > 0 {
-				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
-				time.Sleep(delay)
+				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
 			}
 			continue
 		}
@@ -231,8 +230,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 					delay = common.RetryDelays[attempt]
 				}
 				if delay > 0 {
-					logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
-					time.Sleep(delay)
+					WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
 				}
 				continue
 			}
@@ -371,8 +369,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 				delay = common.RetryDelays[attempt]
 			}
 			if delay > 0 {
-				logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
-				time.Sleep(delay)
+				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
 			}
 			continue
 		}
@@ -398,8 +395,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 					delay = common.RetryDelays[attempt]
 				}
 				if delay > 0 {
-					logger.LogInfo(c, fmt.Sprintf("Upstream retry #%d: waiting %v before next attempt", attempt+1, delay))
-					time.Sleep(delay)
+					WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
 				}
 				continue
 			}

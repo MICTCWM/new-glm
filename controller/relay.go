@@ -312,9 +312,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		if delay := getRetryDelay(retryParam.GetRetry() + 1); delay > 0 {
-			logger.LogInfo(c, fmt.Sprintf("Waiting %v before retry #%d", delay, retryParam.GetRetry()+1))
 			retryDelays = append(retryDelays, int(delay.Seconds()))
-			time.Sleep(delay)
+			relay.WaitBeforeRetry(c, relayInfo, delay, retryParam.GetRetry()+1, "Relay retry")
 		}
 	}
 
@@ -994,9 +993,8 @@ func RelayTask(c *gin.Context) {
 		}
 
 		if delay := getRetryDelay(retryParam.GetRetry() + 1); delay > 0 {
-			logger.LogInfo(c, fmt.Sprintf("Waiting %v before retry #%d", delay, retryParam.GetRetry()+1))
 			retryDelays = append(retryDelays, int(delay.Seconds()))
-			time.Sleep(delay)
+			relay.WaitBeforeRetry(c, relayInfo, delay, retryParam.GetRetry()+1, "Task relay retry")
 		}
 	}
 

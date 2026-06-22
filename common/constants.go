@@ -281,6 +281,7 @@ const (
 	UserMessageRpmQueue          = "请求可能较复杂已经自动路由到硬推理模型（low），时间可能较长请耐心等待"
 	UserMessageRpmFailed         = "硬推理失败，请重试"
 	UserMessageRpmQueuedThinking = "检测到请求较复杂已自动路由到硬推理模型"
+	UserMessageRetryWaitThinking = "wait"
 )
 
 // RPM Queue configuration
