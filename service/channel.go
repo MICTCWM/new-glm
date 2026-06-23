@@ -2,10 +2,13 @@ package service
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -48,7 +51,23 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 		return false
 	}
 
-	return err.StatusCode == 429
+	if err.StatusCode == http.StatusTooManyRequests || operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
+		return true
+	}
+	lowerError := strings.ToLower(err.Error())
+	for _, keyword := range operation_setting.AutomaticDisableKeywords {
+		if keyword != "" && strings.Contains(lowerError, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
+}
+
+func ShouldDelayDisableChannel(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	return err.StatusCode == http.StatusTooManyRequests
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {

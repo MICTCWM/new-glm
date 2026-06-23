@@ -58,6 +58,10 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 }
 
 func testChannel(channel *model.Channel, testModel string, endpointType string, isStream bool) testResult {
+	return testChannelWithUsingKey(channel, testModel, endpointType, isStream, "")
+}
+
+func testChannelWithUsingKey(channel *model.Channel, testModel string, endpointType string, isStream bool, usingKey string) testResult {
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
 		constant.ChannelTypeMidjourney,
@@ -166,6 +170,17 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 			context:     c,
 			localErr:    newAPIError,
 			newAPIError: newAPIError,
+		}
+	}
+	if usingKey != "" {
+		common.SetContextKey(c, constant.ContextKeyChannelKey, usingKey)
+		if channel.ChannelInfo.IsMultiKey {
+			for index, key := range channel.GetKeys() {
+				if key == usingKey {
+					common.SetContextKey(c, constant.ContextKeyChannelMultiKeyIndex, index)
+					break
+				}
+			}
 		}
 	}
 
@@ -871,6 +886,88 @@ func TestChannel(c *gin.Context) {
 var testAllChannelsLock sync.Mutex
 var testAllChannelsRunning bool = false
 
+type channelTestDisableCandidate struct {
+	channel      *model.Channel
+	channelError types.ChannelError
+	apiError     *types.NewAPIError
+}
+
+func testChannelForDisableRetry(channelError types.ChannelError) *types.NewAPIError {
+	channel, err := model.CacheGetChannel(channelError.ChannelId)
+	if err != nil {
+		channel, err = model.GetChannelById(channelError.ChannelId, true)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeGetChannelFailed)
+		}
+	}
+	result := testChannelWithUsingKey(channel, "", "", shouldUseStreamForAutomaticChannelTest(channel), channelError.UsingKey)
+	return result.newAPIError
+}
+
+func init() {
+	service.ChannelDisableRetryTestFunc = testChannelForDisableRetry
+}
+
+func buildChannelTestDisableCandidate(channel *model.Channel, result testResult, apiErr *types.NewAPIError) channelTestDisableCandidate {
+	return channelTestDisableCandidate{
+		channel: channel,
+		channelError: *types.NewChannelError(
+			channel.Id,
+			channel.Type,
+			channel.Name,
+			channel.ChannelInfo.IsMultiKey,
+			common.GetContextKeyString(result.context, constant.ContextKeyChannelKey),
+			channel.GetAutoBan(),
+		),
+		apiError: apiErr,
+	}
+}
+
+func confirm429DisableCandidates(candidates []channelTestDisableCandidate) {
+	if len(candidates) == 0 {
+		return
+	}
+
+	remaining := candidates
+	for round := 2; round <= 3 && len(remaining) > 0; round++ {
+		nextRemaining := make([]channelTestDisableCandidate, 0, len(remaining))
+		for _, candidate := range remaining {
+			time.Sleep(common.RequestInterval)
+			channel, err := model.CacheGetChannel(candidate.channel.Id)
+			if err != nil {
+				common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮 429 复测获取渠道信息失败：%v，跳过禁用", candidate.channel.Name, candidate.channel.Id, round, err))
+				continue
+			}
+			if channel.Status != common.ChannelStatusEnabled {
+				continue
+			}
+			result := testChannelWithUsingKey(channel, "", "", shouldUseStreamForAutomaticChannelTest(channel), candidate.channelError.UsingKey)
+			apiErr := result.newAPIError
+			if apiErr == nil {
+				continue
+			}
+			if service.ShouldDelayDisableChannel(apiErr) {
+				nextRemaining = append(nextRemaining, buildChannelTestDisableCandidate(channel, result, apiErr))
+				continue
+			}
+			if service.ShouldDisableChannel(apiErr) && channel.GetAutoBan() {
+				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), apiErr)
+			}
+		}
+		remaining = nextRemaining
+	}
+
+	for _, candidate := range remaining {
+		channel, err := model.CacheGetChannel(candidate.channel.Id)
+		if err != nil || channel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		if channel.GetAutoBan() {
+			service.DisableChannel(candidate.channelError, candidate.apiError.ErrorWithStatusCode())
+		}
+	}
+}
+
 func testAllChannels(notify bool) error {
 
 	testAllChannelsLock.Lock()
@@ -896,6 +993,7 @@ func testAllChannels(notify bool) error {
 			testAllChannelsLock.Unlock()
 		}()
 
+		disable429Candidates := make([]channelTestDisableCandidate, 0)
 		for _, channel := range channels {
 			if channel.Status == common.ChannelStatusManuallyDisabled {
 				continue
@@ -911,6 +1009,13 @@ func testAllChannels(notify bool) error {
 			// request error disables the channel
 			if newAPIError != nil {
 				shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+			}
+
+			if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() && service.ShouldDelayDisableChannel(newAPIError) {
+				disable429Candidates = append(disable429Candidates, buildChannelTestDisableCandidate(channel, result, newAPIError))
+				channel.UpdateResponseTime(milliseconds)
+				time.Sleep(common.RequestInterval)
+				continue
 			}
 
 			// 当错误检查通过，才检查响应时间
@@ -935,6 +1040,8 @@ func testAllChannels(notify bool) error {
 			channel.UpdateResponseTime(milliseconds)
 			time.Sleep(common.RequestInterval)
 		}
+
+		confirm429DisableCandidates(disable429Candidates)
 
 		if notify {
 			service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
