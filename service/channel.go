@@ -2,12 +2,10 @@ package service
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -49,19 +47,8 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
-	if types.IsChannelError(err) {
-		return true
-	}
-	if types.IsSkipRetryError(err) {
-		return false
-	}
-	if operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
-		return true
-	}
 
-	lowerMessage := strings.ToLower(err.Error())
-	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableKeywords, true)
-	return search
+	return err.StatusCode == 429
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
