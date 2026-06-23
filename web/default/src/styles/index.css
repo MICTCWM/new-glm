@@ -45,6 +45,28 @@ For commercial licensing, please contact support@quantumnous.com
   }
   body {
     @apply bg-background text-foreground has-[div[data-variant='inset']]:bg-sidebar min-h-svh w-full font-sans;
+    background-image: radial-gradient(
+      oklch(0.85 0.01 80 / 0.35) 0.5px,
+      transparent 0.5px
+    );
+    background-size: 24px 24px;
+  }
+
+  .dark body,
+  body.dark {
+    background-image: radial-gradient(
+      oklch(1 0 0 / 0.03) 0.5px,
+      transparent 0.5px
+    );
+    background-size: 24px 24px;
+  }
+
+  .dark body:has([data-sidebar='inset']),
+  body.dark:has([data-sidebar='inset']) {
+    background-image: radial-gradient(
+      oklch(1 0 0 / 0.035) 0.5px,
+      transparent 0.5px
+    );
   }
 
   /* Keep sticky headers stable while primitives lock body scrolling. */
