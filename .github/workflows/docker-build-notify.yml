@@ -62,6 +62,8 @@ jobs:
       - name: Send success email
         if: success()
         uses: dawidd6/action-send-mail@v3
+        env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
         with:
           server_address: smtp.qq.com
           server_port: 465
@@ -87,6 +89,8 @@ jobs:
       - name: Send failure email
         if: failure()
         uses: dawidd6/action-send-mail@v3
+        env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
         with:
           server_address: smtp.qq.com
           server_port: 465
