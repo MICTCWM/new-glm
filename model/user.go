@@ -50,6 +50,7 @@ type User struct {
 	LinuxDOId        string         `json:"linux_do_id" gorm:"column:linux_do_id;index"`
 	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
 	Remark           string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
+	RpmLimit         int            `json:"rpm_limit" gorm:"type:int;default:0;column:rpm_limit" validate:"gte=0"` // 用户级每分钟请求上限,0 = 沿用分组/全局配置,>0 时覆盖分组与全局限流
 	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 	CreatedAt        int64          `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64          `json:"last_login_at" gorm:"default:0;column:last_login_at"`
@@ -64,6 +65,7 @@ func (user *User) ToBaseUser() *UserBase {
 		Username: user.Username,
 		Setting:  user.Setting,
 		Email:    user.Email,
+		RpmLimit: user.RpmLimit,
 	}
 	return cache
 }
@@ -527,6 +529,7 @@ func (user *User) Edit(updatePassword bool) error {
 		"display_name": newUser.DisplayName,
 		"group":        newUser.Group,
 		"remark":       newUser.Remark,
+		"rpm_limit":    newUser.RpmLimit,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password
@@ -534,6 +537,12 @@ func (user *User) Edit(updatePassword bool) error {
 
 	DB.First(&user, user.Id)
 	if err = DB.Model(user).Updates(updates).Error; err != nil {
+		return err
+	}
+
+	// 重新加载用户,确保缓存里的字段(包括 RpmLimit)是最新值。
+	// 上面 DB.First(&user, user.Id) 把 user 重载成了旧值,这里必须再读一次。
+	if err = DB.First(&user, user.Id).Error; err != nil {
 		return err
 	}
 

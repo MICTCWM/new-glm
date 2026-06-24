@@ -397,6 +397,60 @@ export function UsersMutateDrawer({
                 </div>
               )}
 
+              {/* Rate Limit (Update only) — 用户单独 RPM,优先级高于全局 */}
+              {isUpdate && (
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-medium'>{t('Rate Limit')}</h3>
+
+                  <FormField
+                    control={form.control}
+                    name='rpm_limit'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {t('RPM (Requests / Minute)')}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={0}
+                            step={1}
+                            value={
+                              field.value === undefined ||
+                              field.value === null
+                                ? ''
+                                : String(field.value)
+                            }
+                            onChange={(e) => {
+                              const raw = e.target.value
+                              if (raw === '') {
+                                field.onChange(0)
+                                return
+                              }
+                              const parsed = Number(raw)
+                              field.onChange(
+                                Number.isFinite(parsed) && parsed >= 0
+                                  ? Math.floor(parsed)
+                                  : 0
+                              )
+                            }}
+                            onBlur={field.onBlur}
+                            name={field.name}
+                            placeholder={t('0 = follow global / group limit')}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Per-user RPM override. Higher priority than group and global rate limits. Set to 0 to disable override.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
+
               {/* Binding Information (Read-only) */}
               {isUpdate && (
                 <div className='space-y-4'>

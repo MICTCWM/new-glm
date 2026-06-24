@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -149,14 +148,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			// Add retry delay before next attempt
-			var delay time.Duration
-			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
-				delay = common.RetryDelays[attempt]
-			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
-			}
+			ApplyRetryDelay(c, info, attempt, "Upstream retry")
 			continue
 		}
 		if resp == nil {
@@ -165,20 +157,13 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			// Add retry delay before next attempt
-			var delay time.Duration
-			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
-				delay = common.RetryDelays[attempt]
-			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
-			}
+			ApplyRetryDelay(c, info, attempt, "Upstream retry")
 			continue
 		}
 
 		// Drain and close previous response body to prevent resource leak during retries
 		if httpResp != nil && httpResp.Body != nil {
-			io.Copy(io.Discard, httpResp.Body)
+			_, _ = io.Copy(io.Discard, httpResp.Body)
 			httpResp.Body.Close()
 		}
 		httpResp = resp.(*http.Response)
@@ -191,14 +176,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			// Add retry delay before next attempt
-			var delay time.Duration
-			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
-				delay = common.RetryDelays[attempt]
-			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
-			}
+			ApplyRetryDelay(c, info, attempt, "Upstream retry")
 			continue
 		}
 
@@ -215,13 +193,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 					return nil, lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
-				var delay time.Duration
-				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
-					delay = common.RetryDelays[attempt]
-				}
-				if delay > 0 {
-					WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry")
-				}
+				ApplyRetryDelay(c, info, attempt, "Zero output retry")
 				continue
 			}
 			lastApiErr = napiErr
@@ -229,14 +201,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			// Add retry delay before next attempt
-			var delay time.Duration
-			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
-				delay = common.RetryDelays[attempt]
-			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
-			}
+			ApplyRetryDelay(c, info, attempt, "Upstream retry")
 			continue
 		}
 

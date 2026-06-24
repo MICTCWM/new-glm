@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/common/limiter"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/gin-gonic/gin"
@@ -164,6 +165,11 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 }
 
 // ModelRequestRateLimit 模型请求限流中间件
+//
+// 优先级:用户级 RPM > 分组 RPM > 全局 RPM
+// 用户在 admin 编辑页可单独设置 RpmLimit(每分钟请求数上限),>0 时直接覆盖
+// 分组与全局的 totalMaxCount;successMaxCount 仍沿用分组/全局配置,
+// 避免把"每分钟总请求数"和"每分钟成功请求数"两个维度混淆。
 func ModelRequestRateLimit() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// 在每个请求时检查是否启用限流
@@ -188,6 +194,13 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 		if found {
 			totalMaxCount = groupTotalCount
 			successMaxCount = groupSuccessCount
+		}
+
+		// 用户级 RPM 覆盖:RpmLimit > 0 时直接覆盖每分钟总请求数,优先级最高
+		if userId := c.GetInt("id"); userId > 0 {
+			if userCache, err := model.GetUserCache(userId); err == nil && userCache != nil && userCache.RpmLimit > 0 {
+				totalMaxCount = userCache.RpmLimit
+			}
 		}
 
 		// 根据存储类型选择并执行限流处理器

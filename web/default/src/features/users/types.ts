@@ -57,6 +57,7 @@ export const userSchema = z.object({
   last_login_at: z.number().optional(),
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
+  rpm_limit: z.number().optional(),
 })
 export type User = z.infer<typeof userSchema>
 
@@ -104,6 +105,7 @@ export interface UserFormData {
   quota?: number // Only used when updating user
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
+  rpm_limit?: number // Only used when updating user (每分钟请求上限,0=沿用全局)
 }
 
 export type ManageUserAction =
