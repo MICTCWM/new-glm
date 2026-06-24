@@ -134,11 +134,17 @@ function buildDetailSegments(
   const tieredSummary = getTieredBillingSummary(other)
   if (isTieredExpr) {
     if (tieredSummary) {
+      const tierLabel = tieredSummary.tier.label || t('Default')
+      if (tieredSummary.fixedPrice != null) {
+        segments.push({
+          text: `${tierLabel} × ${formatBillingCurrencyFromUSD(tieredSummary.fixedPrice, priceOpts)}`,
+        })
+      }
+
       const baseEntries = tieredSummary.priceEntries
         .filter((entry) => ['inputPrice', 'outputPrice'].includes(entry.field))
         .map((entry) => formatPriceCompact(entry.price))
       if (baseEntries.length > 0) {
-        const tierLabel = tieredSummary.tier.label || t('Default')
         segments.push({
           text: `${tierLabel} · ${formatPriceList(baseEntries, true)}`,
         })

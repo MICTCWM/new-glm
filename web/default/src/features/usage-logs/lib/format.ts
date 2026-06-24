@@ -230,6 +230,7 @@ export interface TieredBillingSummary {
   tiers: ParsedTier[]
   tier: ParsedTier
   priceEntries: Array<{ field: string; shortLabel: string; price: number }>
+  fixedPrice?: number
 }
 
 /**
@@ -275,7 +276,12 @@ export function getTieredBillingSummary(
       })
     }
   }
-  return { tiers, tier, priceEntries }
+
+  const fixedPriceRaw = Number(tier.fixed_price)
+  const fixedPrice =
+    Number.isFinite(fixedPriceRaw) && fixedPriceRaw > 0 ? fixedPriceRaw : undefined
+
+  return { tiers, tier, priceEntries, fixedPrice }
 }
 
 /**

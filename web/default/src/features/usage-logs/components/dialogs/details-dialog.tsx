@@ -159,16 +159,21 @@ function BillingBreakdown(props: {
       value: t('Dynamic Pricing'),
     })
     if (tieredSummary) {
-      if (tieredSummary.tier.label) {
+      const tierLabel = tieredSummary.tier.label || t('Default')
+      rows.push({
+        label: t('Matched Tier'),
+        value: tierLabel,
+      })
+      if (tieredSummary.fixedPrice != null) {
         rows.push({
-          label: t('Matched Tier'),
-          value: tieredSummary.tier.label,
+          label: t('Fixed price'),
+          value: `${tierLabel} × ${fmtPrice(tieredSummary.fixedPrice)}`,
         })
       }
       for (const entry of tieredSummary.priceEntries) {
         rows.push({
           label: t(entry.shortLabel),
-          value: `${fmtPrice(entry.price)}/M`,
+          value: `${tierLabel} × ${fmtPrice(entry.price)}/M`,
         })
       }
     } else {
