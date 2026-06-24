@@ -135,6 +135,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	// 流式请求：提前建立 SSE 响应头与状态码，确保排队通知与重试 wait 帧能"立即"到达客户端，
+	// 避免浏览器 EventSource 在看到 200 + text/event-stream 之前因 TCP 缓冲而感知"延后"。
+	if relayInfo.IsStream && relayFormat != types.RelayFormatOpenAIRealtime {
+		helper.SetEventStreamHeaders(c)
+		_ = helper.FlushWriter(c)
+	}
+
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
@@ -586,7 +593,7 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 	if c != nil && c.Request != nil {
 		done = c.Request.Context().Done()
 	}
-	if waitRpmQueueTurn(queueItem, *queueDeadline, done) {
+	if waitRpmQueueTurn(c, queueItem, *queueDeadline, done) {
 		logger.LogInfo(c, "Dequeued from RPM queue, retrying...")
 		relay.SendRetryWaitNotice(c, relayInfo)
 		return true
@@ -594,7 +601,7 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 	return false
 }
 
-func waitRpmQueueTurn(item *service.RpmQueueItem, deadline time.Time, done <-chan struct{}) bool {
+func waitRpmQueueTurn(c *gin.Context, item *service.RpmQueueItem, deadline time.Time, done <-chan struct{}) bool {
 	remaining := time.Until(deadline)
 	if remaining <= 0 {
 		service.GetRpmQueue().RemoveItem(item)
@@ -604,14 +611,24 @@ func waitRpmQueueTurn(item *service.RpmQueueItem, deadline time.Time, done <-cha
 	timer := time.NewTimer(remaining)
 	defer timer.Stop()
 
-	select {
-	case <-item.NotifyCh:
-		return true
-	case <-timer.C:
-		return !service.GetRpmQueue().RemoveItem(item)
-	case <-done:
-		service.GetRpmQueue().RemoveItem(item)
-		return false
+	// 排队期间每 10s 写一次 SSE 注释心跳，避免被中间网络设备断开。
+	pingTicker := time.NewTicker(10 * time.Second)
+	defer pingTicker.Stop()
+
+	for {
+		select {
+		case <-item.NotifyCh:
+			return true
+		case <-timer.C:
+			return !service.GetRpmQueue().RemoveItem(item)
+		case <-done:
+			service.GetRpmQueue().RemoveItem(item)
+			return false
+		case <-pingTicker.C:
+			if c != nil {
+				_ = helper.PingData(c)
+			}
+		}
 	}
 }
 
