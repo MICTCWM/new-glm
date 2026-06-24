@@ -54,6 +54,9 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		return nil, zeroOutputRetryError(info, &usage)
 	}
 
+	// 协议转换/序列化完成后，统一将响应里的 model 字段改回用户原始请求的 model ID
+	responseBody = relaycommon.OverrideResponseModel(responseBody, info)
+
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
@@ -136,6 +139,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				}
 			}
 		default:
+			// 强制把流式 chunk 的 model 字段覆盖为用户原始请求的 model ID（嵌套 response.model）
+			data = relaycommon.OverrideStreamChunkModel(data, info)
 			sendResponsesStreamData(c, streamResponse, data)
 		}
 	})
@@ -161,6 +166,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	if completedStreamResponse != nil {
+		// 强制把完成的 response.completed chunk 的 model 字段覆盖为用户原始请求的 model ID
+		completedData = relaycommon.OverrideStreamChunkModel(completedData, info)
 		sendResponsesStreamData(c, *completedStreamResponse, completedData)
 	}
 

@@ -35,6 +35,12 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 		return err
 	}
 
+	// 结构体层兜底：覆盖 model 字段为用户原始请求的 model ID，
+	// 这样后续通过 helper.ObjectData 序列化时一定能写到响应里。
+	if info != nil && info.OriginModelName != "" {
+		lastStreamResponse.Model = info.OriginModelName
+	}
+
 	if !thinkToContent && !normalizeStreamThinkTags(info, &lastStreamResponse) && !forceFormat {
 		return helper.StringData(c, data)
 	}
@@ -214,6 +220,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 		if shouldSendLastResp {
+			// 强制把流式 chunk 的 model 字段覆盖为用户原始请求的 model ID
+			lastStreamData = relaycommon.OverrideStreamChunkModel(lastStreamData, info)
 			if err := sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			}
@@ -340,6 +348,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 		responseBody = geminiRespStr
 	}
+
+	// 协议转换/序列化完成后，统一将响应里的 model 字段改回用户原始请求的 model ID
+	responseBody = relaycommon.OverrideResponseModel(responseBody, info)
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 

@@ -47,6 +47,9 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 		return nil, relaycommon.NewZeroOutputRetryError(info, &usage)
 	}
 
+	// 协议转换/序列化完成后，统一将响应里的 model 字段改回用户原始请求的 model ID
+	responseBody = relaycommon.OverrideResponseModel(responseBody, info)
+
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &usage, nil
@@ -89,6 +92,14 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	helper.SetEventStreamHeaders(c)
 
 	return geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
+		// Gemini-to-Gemini 直通场景：把 modelVersion 强制改回用户原始请求的 model ID，
+		// 然后基于结构体重新序列化，避免上游在 modelVersion 字段写内部名。
+		if info != nil && info.OriginModelName != "" {
+			geminiResponse.ModelVersion = info.OriginModelName
+			if patched, marshalErr := common.Marshal(geminiResponse); marshalErr == nil {
+				data = string(patched)
+			}
+		}
 		err := helper.StringData(c, data)
 		if err != nil {
 			logger.LogError(c, "failed to write stream data: "+err.Error())

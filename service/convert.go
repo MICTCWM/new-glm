@@ -301,9 +301,14 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeNone
 	}
 	if info.SendResponseCount == 1 && !info.RpmQueueThinkingNoticeSent {
+		// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
+		claudeMsgModel := info.OriginModelName
+		if claudeMsgModel == "" {
+			claudeMsgModel = openAIResponse.Model
+		}
 		msg := &dto.ClaudeMediaMessage{
 			Id:    openAIResponse.Id,
-			Model: openAIResponse.Model,
+			Model: claudeMsgModel,
 			Type:  "message",
 			Role:  "assistant",
 			Usage: &dto.ClaudeUsage{
@@ -610,12 +615,20 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 
 func ResponseOpenAI2Claude(openAIResponse *dto.OpenAITextResponse, info *relaycommon.RelayInfo) *dto.ClaudeResponse {
 	var stopReason string
+	// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
+	claudeModel := ""
+	if info != nil {
+		claudeModel = info.OriginModelName
+	}
+	if claudeModel == "" {
+		claudeModel = openAIResponse.Model
+	}
 	contents := make([]dto.ClaudeMediaMessage, 0)
 	claudeResponse := &dto.ClaudeResponse{
 		Id:    openAIResponse.Id,
 		Type:  "message",
 		Role:  "assistant",
-		Model: openAIResponse.Model,
+		Model: claudeModel,
 	}
 	for _, choice := range openAIResponse.Choices {
 		stopReason = stopReasonOpenAI2Claude(choice.FinishReason)
@@ -830,6 +843,11 @@ func extractTextFromGeminiParts(parts []dto.GeminiPart) string {
 
 // ResponseOpenAI2Gemini 将 OpenAI 响应转换为 Gemini 格式
 func ResponseOpenAI2Gemini(openAIResponse *dto.OpenAITextResponse, info *relaycommon.RelayInfo) *dto.GeminiChatResponse {
+	// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
+	geminiModelVersion := ""
+	if info != nil {
+		geminiModelVersion = info.OriginModelName
+	}
 	geminiResponse := &dto.GeminiChatResponse{
 		Candidates: make([]dto.GeminiChatCandidate, 0, len(openAIResponse.Choices)),
 		UsageMetadata: dto.GeminiUsageMetadata{
@@ -837,6 +855,7 @@ func ResponseOpenAI2Gemini(openAIResponse *dto.OpenAITextResponse, info *relayco
 			CandidatesTokenCount: openAIResponse.CompletionTokens,
 			TotalTokenCount:      openAIResponse.PromptTokens + openAIResponse.CompletionTokens,
 		},
+		ModelVersion: geminiModelVersion,
 	}
 
 	for _, choice := range openAIResponse.Choices {
@@ -933,6 +952,12 @@ func StreamResponseOpenAI2Gemini(openAIResponse *dto.ChatCompletionsStreamRespon
 			CandidatesTokenCount: 0, // 流式响应中可能没有完整的 usage 信息
 			TotalTokenCount:      info.GetEstimatePromptTokens(),
 		},
+	}
+	// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
+	if info.OriginModelName != "" {
+		geminiResponse.ModelVersion = info.OriginModelName
+	} else if openAIResponse.Model != "" {
+		geminiResponse.ModelVersion = openAIResponse.Model
 	}
 
 	if openAIResponse.Usage != nil {

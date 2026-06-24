@@ -827,12 +827,21 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 				return nil
 			}
 		}
+		// 协议转换/序列化完成后（Claude 流式 chunk 直接复用上游 data 字符串），
+		// 统一将响应里的 model 字段改回用户原始请求的 model ID
+		data = relaycommon.OverrideStreamChunkModel(data, info)
 		helper.ClaudeChunkData(c, claudeResponse, data)
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
 		response := StreamResponseClaude2OpenAI(&claudeResponse)
 
 		if !FormatClaudeResponseInfo(&claudeResponse, response, claudeInfo) {
 			return nil
+		}
+
+		// 结构体层兜底：覆盖 model 字段为用户原始请求的 model ID（防止上游
+		// message_start 给的 model 字段是聚合站内部名）
+		if info.OriginModelName != "" {
+			response.Model = info.OriginModelName
 		}
 
 		err = helper.ObjectData(c, response)
@@ -940,6 +949,10 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		if info.ShouldIncludeUsage {
 			openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 			response := helper.GenerateFinalUsageResponse(claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName, openAIUsage)
+			// 结构体层兜底：覆盖 model 字段为用户原始请求的 model ID
+			if info.OriginModelName != "" {
+				response.Model = info.OriginModelName
+			}
 			err := helper.ObjectData(c, response)
 			if err != nil {
 				common.SysLog("send final response failed: " + err.Error())
@@ -1014,6 +1027,9 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	case types.RelayFormatClaude:
 		responseData = data
 	}
+
+	// 协议转换/序列化完成后，统一将响应里的 model 字段改回用户原始请求的 model ID
+	responseData = relaycommon.OverrideResponseModel(responseData, info)
 
 	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)

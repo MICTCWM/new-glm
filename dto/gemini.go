@@ -458,6 +458,9 @@ type GeminiChatResponse struct {
 	Candidates     []GeminiChatCandidate     `json:"candidates"`
 	PromptFeedback *GeminiChatPromptFeedback `json:"promptFeedback,omitempty"`
 	UsageMetadata  GeminiUsageMetadata       `json:"usageMetadata"`
+	// ModelVersion 用于在 Gemini-to-Gemini 直通场景下回传 model 字段。
+	// 部分 Gemini 兼容上游会省略或改名该字段，这里统一保留以方便覆盖。
+	ModelVersion string `json:"modelVersion,omitempty"`
 }
 
 type GeminiUsageMetadata struct {
