@@ -55,6 +55,9 @@ func InitEnv() {
 		} else {
 			SessionSecret = ss
 		}
+	} else {
+		// 未设置 SESSION_SECRET 环境变量时，尝试从持久化文件读取/写入，避免重启后 session 失效
+		loadOrPersistSessionSecret()
 	}
 	if os.Getenv("CRYPTO_SECRET") != "" {
 		CryptoSecret = os.Getenv("CRYPTO_SECRET")
@@ -178,4 +181,36 @@ func initConstantEnv() {
 		}
 	}
 	constant.TrustedRedirectDomains = trustedDomains
+}
+
+// sessionSecretFile 是 SessionSecret 持久化文件的路径（相对于工作目录，容器内即 /data/.session_secret）
+const sessionSecretFile = ".session_secret"
+
+// loadOrPersistSessionSecret 在未设置 SESSION_SECRET 环境变量时，尝试从持久化文件读取 SessionSecret；
+// 若文件不存在则将当前随机生成的 SessionSecret 写入文件，重启后复用，避免每次部署后用户需重新登录。
+// 文件读写失败时回退到原行为（随机生成的 SessionSecret），并打印警告日志。
+func loadOrPersistSessionSecret() {
+	// 尝试读取持久化文件
+	data, err := os.ReadFile(sessionSecretFile)
+	if err == nil {
+		// 文件读取成功，使用文件中的密钥
+		secret := strings.TrimSpace(string(data))
+		if secret != "" {
+			SessionSecret = secret
+			return
+		}
+		// 文件内容为空，落到下方生成新的并写入
+	} else if !os.IsNotExist(err) {
+		// 读取失败且不是因为文件不存在（如权限问题），回退到随机生成并警告
+		log.Printf("WARNING: failed to read persisted session secret from %s: %v", sessionSecretFile, err)
+		log.Printf("警告：读取持久化的 session secret 失败（%s）：%v，这将导致重启后用户需要重新登录", sessionSecretFile, err)
+		return
+	}
+	// 文件不存在或内容为空，将当前随机生成的 SessionSecret 持久化到文件
+	err = os.WriteFile(sessionSecretFile, []byte(SessionSecret), 0600)
+	if err != nil {
+		log.Printf("WARNING: failed to persist session secret to %s: %v", sessionSecretFile, err)
+		log.Printf("警告：持久化 session secret 失败（%s）：%v，这将导致重启后用户需要重新登录", sessionSecretFile, err)
+	}
+	// SessionSecret 保持 constants.go 中默认的随机值
 }

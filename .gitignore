@@ -94,6 +94,7 @@ tiktoken_cache/
 *.db-wal
 *.db-shm
 data/
+.session_secret
 
 # ==================== 上传和媒体文件 ====================
 upload/
