@@ -54,7 +54,11 @@ func GetAllModelsMeta(c *gin.Context) {
 		pricing := model.GetPricing()
 		
 		var autoModels []*model.Model
-		model.DB.Select("model_name").Where("model_type = ?", model.ModelTypeAuto).Find(&autoModels)
+		err := model.DB.Select("model_name").Where("model_type = ?", model.ModelTypeAuto).Find(&autoModels).Error
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
 		autoModelSet := make(map[string]bool)
 		for _, m := range autoModels {
 			autoModelSet[m.ModelName] = true
