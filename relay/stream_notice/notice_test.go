@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
@@ -29,7 +28,7 @@ func TestSendRetryWaitNoticeByRelayFormat(t *testing.T) {
 			path:   "/v1/chat/completions",
 			assertions: []string{
 				`"object":"chat.completion.chunk"`,
-				`"reasoning_content":"` + common.UserMessageRetryWaitThinking,
+				`"reasoning_content":`,
 			},
 		},
 		{
@@ -42,7 +41,6 @@ func TestSendRetryWaitNoticeByRelayFormat(t *testing.T) {
 				"event: content_block_start",
 				"event: content_block_delta",
 				`"type":"thinking_delta"`,
-				common.UserMessageRetryWaitThinking,
 			},
 		},
 		{
@@ -52,7 +50,6 @@ func TestSendRetryWaitNoticeByRelayFormat(t *testing.T) {
 			path:   "/v1beta/models/gemini:streamGenerateContent",
 			assertions: []string{
 				`"thought":true`,
-				common.UserMessageRetryWaitThinking,
 			},
 		},
 		{
@@ -63,7 +60,6 @@ func TestSendRetryWaitNoticeByRelayFormat(t *testing.T) {
 			assertions: []string{
 				"event: response.reasoning_summary_part.added",
 				"event: response.reasoning_summary_text.delta",
-				common.UserMessageRetryWaitThinking,
 			},
 		},
 	}

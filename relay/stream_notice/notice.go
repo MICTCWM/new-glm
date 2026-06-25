@@ -16,7 +16,7 @@ import (
 )
 
 func SendRetryWaitNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
-	return sendThinkingNotice(c, info, common.UserMessageRetryWaitThinking+"\n", "retry wait")
+	return sendThinkingNotice(c, info, RandomRetryMessage(), "retry wait")
 }
 
 func sendThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo, notice string, logLabel string) bool {
