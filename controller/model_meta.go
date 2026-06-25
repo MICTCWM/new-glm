@@ -48,14 +48,26 @@ func validateModelPayload(c *gin.Context, m *model.Model) bool {
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
-	// 如果是选择器场景（select=all），返回全量模型列表（仅选择所需字段）
-	// 用于规避分页上限（100），保证 Auto 模型路由多选能获取全部可选模型
+	// 如果是选择器场景（select=all），返回全量模型列表（从 pricing 缓存获取，与 /v1/models 接口一致）
+	// 用于 Auto 模型路由多选，显示用户通过 /v1/models 能获取到的所有模型（排除 Auto 类型）
 	if c.Query("select") == "all" {
+		pricing := model.GetPricing()
+		
+		var autoModels []*model.Model
+		model.DB.Select("model_name").Where("model_type = ?", model.ModelTypeAuto).Find(&autoModels)
+		autoModelSet := make(map[string]bool)
+		for _, m := range autoModels {
+			autoModelSet[m.ModelName] = true
+		}
+		
 		var allModels []*model.Model
-		err := model.DB.Select("id", "model_name", "model_type", "status", "vendor_id", "name_rule", "sync_official").Order("id DESC").Find(&allModels).Error
-		if err != nil {
-			common.ApiError(c, err)
-			return
+		for _, p := range pricing {
+			if autoModelSet[p.ModelName] {
+				continue
+			}
+			allModels = append(allModels, &model.Model{
+				ModelName: p.ModelName,
+			})
 		}
 		common.ApiSuccess(c, gin.H{
 			"items":     allModels,
