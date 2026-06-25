@@ -168,8 +168,8 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 //
 // 优先级:用户级 RPM > 分组 RPM > 全局 RPM
 // 用户在 admin 编辑页可单独设置 RpmLimit(每分钟请求数上限),>0 时直接覆盖
-// 分组与全局的 totalMaxCount;successMaxCount 仍沿用分组/全局配置,
-// 避免把"每分钟总请求数"和"每分钟成功请求数"两个维度混淆。
+// 分组与全局的 totalMaxCount 与 successMaxCount(用户视角下"1000 RPM"即
+// 每分钟最多 1000 次请求,不再区分总/成功两个维度)。
 func ModelRequestRateLimit() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// 在每个请求时检查是否启用限流
@@ -196,10 +196,11 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 			successMaxCount = groupSuccessCount
 		}
 
-		// 用户级 RPM 覆盖:RpmLimit > 0 时直接覆盖每分钟总请求数,优先级最高
+		// 用户级 RPM 覆盖:RpmLimit > 0 时同时覆盖每分钟总请求数与成功请求数,优先级最高
 		if userId := c.GetInt("id"); userId > 0 {
 			if userCache, err := model.GetUserCache(userId); err == nil && userCache != nil && userCache.RpmLimit > 0 {
 				totalMaxCount = userCache.RpmLimit
+				successMaxCount = userCache.RpmLimit
 			}
 		}
 
