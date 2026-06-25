@@ -302,7 +302,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 	}
 	if info.SendResponseCount == 1 && !info.RpmQueueThinkingNoticeSent {
 		// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
-		claudeMsgModel := info.OriginModelName
+		claudeMsgModel := info.GetDisplayModelName()
 		if claudeMsgModel == "" {
 			claudeMsgModel = openAIResponse.Model
 		}
@@ -618,7 +618,7 @@ func ResponseOpenAI2Claude(openAIResponse *dto.OpenAITextResponse, info *relayco
 	// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
 	claudeModel := ""
 	if info != nil {
-		claudeModel = info.OriginModelName
+		claudeModel = info.GetDisplayModelName()
 	}
 	if claudeModel == "" {
 		claudeModel = openAIResponse.Model
@@ -846,7 +846,7 @@ func ResponseOpenAI2Gemini(openAIResponse *dto.OpenAITextResponse, info *relayco
 	// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
 	geminiModelVersion := ""
 	if info != nil {
-		geminiModelVersion = info.OriginModelName
+		geminiModelVersion = info.GetDisplayModelName()
 	}
 	geminiResponse := &dto.GeminiChatResponse{
 		Candidates: make([]dto.GeminiChatCandidate, 0, len(openAIResponse.Choices)),
@@ -954,8 +954,8 @@ func StreamResponseOpenAI2Gemini(openAIResponse *dto.ChatCompletionsStreamRespon
 		},
 	}
 	// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
-	if info.OriginModelName != "" {
-		geminiResponse.ModelVersion = info.OriginModelName
+	if info.GetDisplayModelName() != "" {
+		geminiResponse.ModelVersion = info.GetDisplayModelName()
 	} else if openAIResponse.Model != "" {
 		geminiResponse.ModelVersion = openAIResponse.Model
 	}

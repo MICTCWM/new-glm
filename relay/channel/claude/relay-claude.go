@@ -840,8 +840,8 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 
 		// 结构体层兜底：覆盖 model 字段为用户原始请求的 model ID（防止上游
 		// message_start 给的 model 字段是聚合站内部名）
-		if info.OriginModelName != "" {
-			response.Model = info.OriginModelName
+		if info.GetDisplayModelName() != "" {
+			response.Model = info.GetDisplayModelName()
 		}
 
 		err = helper.ObjectData(c, response)
@@ -950,8 +950,8 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 			openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 			response := helper.GenerateFinalUsageResponse(claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName, openAIUsage)
 			// 结构体层兜底：覆盖 model 字段为用户原始请求的 model ID
-			if info.OriginModelName != "" {
-				response.Model = info.OriginModelName
+			if info.GetDisplayModelName() != "" {
+				response.Model = info.GetDisplayModelName()
 			}
 			err := helper.ObjectData(c, response)
 			if err != nil {

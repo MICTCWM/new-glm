@@ -94,8 +94,8 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	return geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
 		// Gemini-to-Gemini 直通场景：把 modelVersion 强制改回用户原始请求的 model ID，
 		// 然后基于结构体重新序列化，避免上游在 modelVersion 字段写内部名。
-		if info != nil && info.OriginModelName != "" {
-			geminiResponse.ModelVersion = info.OriginModelName
+		if info != nil && info.GetDisplayModelName() != "" {
+			geminiResponse.ModelVersion = info.GetDisplayModelName()
 			if patched, marshalErr := common.Marshal(geminiResponse); marshalErr == nil {
 				data = string(patched)
 			}

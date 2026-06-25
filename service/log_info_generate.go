@@ -77,6 +77,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
 	appendBillingInfo(relayInfo, other)
+	appendAutoRouteInfo(relayInfo, other)
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
 	return other
@@ -170,6 +171,19 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 	}
 }
 
+func appendAutoRouteInfo(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo == nil || other == nil {
+		return
+	}
+	displayModelName := relayInfo.GetDisplayModelName()
+	routedModelName := relayInfo.GetAutoRouteModelName()
+	if displayModelName == "" || routedModelName == "" || displayModelName == routedModelName {
+		return
+	}
+	other["auto_routed"] = true
+	other["routed_model_name"] = routedModelName
+}
+
 func appendRequestConversionChain(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
 	if relayInfo == nil || other == nil {
 		return
@@ -261,6 +275,7 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData types.Price
 	if priceData.GroupRatioInfo.HasSpecialRatio {
 		other["user_group_ratio"] = priceData.GroupRatioInfo.GroupSpecialRatio
 	}
+	appendAutoRouteInfo(relayInfo, other)
 	appendRequestPath(nil, relayInfo, other)
 	return other
 }

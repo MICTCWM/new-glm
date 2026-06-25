@@ -273,15 +273,38 @@ func RetrieveModel(c *gin.Context, modelType int) {
 		default:
 			c.JSON(200, aiModel)
 		}
-	} else {
-		openAIError := types.OpenAIError{
-			Message: fmt.Sprintf("The model '%s' does not exist", modelId),
-			Type:    "invalid_request_error",
-			Param:   "model",
-			Code:    "model_not_found",
-		}
-		c.JSON(200, gin.H{
-			"error": openAIError,
-		})
+		return
 	}
+
+	if len(model.GetModelSupportEndpointTypes(modelId)) > 0 || len(model.GetModelEnableGroups(modelId)) > 0 {
+		customModel := dto.OpenAIModels{
+			Id:                     modelId,
+			Object:                 "model",
+			Created:                1626777600,
+			OwnedBy:                "custom",
+			SupportedEndpointTypes: model.GetModelSupportEndpointTypes(modelId),
+		}
+		switch modelType {
+		case constant.ChannelTypeAnthropic:
+			c.JSON(200, dto.AnthropicModel{
+				ID:          customModel.Id,
+				CreatedAt:   time.Unix(int64(customModel.Created), 0).UTC().Format(time.RFC3339),
+				DisplayName: customModel.Id,
+				Type:        "model",
+			})
+		default:
+			c.JSON(200, customModel)
+		}
+		return
+	}
+
+	openAIError := types.OpenAIError{
+		Message: fmt.Sprintf("The model '%s' does not exist", modelId),
+		Type:    "invalid_request_error",
+		Param:   "model",
+		Code:    "model_not_found",
+	}
+	c.JSON(200, gin.H{
+		"error": openAIError,
+	})
 }

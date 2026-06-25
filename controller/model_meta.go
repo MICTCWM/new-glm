@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,6 +13,38 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func validateModelPayload(c *gin.Context, m *model.Model) bool {
+	if m == nil {
+		common.ApiErrorMsg(c, "模型数据不能为空")
+		return false
+	}
+	if m.ContextLength < 0 {
+		common.ApiErrorMsg(c, "上下文长度不能为负数")
+		return false
+	}
+	if m.IsAutoModel() {
+		m.ModelName = "Auto"
+		m.NameRule = model.NameRuleExact
+		m.SyncOfficial = 0
+		if len(m.AutoRouteModels) == 0 {
+			common.ApiErrorMsg(c, "Auto 模型至少需要配置一个自动路由模型")
+			return false
+		}
+		for _, routeModel := range m.AutoRouteModels {
+			if strings.EqualFold(strings.TrimSpace(routeModel), "Auto") {
+				common.ApiErrorMsg(c, "Auto 模型不能把自己加入自动路由列表")
+				return false
+			}
+		}
+		return true
+	}
+	if strings.TrimSpace(m.ModelName) == "" {
+		common.ApiErrorMsg(c, "模型名称不能为空")
+		return false
+	}
+	return true
+}
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
@@ -73,6 +106,7 @@ func GetModelMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	m.LoadDerivedFields()
 	enrichModels([]*model.Model{&m})
 	common.ApiSuccess(c, &m)
 }
@@ -84,8 +118,7 @@ func CreateModelMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if m.ModelName == "" {
-		common.ApiErrorMsg(c, "模型名称不能为空")
+	if !validateModelPayload(c, &m) {
 		return
 	}
 	// 名称冲突检查
@@ -126,6 +159,9 @@ func UpdateModelMeta(c *gin.Context) {
 			return
 		}
 	} else {
+		if !validateModelPayload(c, &m) {
+			return
+		}
 		// 名称冲突检查
 		if dup, err := model.IsModelNameDuplicated(m.Id, m.ModelName); err != nil {
 			common.ApiError(c, err)
@@ -165,13 +201,23 @@ func enrichModels(models []*model.Model) {
 	if len(models) == 0 {
 		return
 	}
+	for _, m := range models {
+		if m != nil {
+			m.LoadDerivedFields()
+		}
+	}
 
 	// 1) 拆分精确与规则匹配
 	exactNames := make([]string, 0)
 	exactIdx := make(map[string][]int) // modelName -> indices in models
 	ruleIndices := make([]int, 0)
+	autoIndices := make([]int, 0)
 	for i, m := range models {
 		if m == nil {
+			continue
+		}
+		if m.IsAutoModel() {
+			autoIndices = append(autoIndices, i)
 			continue
 		}
 		if m.NameRule == model.NameRuleExact {
@@ -179,6 +225,71 @@ func enrichModels(models []*model.Model) {
 			exactIdx[m.ModelName] = append(exactIdx[m.ModelName], i)
 		} else {
 			ruleIndices = append(ruleIndices, i)
+		}
+	}
+
+	for _, idx := range autoIndices {
+		mm := models[idx]
+		if len(mm.AutoRouteModels) == 0 {
+			continue
+		}
+
+		endpointSet := make(map[constant.EndpointType]struct{})
+		groupSet := make(map[string]struct{})
+		quotaSet := make(map[int]struct{})
+		channelSet := make(map[string]model.BoundChannel)
+
+		for _, routeModel := range mm.AutoRouteModels {
+			for _, endpointType := range model.GetModelSupportEndpointTypes(routeModel) {
+				endpointSet[endpointType] = struct{}{}
+			}
+			for _, group := range model.GetModelEnableGroups(routeModel) {
+				groupSet[group] = struct{}{}
+			}
+			for _, quotaType := range model.GetModelQuotaTypes(routeModel) {
+				quotaSet[quotaType] = struct{}{}
+			}
+		}
+
+		channelsByModel, _ := model.GetBoundChannelsByModelsMap(mm.AutoRouteModels)
+		for _, routeModel := range mm.AutoRouteModels {
+			for _, ch := range channelsByModel[routeModel] {
+				key := fmt.Sprintf("%s_%d", ch.Name, ch.Type)
+				channelSet[key] = ch
+			}
+		}
+
+		if len(endpointSet) > 0 {
+			eps := make([]constant.EndpointType, 0, len(endpointSet))
+			for endpointType := range endpointSet {
+				eps = append(eps, endpointType)
+			}
+			if b, err := json.Marshal(eps); err == nil {
+				mm.Endpoints = string(b)
+			}
+		}
+		if len(groupSet) > 0 {
+			groups := make([]string, 0, len(groupSet))
+			for group := range groupSet {
+				groups = append(groups, group)
+			}
+			sort.Strings(groups)
+			mm.EnableGroups = groups
+		}
+		if len(quotaSet) > 0 {
+			quotaTypes := make([]int, 0, len(quotaSet))
+			for quotaType := range quotaSet {
+				quotaTypes = append(quotaTypes, quotaType)
+			}
+			sort.Ints(quotaTypes)
+			mm.QuotaTypes = quotaTypes
+		}
+		if len(channelSet) > 0 {
+			channels := make([]model.BoundChannel, 0, len(channelSet))
+			for _, ch := range channelSet {
+				channels = append(channels, ch)
+			}
+			mm.BoundChannels = channels
 		}
 	}
 

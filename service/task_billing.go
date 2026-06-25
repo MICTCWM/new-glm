@@ -50,9 +50,14 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
+	appendAutoRouteInfo(info, other)
+	logModel := info.GetDisplayModelName()
+	if logModel == "" {
+		logModel = info.OriginModelName
+	}
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
-		ModelName: info.OriginModelName,
+		ModelName: logModel,
 		TokenName: tokenName,
 		Quota:     info.PriceData.Quota,
 		Content:   logContent,
@@ -136,11 +141,18 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = props.UpstreamModelName
 	}
+	if props.DisplayModelName != "" && props.DisplayModelName != props.OriginModelName {
+		other["auto_routed"] = true
+		other["routed_model_name"] = props.OriginModelName
+	}
 	return other
 }
 
 // taskModelName 从 BillingContext 或 Properties 中获取模型名称。
 func taskModelName(task *model.Task) string {
+	if task.Properties.DisplayModelName != "" {
+		return task.Properties.DisplayModelName
+	}
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.OriginModelName != "" {
 		return bc.OriginModelName
 	}

@@ -61,7 +61,7 @@ func sendOpenAIChatThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo, n
 		Id:      helper.GetResponseID(c),
 		Object:  "chat.completion.chunk",
 		Created: time.Now().Unix(),
-		Model:   info.OriginModelName,
+		Model:   info.GetDisplayModelName(),
 		Choices: []dto.ChatCompletionsStreamResponseChoice{
 			{
 				Index: 0,
@@ -91,7 +91,7 @@ func sendClaudeThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo, notic
 	if !info.ClaudeRpmQueueThinkingOpen {
 		msg := &dto.ClaudeMediaMessage{
 			Id:    helper.GetResponseID(c),
-			Model: info.OriginModelName,
+			Model: info.GetDisplayModelName(),
 			Type:  "message",
 			Role:  "assistant",
 			Usage: &dto.ClaudeUsage{

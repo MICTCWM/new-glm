@@ -10,12 +10,12 @@ import (
 )
 
 // OverrideResponseModel 强制将响应体中的 model/modelVersion 字段
-// 覆盖为用户原始请求的 model ID。
+// 覆盖为对用户公开的 model ID。
 //
 // 背景：部分上游（聚合/中转）会在响应里返回它们内部的 model 名字
 // （如 "GM 5025.1 deep deepseek" / "千问 GPT" 等），与用户实际请求的
 // model ID 不一致。客户端依赖响应里的 model 字段做日志、计费核对、
-// 路由分发，因此这里统一改写为 info.OriginModelName。
+// 路由分发，因此这里统一改写为 info.GetDisplayModelName()。
 //
 // 该函数在协议转换完成、序列化后、写回客户端前调用，与协议转换逻辑
 // 完全解耦：
@@ -30,7 +30,7 @@ func OverrideResponseModel(data []byte, info *RelayInfo) []byte {
 	if info == nil || len(data) == 0 {
 		return data
 	}
-	target := strings.TrimSpace(info.OriginModelName)
+	target := strings.TrimSpace(info.GetDisplayModelName())
 	if target == "" {
 		return data
 	}
@@ -57,7 +57,7 @@ func OverrideStreamChunkModel(data string, info *RelayInfo) string {
 	if info == nil || data == "" {
 		return data
 	}
-	target := strings.TrimSpace(info.OriginModelName)
+	target := strings.TrimSpace(info.GetDisplayModelName())
 	if target == "" {
 		return data
 	}

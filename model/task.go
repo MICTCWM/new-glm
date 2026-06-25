@@ -75,6 +75,7 @@ func (t *Task) GetData(v any) error {
 }
 
 type Properties struct {
+	DisplayModelName  string `json:"display_model_name,omitempty"`
 	Input             string `json:"input"`
 	UpstreamModelName string `json:"upstream_model_name,omitempty"`
 	OriginModelName   string `json:"origin_model_name,omitempty"`
@@ -179,6 +180,9 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 		}
 		if relayInfo.UpstreamModelName != "" {
 			properties.UpstreamModelName = relayInfo.UpstreamModelName
+		}
+		if relayInfo.GetDisplayModelName() != "" {
+			properties.DisplayModelName = relayInfo.GetDisplayModelName()
 		}
 		if relayInfo.OriginModelName != "" {
 			properties.OriginModelName = relayInfo.OriginModelName
@@ -510,7 +514,11 @@ func (t *Task) ToOpenAIVideo() *dto.OpenAIVideo {
 	openAIVideo := dto.NewOpenAIVideo()
 	openAIVideo.ID = t.TaskID
 	openAIVideo.Status = t.Status.ToVideoStatus()
-	openAIVideo.Model = t.Properties.OriginModelName
+	if t.Properties.DisplayModelName != "" {
+		openAIVideo.Model = t.Properties.DisplayModelName
+	} else {
+		openAIVideo.Model = t.Properties.OriginModelName
+	}
 	openAIVideo.SetProgressStr(t.Progress)
 	openAIVideo.CreatedAt = t.CreatedAt
 	openAIVideo.CompletedAt = t.UpdatedAt

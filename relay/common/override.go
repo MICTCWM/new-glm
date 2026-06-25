@@ -1995,7 +1995,7 @@ func mergeObjects(jsonStr, path string, value interface{}, keepOrigin bool) (str
 // BuildParamOverrideContext 提供 ApplyParamOverride 可用的上下文信息。
 // 目前内置以下字段：
 //   - upstream_model/model：始终为通道映射后的上游模型名。
-//   - original_model：请求最初指定的模型名。
+//   - original_model：对用户公开的请求模型名。
 //   - request_path：请求路径
 //   - is_channel_test：是否为渠道测试请求（同 is_test）。
 func BuildParamOverrideContext(info *RelayInfo) map[string]interface{} {
@@ -2008,10 +2008,10 @@ func BuildParamOverrideContext(info *RelayInfo) map[string]interface{} {
 		ctx["model"] = info.ChannelMeta.UpstreamModelName
 		ctx["upstream_model"] = info.ChannelMeta.UpstreamModelName
 	}
-	if info.OriginModelName != "" {
-		ctx["original_model"] = info.OriginModelName
+	if displayModelName := info.GetDisplayModelName(); displayModelName != "" {
+		ctx["original_model"] = displayModelName
 		if _, exists := ctx["model"]; !exists {
-			ctx["model"] = info.OriginModelName
+			ctx["model"] = displayModelName
 		}
 	}
 

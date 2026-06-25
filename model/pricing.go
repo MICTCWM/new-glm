@@ -21,6 +21,7 @@ type Pricing struct {
 	Icon                   string                  `json:"icon,omitempty"`
 	Tags                   string                  `json:"tags,omitempty"`
 	VendorID               int                     `json:"vendor_id,omitempty"`
+	ContextLength          int                     `json:"context_length,omitempty"`
 	QuotaType              int                     `json:"quota_type"`
 	ModelRatio             float64                 `json:"model_ratio"`
 	ModelPrice             float64                 `json:"model_price"`
@@ -107,6 +108,30 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 	return make([]constant.EndpointType, 0)
 }
 
+func parseEndpointTypesFromConfig(rawConfig string) []constant.EndpointType {
+	if strings.TrimSpace(rawConfig) == "" {
+		return nil
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(rawConfig), &raw); err != nil {
+		return nil
+	}
+	endpoints := make([]constant.EndpointType, 0, len(raw))
+	seen := make(map[constant.EndpointType]struct{}, len(raw))
+	for k, v := range raw {
+		switch v.(type) {
+		case string, map[string]interface{}:
+			endpointType := constant.EndpointType(k)
+			if _, ok := seen[endpointType]; ok {
+				continue
+			}
+			seen[endpointType] = struct{}{}
+			endpoints = append(endpoints, endpointType)
+		}
+	}
+	return endpoints
+}
+
 func updatePricing() {
 	//modelRatios := common.GetModelRatios()
 	enableAbilities, err := GetAllEnableAbilityWithChannels()
@@ -123,6 +148,7 @@ func updatePricing() {
 	containsList := make([]*Model, 0)
 	for i := range allMeta {
 		m := &allMeta[i]
+		m.LoadDerivedFields()
 		if m.NameRule == NameRuleExact {
 			metaMap[m.ModelName] = m
 		} else {
@@ -303,6 +329,7 @@ func updatePricing() {
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
+			pricing.ContextLength = meta.ContextLength
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		if findPrice {
@@ -333,6 +360,112 @@ func updatePricing() {
 		}
 		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
 			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
+				pricing.BillingMode = billingMode
+				pricing.BillingExpr = expr
+			}
+		}
+		pricingMap = append(pricingMap, pricing)
+	}
+
+	for _, meta := range allMeta {
+		if !meta.IsAutoModel() || meta.Status != 1 || len(meta.AutoRouteModels) == 0 {
+			continue
+		}
+
+		groupSet := types.NewSet[string]()
+		quotaSet := types.NewSet[int]()
+		endpointSet := make(map[constant.EndpointType]struct{})
+		for _, routeModel := range meta.AutoRouteModels {
+			for _, group := range GetModelEnableGroups(routeModel) {
+				groupSet.Add(group)
+			}
+			for _, quotaType := range GetModelQuotaTypes(routeModel) {
+				quotaSet.Add(quotaType)
+			}
+			for _, endpointType := range GetModelSupportEndpointTypes(routeModel) {
+				endpointSet[endpointType] = struct{}{}
+			}
+		}
+		if groupSet.Len() == 0 {
+			continue
+		}
+
+		autoEndpoints := parseEndpointTypesFromConfig(meta.Endpoints)
+		if len(autoEndpoints) > 0 {
+			endpointSet = make(map[constant.EndpointType]struct{}, len(autoEndpoints))
+			for _, endpointType := range autoEndpoints {
+				endpointSet[endpointType] = struct{}{}
+			}
+			var raw map[string]interface{}
+			if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
+				for k, v := range raw {
+					switch val := v.(type) {
+					case string:
+						supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
+					case map[string]interface{}:
+						ep := common.EndpointInfo{Method: "POST"}
+						if p, ok := val["path"].(string); ok {
+							ep.Path = p
+						}
+						if m, ok := val["method"].(string); ok {
+							ep.Method = strings.ToUpper(m)
+						}
+						supportedEndpointMap[k] = ep
+					}
+				}
+			}
+		}
+
+		supportedEndpoints := make([]constant.EndpointType, 0, len(endpointSet))
+		for endpointType := range endpointSet {
+			supportedEndpoints = append(supportedEndpoints, endpointType)
+		}
+		modelSupportEndpointTypes[meta.ModelName] = supportedEndpoints
+
+		pricing := Pricing{
+			ModelName:              meta.ModelName,
+			Description:            meta.Description,
+			Icon:                   meta.Icon,
+			Tags:                   meta.Tags,
+			VendorID:               meta.VendorID,
+			ContextLength:          meta.ContextLength,
+			EnableGroup:            groupSet.Items(),
+			SupportedEndpointTypes: supportedEndpoints,
+		}
+
+		modelPrice, findPrice := ratio_setting.GetModelPrice(meta.ModelName, false)
+		if findPrice {
+			pricing.ModelPrice = modelPrice
+			pricing.QuotaType = 1
+		} else {
+			modelRatio, _, _ := ratio_setting.GetModelRatio(meta.ModelName)
+			pricing.ModelRatio = modelRatio
+			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(meta.ModelName)
+			if quotaSet.Contains(1) && !quotaSet.Contains(0) {
+				pricing.QuotaType = 1
+			} else {
+				pricing.QuotaType = 0
+			}
+		}
+		if cacheRatio, ok := ratio_setting.GetCacheRatio(meta.ModelName); ok {
+			pricing.CacheRatio = &cacheRatio
+		}
+		if createCacheRatio, ok := ratio_setting.GetCreateCacheRatio(meta.ModelName); ok {
+			pricing.CreateCacheRatio = &createCacheRatio
+		}
+		if imageRatio, ok := ratio_setting.GetImageRatio(meta.ModelName); ok {
+			pricing.ImageRatio = &imageRatio
+		}
+		if ratio_setting.ContainsAudioRatio(meta.ModelName) {
+			audioRatio := ratio_setting.GetAudioRatio(meta.ModelName)
+			pricing.AudioRatio = &audioRatio
+		}
+		if ratio_setting.ContainsAudioCompletionRatio(meta.ModelName) {
+			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(meta.ModelName)
+			pricing.AudioCompletionRatio = &audioCompletionRatio
+		}
+		if billingMode := billing_setting.GetBillingMode(meta.ModelName); billingMode == "tiered_expr" {
+			if expr, ok := billing_setting.GetBillingExpr(meta.ModelName); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
 			}

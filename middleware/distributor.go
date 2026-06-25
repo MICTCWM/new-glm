@@ -36,6 +36,25 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		requestedModelName := modelRequest.Model
+		resolvedModelName := modelRequest.Model
+		autoRouteTarget, err := service.ResolveAutoRouteTarget(c, modelRequest.Model)
+		if err != nil {
+			abortWithOpenAiMessage(c, http.StatusServiceUnavailable, err.Error(), types.ErrorCodeModelNotFound)
+			return
+		}
+		if autoRouteTarget != nil {
+			if autoRouteTarget.DisplayModelName != "" {
+				common.SetContextKey(c, constant.ContextKeyDisplayModel, autoRouteTarget.DisplayModelName)
+				requestedModelName = autoRouteTarget.DisplayModelName
+			}
+			if autoRouteTarget.RoutedModelName != "" {
+				resolvedModelName = autoRouteTarget.RoutedModelName
+			}
+			if autoRouteTarget.IsAuto {
+				common.SetContextKey(c, constant.ContextKeyAutoRouteModel, autoRouteTarget.RoutedModelName)
+			}
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -67,15 +86,15 @@ func Distribute() func(c *gin.Context) {
 				if !ok {
 					tokenModelLimit = map[string]bool{}
 				}
-				matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model) // match gpts & thinking-*
+				matchName := ratio_setting.FormatMatchingModelName(requestedModelName) // match gpts & thinking-*
 				if _, ok := tokenModelLimit[matchName]; !ok {
-					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": modelRequest.Model}))
+					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorTokenModelForbidden, map[string]any{"Model": requestedModelName}))
 					return
 				}
 			}
 
 			if shouldSelectChannel {
-				if modelRequest.Model == "" {
+				if resolvedModelName == "" {
 					abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorModelNameRequired))
 					return
 				}
@@ -99,7 +118,7 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
-				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
+				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, resolvedModelName, usingGroup); found {
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil {
 						if preferred.Status != common.ChannelStatusEnabled {
@@ -111,7 +130,7 @@ func Distribute() func(c *gin.Context) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
 							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && !isChannelRpmFull(preferred) {
+								if model.IsChannelEnabledForGroupModel(g, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && !isChannelRpmFull(preferred) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
@@ -119,7 +138,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && !isChannelRpmFull(preferred) {
+						} else if model.IsChannelEnabledForGroupModel(usingGroup, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && !isChannelRpmFull(preferred) {
 							channel = preferred
 							selectGroup = usingGroup
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
@@ -130,7 +149,7 @@ func Distribute() func(c *gin.Context) {
 				if channel == nil {
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
 						Ctx:        c,
-						ModelName:  modelRequest.Model,
+						ModelName:  resolvedModelName,
 						TokenGroup: usingGroup,
 						Retry:      common.GetPointer(0),
 					})
@@ -146,7 +165,7 @@ func Distribute() func(c *gin.Context) {
 							if usingGroup == "auto" {
 								showGroup = fmt.Sprintf("auto(%s)", selectGroup)
 							}
-							message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
+							message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": requestedModelName, "Error": err.Error()})
 							// 如果错误，但是渠道不为空，说明是数据库一致性问题
 							//if channel != nil {
 							//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
@@ -157,7 +176,7 @@ func Distribute() func(c *gin.Context) {
 						}
 					}
 					if channel == nil && !common.GetContextKeyBool(c, constant.ContextKeyRpmQueuePending) {
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": requestedModelName}), types.ErrorCodeModelNotFound)
 						return
 					}
 				}
@@ -165,9 +184,9 @@ func Distribute() func(c *gin.Context) {
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
 		if channel != nil {
-			SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+			SetupContextForSelectedChannel(c, channel, resolvedModelName)
 		} else {
-			common.SetContextKey(c, constant.ContextKeyOriginalModel, modelRequest.Model)
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, resolvedModelName)
 		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {

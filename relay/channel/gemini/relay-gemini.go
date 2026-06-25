@@ -1339,7 +1339,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		response.Id = id
 		response.Created = createAt
 		// 统一将流式 chunk 的 model 字段覆盖为用户原始请求的 model ID
-		response.Model = info.OriginModelName
+		response.Model = info.GetDisplayModelName()
 		for choiceIdx := range response.Choices {
 			choiceKey := response.Choices[choiceIdx].Index
 			for toolIdx := range response.Choices[choiceIdx].Delta.ToolCalls {
@@ -1366,7 +1366,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		logger.LogDebug(c, fmt.Sprintf("info.SendResponseCount = %d", info.SendResponseCount))
 		if info.SendResponseCount == 0 {
 			// send first response
-			emptyResponse := helper.GenerateStartEmptyResponse(id, createAt, info.OriginModelName, nil)
+			emptyResponse := helper.GenerateStartEmptyResponse(id, createAt, info.GetDisplayModelName(), nil)
 			if response.IsToolCall() {
 				if len(emptyResponse.Choices) > 0 && len(response.Choices) > 0 {
 					toolCalls := response.Choices[0].Delta.ToolCalls
@@ -1400,7 +1400,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 			logger.LogError(c, err.Error())
 		}
 		if isStop {
-			_ = handleStream(c, info, helper.GenerateStopResponse(id, createAt, info.OriginModelName, finishReason))
+			_ = handleStream(c, info, helper.GenerateStopResponse(id, createAt, info.GetDisplayModelName(), finishReason))
 		}
 		return true
 	})
@@ -1413,7 +1413,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		return nil, relaycommon.NewZeroOutputRetryError(info, usage)
 	}
 
-	response := helper.GenerateFinalUsageResponse(id, createAt, info.OriginModelName, *usage)
+	response := helper.GenerateFinalUsageResponse(id, createAt, info.GetDisplayModelName(), *usage)
 	handleErr := handleFinalStream(c, info, response)
 	if handleErr != nil {
 		common.SysLog("send final response failed: " + handleErr.Error())
@@ -1474,7 +1474,7 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		return nil, newAPIError
 	}
 	fullTextResponse := responseGeminiChat2OpenAI(c, &geminiResponse)
-	fullTextResponse.Model = info.OriginModelName
+	fullTextResponse.Model = info.GetDisplayModelName()
 	usage := buildUsageFromGeminiMetadata(geminiResponse.UsageMetadata, info.GetEstimatePromptTokens())
 	if relaycommon.ShouldRetryZeroOutputUsage(info, &usage) {
 		return nil, relaycommon.NewZeroOutputRetryError(info, &usage)

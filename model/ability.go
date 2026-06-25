@@ -39,16 +39,28 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 }
 
 func GetGroupEnabledModels(group string) []string {
-	var models []string
-	// Find distinct models
-	DB.Table("abilities").Where(commonGroupCol+" = ? and enabled = ?", group, true).Distinct("model").Pluck("model", &models)
+	if group == "" {
+		return []string{}
+	}
+	pricing := GetPricing()
+	models := make([]string, 0, len(pricing))
+	for _, item := range pricing {
+		for _, enableGroup := range item.EnableGroup {
+			if enableGroup == group {
+				models = append(models, item.ModelName)
+				break
+			}
+		}
+	}
 	return models
 }
 
 func GetEnabledModels() []string {
-	var models []string
-	// Find distinct models
-	DB.Table("abilities").Where("enabled = ?", true).Distinct("model").Pluck("model", &models)
+	pricing := GetPricing()
+	models := make([]string, 0, len(pricing))
+	for _, item := range pricing {
+		models = append(models, item.ModelName)
+	}
 	return models
 }
 

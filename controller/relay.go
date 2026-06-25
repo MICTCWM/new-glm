@@ -178,7 +178,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	if priceData.FreeModel {
-		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
+		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.GetDisplayModelName()))
 	} else {
 		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
 		if newAPIError != nil {
@@ -398,7 +398,7 @@ func sendOpenAIChatRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.Rela
 		Id:      helper.GetResponseID(c),
 		Object:  "chat.completion.chunk",
 		Created: time.Now().Unix(),
-		Model:   info.OriginModelName,
+		Model:   info.GetDisplayModelName(),
 		Choices: []dto.ChatCompletionsStreamResponseChoice{
 			{
 				Index: 0,
@@ -445,7 +445,7 @@ func sendOpenAIChatRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.Rela
 func sendClaudeRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	msg := &dto.ClaudeMediaMessage{
 		Id:    helper.GetResponseID(c),
-		Model: info.OriginModelName,
+		Model: info.GetDisplayModelName(),
 		Type:  "message",
 		Role:  "assistant",
 		Usage: &dto.ClaudeUsage{
@@ -583,7 +583,7 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 		Username:     c.GetString("username"),
 		UserID:       relayInfo.UserId,
 		Group:        relayInfo.TokenGroup,
-		ModelName:    relayInfo.OriginModelName,
+		ModelName:    relayInfo.GetDisplayModelName(),
 		PromptTokens: relayInfo.GetEstimatePromptTokens(),
 	})
 	if !*queueNoticeSent {
@@ -686,10 +686,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 						http.StatusTooManyRequests,
 					)
 				}
-				return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.OriginModelName, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+				return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.GetDisplayModelName(), err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 			}
 			if channel == nil {
-				return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+				return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.GetDisplayModelName()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 			}
 			newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 			if newAPIError != nil {
@@ -719,7 +719,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	if err != nil {
 		if errors.Is(err, model.ErrChannelSpecialUserUnauthorized) {
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("未有权限调用模型 %s", info.OriginModelName),
+				fmt.Errorf("未有权限调用模型 %s", info.GetDisplayModelName()),
 				types.ErrorCodeModelNotFound,
 				http.StatusForbidden,
 				types.ErrOptionWithSkipRetry(),
@@ -732,10 +732,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 				http.StatusTooManyRequests,
 			)
 		}
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.OriginModelName, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.GetDisplayModelName(), err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.GetDisplayModelName()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
@@ -795,7 +795,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
 		tokenName := c.GetString("token_name")
-		modelName := c.GetString("original_model")
+		modelName := common.GetContextKeyString(c, constant.ContextKeyDisplayModel)
+		if modelName == "" {
+			modelName = c.GetString("original_model")
+		}
 		tokenId := c.GetInt("token_id")
 		userGroup := c.GetString("group")
 		channelId := c.GetInt("channel_id")
@@ -826,6 +829,10 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			if delays, ok := retryDelays.([]int); ok && len(delays) > 0 {
 				other["retry_delays"] = delays
 			}
+		}
+		if routedModelName := common.GetContextKeyString(c, constant.ContextKeyAutoRouteModel); routedModelName != "" && routedModelName != modelName {
+			other["auto_routed"] = true
+			other["routed_model_name"] = routedModelName
 		}
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
@@ -1117,7 +1124,10 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 func logRpmFinalError(c *gin.Context, selectedChannel *model.Channel, content string) {
 	userId := c.GetInt("id")
 	tokenName := c.GetString("token_name")
-	modelName := c.GetString("original_model")
+	modelName := common.GetContextKeyString(c, constant.ContextKeyDisplayModel)
+	if modelName == "" {
+		modelName = c.GetString("original_model")
+	}
 	tokenId := c.GetInt("token_id")
 	userGroup := c.GetString("group")
 	channelId := 0
@@ -1133,6 +1143,10 @@ func logRpmFinalError(c *gin.Context, selectedChannel *model.Channel, content st
 	other := map[string]interface{}{
 		"queued":         true,
 		"queued_timeout": false,
+	}
+	if routedModelName := common.GetContextKeyString(c, constant.ContextKeyAutoRouteModel); routedModelName != "" && routedModelName != modelName {
+		other["auto_routed"] = true
+		other["routed_model_name"] = routedModelName
 	}
 	startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 	if startTime.IsZero() {

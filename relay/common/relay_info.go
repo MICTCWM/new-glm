@@ -106,6 +106,8 @@ type RelayInfo struct {
 	IsPlayground           bool
 	UsePrice               bool
 	RelayMode              int
+	DisplayModelName       string
+	AutoRouteModelName     string
 	OriginModelName        string
 	RequestURLPath         string
 	RequestHeaders         map[string]string
@@ -259,6 +261,8 @@ func (info *RelayInfo) ToString() string {
 	fmt.Fprintf(b, "IsStream: %t, ", info.IsStream)
 	fmt.Fprintf(b, "IsPlayground: %t, ", info.IsPlayground)
 	fmt.Fprintf(b, "RequestURLPath: %q, ", info.RequestURLPath)
+	fmt.Fprintf(b, "DisplayModelName: %q, ", info.DisplayModelName)
+	fmt.Fprintf(b, "AutoRouteModelName: %q, ", info.AutoRouteModelName)
 	fmt.Fprintf(b, "OriginModelName: %q, ", info.OriginModelName)
 	fmt.Fprintf(b, "EstimatePromptTokens: %d, ", info.estimatePromptTokens)
 	fmt.Fprintf(b, "ShouldIncludeUsage: %t, ", info.ShouldIncludeUsage)
@@ -475,6 +479,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
+		DisplayModelName:  common.GetContextKeyString(c, constant.ContextKeyDisplayModel),
+		AutoRouteModelName: common.GetContextKeyString(c, constant.ContextKeyAutoRouteModel),
 		OriginModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
@@ -516,6 +522,26 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	}
 
 	return info
+}
+
+func (info *RelayInfo) GetDisplayModelName() string {
+	if info == nil {
+		return ""
+	}
+	if strings.TrimSpace(info.DisplayModelName) != "" {
+		return info.DisplayModelName
+	}
+	return info.OriginModelName
+}
+
+func (info *RelayInfo) GetAutoRouteModelName() string {
+	if info == nil {
+		return ""
+	}
+	if strings.TrimSpace(info.AutoRouteModelName) != "" {
+		return info.AutoRouteModelName
+	}
+	return info.OriginModelName
 }
 
 func cloneRequestHeaders(c *gin.Context) map[string]string {

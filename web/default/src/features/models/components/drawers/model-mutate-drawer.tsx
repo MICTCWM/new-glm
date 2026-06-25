@@ -63,6 +63,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { JsonEditor } from '@/components/json-editor'
+import { MultiSelect } from '@/components/multi-select'
 import { TagInput } from '@/components/tag-input'
 import {
   useSystemOptions,
@@ -72,7 +73,13 @@ import { useUpdateOption } from '@/features/system-settings/hooks/use-update-opt
 import { normalizeJsonString } from '@/features/system-settings/models/utils'
 import type { ModelSettings } from '@/features/system-settings/types'
 import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
-import { createModel, updateModel, getModel, getVendors } from '../../api'
+import {
+  createModel,
+  updateModel,
+  getModel,
+  getVendors,
+  getModels,
+} from '../../api'
 import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
 import { modelsQueryKeys, vendorsQueryKeys, parseModelTags } from '../../lib'
 import type { Model } from '../../types'
@@ -89,6 +96,9 @@ const extendedModelFormSchema = z.object({
   name_rule: z.number(),
   status: z.boolean(),
   sync_official: z.boolean(),
+  model_type: z.number().default(0),
+  context_length: z.number().optional(),
+  auto_route_models: z.array(z.string()).default([]),
   price: z.string().optional(),
   ratio: z.string().optional(),
   cacheRatio: z.string().optional(),
@@ -133,6 +143,15 @@ export function ModelMutateDrawer({
   })
 
   const vendors = vendorsData?.data?.items || []
+
+  // Fetch all models for auto route selection (exclude Auto models themselves)
+  const { data: allModelsData } = useQuery({
+    queryKey: modelsQueryKeys.list({ page_size: 1000 }),
+    queryFn: () => getModels({ page_size: 1000 }),
+    enabled: open,
+  })
+
+  const allModels = allModelsData?.data?.items || []
 
   // Fetch model detail if editing
   const { data: modelData } = useQuery({
@@ -210,6 +229,9 @@ export function ModelMutateDrawer({
       name_rule: 0,
       status: true,
       sync_official: true,
+      model_type: 0,
+      context_length: 0,
+      auto_route_models: [],
       price: '',
       ratio: '',
       cacheRatio: '',
@@ -219,6 +241,34 @@ export function ModelMutateDrawer({
       audioCompletionRatio: '',
     },
   })
+
+  // Watch model_type to drive conditional rendering
+  const modelType = form.watch('model_type')
+  const isAutoModel = modelType === 1
+
+  // Build options for auto route models multi-select (exclude Auto models)
+  const autoRouteModelOptions = useMemo(() => {
+    return allModels
+      .filter((model) => model.model_type !== 1)
+      .map((model) => ({
+        label: model.model_name,
+        value: model.model_name,
+      }))
+  }, [allModels])
+
+  // Handle model_type change: when switching to Auto, force model_name to "Auto"
+  // and sync_official to false (Auto models cannot sync with official upstream)
+  useEffect(() => {
+    if (isAutoModel) {
+      const currentName = form.getValues('model_name')
+      if (currentName !== 'Auto') {
+        form.setValue('model_name', 'Auto')
+      }
+      // Auto models must have sync_official disabled (enforced here since the
+      // switch is hidden in the UI when isAutoModel is true)
+      form.setValue('sync_official', false)
+    }
+  }, [isAutoModel, form])
 
   const validateNumber = (value: string) => {
     if (value === '') return true
@@ -269,6 +319,9 @@ export function ModelMutateDrawer({
         name_rule: model.name_rule || 0,
         status: model.status === 1,
         sync_official: model.sync_official === 1,
+        model_type: model.model_type ?? 0,
+        context_length: model.context_length ?? 0,
+        auto_route_models: model.auto_route_models ?? [],
         price: '',
         ratio: '',
         cacheRatio: '',
@@ -373,6 +426,9 @@ export function ModelMutateDrawer({
         name_rule: 0,
         status: true,
         sync_official: true,
+        model_type: 0,
+        context_length: 0,
+        auto_route_models: [],
         price: '',
         ratio: '',
         cacheRatio: '',
@@ -388,8 +444,13 @@ export function ModelMutateDrawer({
     async (values: ExtendedModelFormValues): Promise<void> => {
       setIsSubmitting(true)
       try {
+        // For Auto models, force model_name to "Auto"
+        const submittedModelName =
+          values.model_type === 1 ? 'Auto' : values.model_name
+
         const submitData = {
           ...values,
+          model_name: submittedModelName,
           id: isEditing ? currentRow!.id : undefined,
           tags: Array.isArray(values.tags) ? values.tags.join(',') : '',
           status: values.status ? 1 : 0,
@@ -414,7 +475,7 @@ export function ModelMutateDrawer({
 
         if (response.success) {
           // Handle ratio configuration updates in system settings
-          const finalModelName = values.model_name
+          const finalModelName = submittedModelName
           const hasRatioConfig =
             (pricingMode === 'per-request' &&
               values.price &&
@@ -657,6 +718,46 @@ export function ModelMutateDrawer({
 
               <FormField
                 control={form.control}
+                name='model_type'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Model Type')}</FormLabel>
+                    <Select
+                      items={[
+                        { value: '0', label: t('Regular Model') },
+                        { value: '1', label: t('Auto Model') },
+                      ]}
+                      onValueChange={(value) =>
+                        field.onChange(value ? parseInt(value) : 0)
+                      }
+                      value={String(field.value ?? 0)}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={t('Select model type')} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          <SelectItem value='0'>
+                            {t('Regular Model')}
+                          </SelectItem>
+                          <SelectItem value='1'>{t('Auto Model')}</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {t(
+                        'Auto models route requests to the fastest available target model'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name='model_name'
                 render={({ field }) => (
                   <FormItem>
@@ -664,11 +765,14 @@ export function ModelMutateDrawer({
                     <FormControl>
                       <Input
                         placeholder={t('gpt-4, claude-3-opus, etc.')}
+                        disabled={isAutoModel}
                         {...field}
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('The unique identifier for this model')}
+                      {isAutoModel
+                        ? t('Auto model name is fixed to "Auto"')
+                        : t('The unique identifier for this model')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -713,46 +817,48 @@ export function ModelMutateDrawer({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='vendor_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Vendor')}</FormLabel>
-                    <Select
-                      items={[
-                        ...vendors.map((vendor) => ({
-                          value: String(vendor.id),
-                          label: vendor.name,
-                        })),
-                      ]}
-                      onValueChange={(value) =>
-                        field.onChange(value ? parseInt(value) : undefined)
-                      }
-                      value={field.value ? String(field.value) : undefined}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t('Select vendor')} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent alignItemWithTrigger={false}>
-                        <SelectGroup>
-                          {vendors.map((vendor) => (
-                            <SelectItem
-                              key={vendor.id}
-                              value={String(vendor.id)}
-                            >
-                              {vendor.name}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {!isAutoModel && (
+                <FormField
+                  control={form.control}
+                  name='vendor_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Vendor')}</FormLabel>
+                      <Select
+                        items={[
+                          ...vendors.map((vendor) => ({
+                            value: String(vendor.id),
+                            label: vendor.name,
+                          })),
+                        ]}
+                        onValueChange={(value) =>
+                          field.onChange(value ? parseInt(value) : undefined)
+                        }
+                        value={field.value ? String(field.value) : undefined}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={t('Select vendor')} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            {vendors.map((vendor) => (
+                              <SelectItem
+                                key={vendor.id}
+                                value={String(vendor.id)}
+                              >
+                                {vendor.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={form.control}
@@ -776,114 +882,185 @@ export function ModelMutateDrawer({
               />
             </div>
 
-            <Separator />
+            {/* Auto Route Configuration */}
+            {isAutoModel && (
+              <div className='space-y-4'>
+                <Separator />
+                <h3 className='text-sm font-semibold'>
+                  {t('Auto Route Configuration')}
+                </h3>
 
-            {/* Matching Configuration */}
-            <div className='space-y-4'>
-              <h3 className='text-sm font-semibold'>{t('Matching Rules')}</h3>
-
-              <FormField
-                control={form.control}
-                name='name_rule'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Name Rule')}</FormLabel>
-                    <FormControl>
-                      <RadioGroup
-                        onValueChange={(value) =>
-                          field.onChange(parseInt(value))
-                        }
-                        value={String(field.value)}
-                        className='grid grid-cols-2 gap-4'
-                      >
-                        {getNameRuleOptions(t).map((option) => (
-                          <div
-                            key={option.value}
-                            className='flex items-center space-x-2'
-                          >
-                            <RadioGroupItem
-                              value={String(option.value)}
-                              id={`rule-${option.value}`}
-                            />
-                            <Label
-                              htmlFor={`rule-${option.value}`}
-                              className='cursor-pointer font-normal'
-                            >
-                              {option.label}
-                            </Label>
-                          </div>
-                        ))}
-                      </RadioGroup>
-                    </FormControl>
-                    <FormDescription>
-                      {t('How this model name should match requests')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <Separator />
-
-            {/* Endpoints Configuration */}
-            <div className='space-y-4'>
-              <div className='flex items-center justify-between'>
-                <h3 className='text-sm font-semibold'>{t('Endpoints')}</h3>
-                <Select<string>
-                  items={[
-                    ...Object.keys(ENDPOINT_TEMPLATES).map((key) => ({
-                      value: key,
-                      label: key,
-                    })),
-                  ]}
-                  onValueChange={(v) =>
-                    v !== null && handleFillEndpointTemplate(v)
-                  }
-                >
-                  <SelectTrigger size='sm' className='w-[200px]'>
-                    <SelectValue placeholder={t('Load template...')} />
-                  </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
-                    <SelectGroup>
-                      {Object.keys(ENDPOINT_TEMPLATES).map((key) => (
-                        <SelectItem key={key} value={key}>
-                          {key}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <FormField
-                control={form.control}
-                name='endpoints'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Endpoint Configuration')}</FormLabel>
-                    <FormControl>
-                      <JsonEditor
-                        value={field.value || ''}
-                        onChange={field.onChange}
-                        keyPlaceholder='endpoint_type'
-                        valuePlaceholder='{"path": "/v1/...", "method": "POST"}'
-                        keyLabel='Endpoint Type'
-                        valueLabel='Configuration'
-                        valueType='any'
-                        emptyMessage={t(
-                          'No endpoints configured. Switch to JSON mode or add rows to define endpoints.'
+                <FormField
+                  control={form.control}
+                  name='auto_route_models'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Auto Route Models')}</FormLabel>
+                      <FormControl>
+                        <MultiSelect
+                          options={autoRouteModelOptions}
+                          selected={field.value || []}
+                          onChange={field.onChange}
+                          placeholder={t('Select models for auto routing')}
+                          emptyText={t('No available models')}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Select target models for automatic routing. The fastest model will be chosen based on performance metrics.'
                         )}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Define API endpoints for this model (JSON format)')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='context_length'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Context Length')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          placeholder='0'
+                          value={field.value ?? 0}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ''
+                                ? 0
+                                : parseInt(e.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t('Maximum context length in tokens')}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+
+            {!isAutoModel && (
+              <>
+                <Separator />
+
+                {/* Matching Configuration */}
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>
+                    {t('Matching Rules')}
+                  </h3>
+
+                  <FormField
+                    control={form.control}
+                    name='name_rule'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Name Rule')}</FormLabel>
+                        <FormControl>
+                          <RadioGroup
+                            onValueChange={(value) =>
+                              field.onChange(parseInt(value))
+                            }
+                            value={String(field.value)}
+                            className='grid grid-cols-2 gap-4'
+                          >
+                            {getNameRuleOptions(t).map((option) => (
+                              <div
+                                key={option.value}
+                                className='flex items-center space-x-2'
+                              >
+                                <RadioGroupItem
+                                  value={String(option.value)}
+                                  id={`rule-${option.value}`}
+                                />
+                                <Label
+                                  htmlFor={`rule-${option.value}`}
+                                  className='cursor-pointer font-normal'
+                                >
+                                  {option.label}
+                                </Label>
+                              </div>
+                            ))}
+                          </RadioGroup>
+                        </FormControl>
+                        <FormDescription>
+                          {t('How this model name should match requests')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <Separator />
+
+                {/* Endpoints Configuration */}
+                <div className='space-y-4'>
+                  <div className='flex items-center justify-between'>
+                    <h3 className='text-sm font-semibold'>{t('Endpoints')}</h3>
+                    <Select<string>
+                      items={[
+                        ...Object.keys(ENDPOINT_TEMPLATES).map((key) => ({
+                          value: key,
+                          label: key,
+                        })),
+                      ]}
+                      onValueChange={(v) =>
+                        v !== null && handleFillEndpointTemplate(v)
+                      }
+                    >
+                      <SelectTrigger size='sm' className='w-[200px]'>
+                        <SelectValue placeholder={t('Load template...')} />
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          {Object.keys(ENDPOINT_TEMPLATES).map((key) => (
+                            <SelectItem key={key} value={key}>
+                              {key}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name='endpoints'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Endpoint Configuration')}</FormLabel>
+                        <FormControl>
+                          <JsonEditor
+                            value={field.value || ''}
+                            onChange={field.onChange}
+                            keyPlaceholder='endpoint_type'
+                            valuePlaceholder='{"path": "/v1/...", "method": "POST"}'
+                            keyLabel='Endpoint Type'
+                            valueLabel='Configuration'
+                            valueType='any'
+                            emptyMessage={t(
+                              'No endpoints configured. Switch to JSON mode or add rows to define endpoints.'
+                            )}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Define API endpoints for this model (JSON format)'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </>
+            )}
 
             <Separator />
 
@@ -1257,28 +1434,30 @@ export function ModelMutateDrawer({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='sync_official'
-                render={({ field }) => (
-                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
-                    <div className='space-y-0.5'>
-                      <FormLabel className='text-base'>
-                        {t('Official Sync')}
-                      </FormLabel>
-                      <FormDescription>
-                        {t('Sync this model with official upstream')}
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
+              {!isAutoModel && (
+                <FormField
+                  control={form.control}
+                  name='sync_official'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                      <div className='space-y-0.5'>
+                        <FormLabel className='text-base'>
+                          {t('Official Sync')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t('Sync this model with official upstream')}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              )}
             </div>
           </form>
         </Form>

@@ -41,6 +41,9 @@ export interface Model {
   tags?: string
   vendor_id?: number
   endpoints?: string
+  model_type?: number
+  context_length?: number
+  auto_route_models?: string[]
   status: number
   sync_official: number
   created_time: number

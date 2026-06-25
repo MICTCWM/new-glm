@@ -134,6 +134,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		if chunk == nil {
 			return true
 		}
+		if publicModelName := info.GetDisplayModelName(); publicModelName != "" {
+			chunk.Model = publicModelName
+		}
 		if info.RelayFormat == types.RelayFormatOpenAI {
 			if !info.ChannelSetting.ThinkingToContent {
 				normalizeStreamThinkTags(info, chunk)
@@ -551,7 +554,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 	}
 	if info.RelayFormat == types.RelayFormatOpenAI && info.ShouldIncludeUsage && usage != nil {
-		if err := helper.ObjectData(c, helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)); err != nil {
+		finalUsageResponse := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
+		if publicModelName := info.GetDisplayModelName(); publicModelName != "" {
+			finalUsageResponse.Model = publicModelName
+		}
+		if err := helper.ObjectData(c, finalUsageResponse); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 	}
