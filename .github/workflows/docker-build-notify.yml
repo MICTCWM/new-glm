@@ -10,7 +10,7 @@ env:
   IMAGE_NAME: new-api
 
 jobs:
-  build-and-notify:
+  build-deploy-notify:
     runs-on: ubuntu-latest
 
     steps:
@@ -59,8 +59,62 @@ jobs:
             ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
 
-      - name: Send success email
+      - name: Save build log
+        if: always()
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message || '(manual trigger)' }}
+          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name || 'manual' }}
+          IMAGE_ADDR: ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+        run: |
+          echo "=== Build & Push Log ===" > build_log.txt
+          echo "Version: ${{ steps.version.outputs.version }}" >> build_log.txt
+          echo "Build time: ${{ steps.version.outputs.build_time }}" >> build_log.txt
+          echo "Branch: ${{ github.ref_name }}" >> build_log.txt
+          echo "Commit message: ${COMMIT_MSG}" >> build_log.txt
+          echo "Author: ${COMMIT_AUTHOR}" >> build_log.txt
+          echo "Image: ${IMAGE_ADDR}" >> build_log.txt
+          echo "Build status: ${{ steps.build.outcome }}" >> build_log.txt
+          echo "Image digest: ${{ steps.build.outputs.digest }}" >> build_log.txt
+
+      - name: Setup SSH key
         if: success()
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          {
+            echo "Host *"
+            echo "  ServerAliveInterval 60"
+            echo "  ServerAliveCountMax 3"
+            echo "  ConnectTimeout 30"
+          } >> ~/.ssh/config
+
+      - name: Deploy to server
+        id: deploy
+        if: success()
+        env:
+          SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+        run: |
+          set -eo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o StrictHostKeyChecking=no -o ConnectTimeout=30 "$SSH_USER@$SSH_HOST" "cd /root/new-api && docker compose pull new-api && docker compose up -d && docker compose ps && docker image ls | head -5" 2>&1 | tee deploy_log.txt
+
+      - name: Ensure deploy log exists
+        if: always()
+        run: |
+          if [ ! -f deploy_log.txt ]; then
+            echo "Deploy step was skipped (build failed or not triggered)." > deploy_log.txt
+          fi
+
+      - name: Send notification email
+        if: always()
         uses: dawidd6/action-send-mail@v3
         env:
           ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
@@ -69,43 +123,23 @@ jobs:
           server_port: 465
           username: ${{ secrets.OUTLOOK_SMTP_USERNAME }}
           password: ${{ secrets.OUTLOOK_SMTP_PASSWORD }}
-          subject: "Docker Build Success - ${{ env.IMAGE_NAME }} ${{ steps.version.outputs.version }}"
-          body: |
-            Docker image build and push succeeded!
-
-            Image Info:
-            - Name: ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}
-            - Version: ${{ steps.version.outputs.version }}
-            - Latest tag: updated
-            - Platforms: linux/amd64, linux/arm64
-            - Build time: ${{ steps.version.outputs.build_time }}
-            - Branch: ${{ github.ref_name }}
-            - Commit: ${{ github.event.head_commit.message }}
-            - Author: ${{ github.event.head_commit.author.name }}
-
           to: ${{ secrets.NOTIFY_EMAIL_RECIPIENT }}
-          from: Docker Build Notification
-
-      - name: Send failure email
-        if: failure()
-        uses: dawidd6/action-send-mail@v3
-        env:
-          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
-        with:
-          server_address: smtp.qq.com
-          server_port: 465
-          username: ${{ secrets.OUTLOOK_SMTP_USERNAME }}
-          password: ${{ secrets.OUTLOOK_SMTP_PASSWORD }}
-          subject: "Docker Build Failed - ${{ env.IMAGE_NAME }}"
+          from: New-API Deployment
+          subject: "${{ (steps.build.outcome == 'success' && steps.deploy.outcome == 'success') && 'New-API 部署成功' || 'New-API 部署失败' }} - ${{ steps.version.outputs.version }}"
           body: |
-            Docker image build or push failed!
+            部署状态通知
 
-            Build Info:
-            - Image: ${{ env.IMAGE_NAME }}
-            - Target version: ${{ steps.version.outputs.version }}
-            - Branch: ${{ github.ref_name }}
-            - Commit: ${{ github.event.head_commit.message }}
-            - Author: ${{ github.event.head_commit.author.name }}
+            构建状态: ${{ steps.build.outcome }}
+            部署状态: ${{ steps.deploy.outcome }}
 
-          to: ${{ secrets.NOTIFY_EMAIL_RECIPIENT }}
-          from: Docker Build Notification
+            版本号: ${{ steps.version.outputs.version }}
+            构建时间: ${{ steps.version.outputs.build_time }}
+            分支: ${{ github.ref_name }}
+            Commit 信息: ${{ github.event.head_commit.message || '(manual trigger)' }}
+            作者: ${{ github.event.head_commit.author.name || 'manual' }}
+
+            镜像地址: ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+            服务器地址: ${{ secrets.DEPLOY_SSH_HOST }}
+
+            详见附件日志。
+          attachments: build_log.txt,deploy_log.txt
