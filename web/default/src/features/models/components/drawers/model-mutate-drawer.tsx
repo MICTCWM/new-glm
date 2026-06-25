@@ -145,9 +145,10 @@ export function ModelMutateDrawer({
   const vendors = vendorsData?.data?.items || []
 
   // Fetch all models for auto route selection (exclude Auto models themselves)
+  // 使用 select=all 绕过分页上限，保证获取全部可选模型
   const { data: allModelsData } = useQuery({
-    queryKey: modelsQueryKeys.list({ page_size: 1000 }),
-    queryFn: () => getModels({ page_size: 1000 }),
+    queryKey: modelsQueryKeys.list({ select: 'all' }),
+    queryFn: () => getModels({ select: 'all' }),
     enabled: open,
   })
 

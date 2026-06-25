@@ -94,6 +94,7 @@ export interface GetModelsParams {
   vendor?: string // vendor ID to filter by
   status?: string // filter by status
   sync_official?: string // filter by sync_official status
+  select?: string // selector scenario: select=all returns all models without pagination limit
 }
 
 /**

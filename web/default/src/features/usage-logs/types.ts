@@ -136,6 +136,9 @@ export interface LogOtherData {
   cache_creation_ratio_1h?: number
   is_model_mapped?: boolean
   upstream_model_name?: string
+  // Auto route fields (set by backend when request was auto-routed)
+  auto_routed?: boolean
+  routed_model_name?: string
   audio_ratio?: number
   audio_completion_ratio?: number
   frt?: number

@@ -887,6 +887,17 @@ export function DetailsDialog(props: DetailsDialogProps) {
               </DetailSection>
             )}
 
+            {/* Auto route */}
+            {other?.auto_routed && other?.routed_model_name && (
+              <DetailSection label={t('Auto Route')}>
+                <DetailRow
+                  label={t('Routed Model')}
+                  value={other.routed_model_name}
+                  mono
+                />
+              </DetailSection>
+            )}
+
             {/* Token breakdown (for consume/error types with token data) */}
             {isDisplayableType(props.log.type) && other && (
               <TokenBreakdown log={props.log} other={other} />

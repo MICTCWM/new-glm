@@ -48,8 +48,31 @@ func validateModelPayload(c *gin.Context, m *model.Model) bool {
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
+	// 如果是选择器场景（select=all），返回全量模型列表（仅选择所需字段）
+	// 用于规避分页上限（100），保证 Auto 模型路由多选能获取全部可选模型
+	if c.Query("select") == "all" {
+		var allModels []*model.Model
+		err := model.DB.Select("id", "model_name", "model_type", "status", "vendor_id", "name_rule", "sync_official").Order("id DESC").Find(&allModels).Error
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiSuccess(c, gin.H{
+			"items":     allModels,
+			"total":     len(allModels),
+			"page":      1,
+			"page_size": len(allModels),
+		})
+		return
+	}
 
 	pageInfo := common.GetPageQuery(c)
+	// Allow larger page sizes for model management to support auto route model selection
+	if requestedSize := c.Query("page_size"); requestedSize != "" {
+		if size, err := strconv.Atoi(requestedSize); err == nil && size > 100 && size <= 10000 {
+			pageInfo.PageSize = size
+		}
+	}
 	modelsMeta, err := model.GetAllModels(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
