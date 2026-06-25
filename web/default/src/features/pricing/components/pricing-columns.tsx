@@ -30,7 +30,9 @@ import { GroupBadge } from '@/components/group-badge'
 import { DEFAULT_TOKEN_UNIT, QUOTA_TYPE_VALUES } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
+  getDynamicPricingPriceRange,
   getDynamicPricingSummary,
+  getDynamicPricingTierBreakpoints,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
@@ -186,6 +188,118 @@ export function usePricingColumns(
 
           const primaryEntries = dynamicSummary.primaryEntries.slice(0, 2)
           if (primaryEntries.length === 0) {
+            const priceRange = getDynamicPricingPriceRange(model, {
+              tokenUnit,
+              showRechargePrice,
+              priceRate,
+              usdExchangeRate,
+              groupRatioMultiplier: getDynamicDisplayGroupRatio(model),
+            })
+            const breakpoints = getDynamicPricingTierBreakpoints(model)
+
+            if (priceRange) {
+              const hasUnitOnly = priceRange.unitPrice && !priceRange.fixedPrice
+              const hasFixedOnly = priceRange.fixedPrice && !priceRange.unitPrice
+              const hasMixed = priceRange.unitPrice && priceRange.fixedPrice
+
+              const renderBreakpoints = () => {
+                if (breakpoints.length === 0) return null
+                return (
+                  <>
+                    {' · '}
+                    {breakpoints.slice(0, 2).map((bp, i) => {
+                      const varLabel =
+                        bp.var === 'len'
+                          ? t('tokens')
+                          : bp.var === 'p'
+                            ? t('input')
+                            : t('output')
+                      return (
+                        <span key={i}>
+                          {i > 0 && ', '}
+                          {bp.label} {varLabel}
+                        </span>
+                      )
+                    })}
+                    {breakpoints.length > 2 && '...'}
+                  </>
+                )
+              }
+
+              if (hasUnitOnly && priceRange.unitPrice) {
+                return (
+                  <div className='min-w-[180px]'>
+                    <span className='font-mono text-sm tabular-nums'>
+                      {stripTrailingZeros(priceRange.unitPrice.minFormatted)}
+                      <span className='text-muted-foreground/40 mx-1'>~</span>
+                      {stripTrailingZeros(priceRange.unitPrice.maxFormatted)}
+                    </span>
+                    <div className='text-muted-foreground/50 text-[10px]'>
+                      / {tokenUnitLabel} tokens
+                      {priceRange.tierCount > 1 &&
+                        ` · ${t('{{count}} tiers', {
+                          count: priceRange.tierCount,
+                        })}`}
+                      {renderBreakpoints()}
+                    </div>
+                  </div>
+                )
+              }
+
+              if (hasFixedOnly && priceRange.fixedPrice) {
+                return (
+                  <div className='min-w-[180px]'>
+                    <span className='font-mono text-sm tabular-nums'>
+                      {stripTrailingZeros(priceRange.fixedPrice.minFormatted)}
+                      <span className='text-muted-foreground/40 mx-1'>~</span>
+                      {stripTrailingZeros(priceRange.fixedPrice.maxFormatted)}
+                    </span>
+                    <div className='text-muted-foreground/50 text-[10px]'>
+                      {t('per request')}
+                      {priceRange.tierCount > 1 &&
+                        ` · ${t('{{count}} tiers', {
+                          count: priceRange.tierCount,
+                        })}`}
+                      {renderBreakpoints()}
+                    </div>
+                  </div>
+                )
+              }
+
+              if (hasMixed && priceRange.unitPrice && priceRange.fixedPrice) {
+                return (
+                  <div className='min-w-[180px] space-y-1'>
+                    <div>
+                      <span className='font-mono text-sm tabular-nums'>
+                        {stripTrailingZeros(priceRange.unitPrice.minFormatted)}
+                        <span className='text-muted-foreground/40 mx-1'>~</span>
+                        {stripTrailingZeros(priceRange.unitPrice.maxFormatted)}
+                      </span>
+                      <div className='text-muted-foreground/50 text-[10px]'>
+                        / {tokenUnitLabel} tokens
+                      </div>
+                    </div>
+                    <div>
+                      <span className='font-mono text-sm tabular-nums'>
+                        {stripTrailingZeros(priceRange.fixedPrice.minFormatted)}
+                        <span className='text-muted-foreground/40 mx-1'>~</span>
+                        {stripTrailingZeros(priceRange.fixedPrice.maxFormatted)}
+                      </span>
+                      <div className='text-muted-foreground/50 text-[10px]'>
+                        {t('per request')}
+                      </div>
+                    </div>
+                    <div className='text-muted-foreground/50 text-[10px]'>
+                      {t('{{count}} tiers', {
+                        count: priceRange.tierCount,
+                      })}
+                      {renderBreakpoints()}
+                    </div>
+                  </div>
+                )
+              }
+            }
+
             return (
               <span className='text-muted-foreground text-xs'>
                 {t('Dynamic Pricing')}

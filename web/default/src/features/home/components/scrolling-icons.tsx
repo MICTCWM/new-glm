@@ -53,7 +53,7 @@ export function ScrollingIcons({
           <IconCard
             key={`${direction}-2-${i}`}
             iconName={iconName}
-            className='aria-hidden'
+            aria-hidden='true'
           />
         ))}
       </div>

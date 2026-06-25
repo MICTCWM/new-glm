@@ -674,10 +674,14 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			pollingLock := GetChannelPollingLock(channelId)
 			pollingLock.Lock()
 			// 如果是多Key模式，更新缓存中的状态
+			beforeStatus := channelCache.Status
 			handlerMultiKeyUpdate(channelCache, usingKey, status, reason)
 			pollingLock.Unlock()
-			//CacheUpdateChannel(channelCache)
-			//return true
+			// 如果整体状态发生变化（例如所有Key都被禁用导致渠道变为AutoDisabled），
+			// 同步更新 group2model2channels 缓存，从可用渠道列表中移除已禁用渠道
+			if beforeStatus != channelCache.Status {
+				CacheUpdateChannelStatus(channelId, channelCache.Status)
+			}
 		} else {
 			// 如果缓存渠道存在，且状态已是目标状态，直接返回
 			if channelCache.Status == status {

@@ -53,9 +53,12 @@ import {
 import { DEFAULT_TOKEN_UNIT, QUOTA_TYPE_VALUES } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
+  formatFixedPriceValue,
   getDynamicPriceEntries,
+  getDynamicPricingPriceRange,
   getDynamicPricingSummary,
   getDynamicPricingTiers,
+  getTierConditionParts,
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
@@ -422,6 +425,30 @@ function PriceSection(props: {
       )
     }
 
+    const priceRange = getDynamicPricingPriceRange(props.model, {
+      tokenUnit: props.tokenUnit,
+      showRechargePrice: props.showRechargePrice,
+      priceRate: props.priceRate,
+      usdExchangeRate: props.usdExchangeRate,
+      groupRatioMultiplier: 1,
+    })
+
+    const renderTierConditionLabel = (conditions: any[]) => {
+      const parts = getTierConditionParts(conditions)
+      if (parts.length === 0) return ''
+      return parts
+        .map((part) => {
+          const varLabel =
+            part.var === 'len'
+              ? t('tokens')
+              : part.var === 'p'
+                ? t('input')
+                : t('output')
+          return `${part.opLabel}${part.valueLabel} ${varLabel}`
+        })
+        .join(' · ')
+    }
+
     return (
       <section>
         <SectionTitle>{t('Base Price')}</SectionTitle>
@@ -443,6 +470,92 @@ function PriceSection(props: {
                 </div>
               </div>
             ))}
+          </div>
+        ) : priceRange ? (
+          <div className='space-y-3'>
+            {priceRange.unitPrice && (
+              <div className='bg-muted/20 rounded-lg border p-3'>
+                <div className='text-muted-foreground text-xs'>
+                  {t('Unit price range')}
+                </div>
+                <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
+                  {priceRange.unitPrice.minFormatted}
+                  <span className='text-muted-foreground/40 mx-2 text-xs font-normal'>
+                    ~
+                  </span>
+                  {priceRange.unitPrice.maxFormatted}
+                  <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                    / {tokenUnitLabel}
+                  </span>
+                </div>
+              </div>
+            )}
+            {priceRange.fixedPrice && (
+              <div className='bg-muted/20 rounded-lg border p-3'>
+                <div className='text-muted-foreground text-xs'>
+                  {t('Per request')}
+                </div>
+                <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
+                  {priceRange.fixedPrice.minFormatted}
+                  <span className='text-muted-foreground/40 mx-2 text-xs font-normal'>
+                    ~
+                  </span>
+                  {priceRange.fixedPrice.maxFormatted}
+                </div>
+              </div>
+            )}
+            {(priceRange.unitPrice || priceRange.fixedPrice) && (
+              <div className='text-muted-foreground/60 text-[11px]'>
+                {t('{{count}} pricing tiers', { count: priceRange.tierCount })}
+              </div>
+            )}
+            {dynamicSummary.tiers.length > 0 && (
+              <div className='bg-muted/20 rounded-lg border px-3 py-2.5'>
+                <div className='text-muted-foreground mb-2 text-[10px] font-medium tracking-wider uppercase'>
+                  {t('Tiers')}
+                </div>
+                <div className='space-y-1.5'>
+                  {dynamicSummary.tiers.map((tier, idx) => {
+                    const conditionLabel = renderTierConditionLabel(tier.conditions)
+                    const tierEntries = getDynamicPriceEntries(tier, {
+                      tokenUnit: props.tokenUnit,
+                      showRechargePrice: props.showRechargePrice,
+                      priceRate: props.priceRate,
+                      usdExchangeRate: props.usdExchangeRate,
+                      groupRatioMultiplier: 1,
+                    })
+                    return (
+                      <div
+                        key={idx}
+                        className='flex items-baseline justify-between gap-4'
+                      >
+                        <span className='text-muted-foreground/70 text-sm'>
+                          {tier.label || conditionLabel || t('Default')}
+                        </span>
+                        <span className='text-muted-foreground font-mono text-sm tabular-nums'>
+                          {tier.fixed_price != null && tier.fixed_price > 0 ? (
+                            formatFixedPriceValue(tier.fixed_price, {
+                              tokenUnit: props.tokenUnit,
+                              showRechargePrice: props.showRechargePrice,
+                              priceRate: props.priceRate,
+                              usdExchangeRate: props.usdExchangeRate,
+                              groupRatioMultiplier: 1,
+                            })
+                          ) : tierEntries.length > 0 ? (
+                            tierEntries
+                              .slice(0, 2)
+                              .map((e) => e.formatted)
+                              .join(' / ')
+                          ) : (
+                            '-'
+                          )}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <p className='text-muted-foreground text-sm'>

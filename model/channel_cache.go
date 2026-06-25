@@ -138,12 +138,20 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 		return nil, nil
 	}
 
-	// Filter out used channels
+	// Filter out used channels and disabled channels (defensive check)
 	var availableChannels []int
 	for _, channelId := range channels {
-		if !isChannelUsed(channelId, usedChannelIds) {
-			availableChannels = append(availableChannels, channelId)
+		if isChannelUsed(channelId, usedChannelIds) {
+			continue
 		}
+		// 二次校验渠道状态：即使渠道仍留在 group2model2channels 中，
+		// 如果其状态已非启用（可能因多Key全部禁用等路径未及时同步缓存），也跳过
+		if channel, ok := channelsIDM[channelId]; ok {
+			if channel.Status != common.ChannelStatusEnabled {
+				continue
+			}
+		}
+		availableChannels = append(availableChannels, channelId)
 	}
 
 	// If all channels have been used, return nil to indicate exhaustion

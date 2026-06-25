@@ -55,6 +55,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 		return true
 	}
 	lowerError := strings.ToLower(err.Error())
+	if strings.Contains(lowerError, "invalid token") {
+		return true
+	}
 	for _, keyword := range operation_setting.AutomaticDisableKeywords {
 		if keyword != "" && strings.Contains(lowerError, strings.ToLower(keyword)) {
 			return true
@@ -67,7 +70,10 @@ func ShouldDelayDisableChannel(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
-	return err.StatusCode == http.StatusTooManyRequests
+	if err.StatusCode == http.StatusTooManyRequests {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "invalid token")
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {

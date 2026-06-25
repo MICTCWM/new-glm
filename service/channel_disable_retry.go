@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,19 +69,19 @@ func IsChannelDisableRetryRunning(channelID int) bool {
 	return state.inRetry
 }
 
-// StartRetryCheck starts the delayed 429 confirmation flow.
-// The first 429 only schedules checks. Three delayed checks must all return 429
-// before the channel is auto-disabled, and duplicate schedules are ignored.
+// StartRetryCheck starts the delayed disable confirmation flow (triggered by 429 or "invalid token").
+// The first triggering error only schedules checks. Three delayed checks must all keep returning
+// the triggering error before the channel is auto-disabled, and duplicate schedules are ignored.
 func StartRetryCheck(channelError types.ChannelError, reason string, testFn func(channelError types.ChannelError) *types.NewAPIError) {
 	if testFn == nil {
 		testFn = ChannelDisableRetryTestFunc
 	}
 	if testFn == nil {
-		common.SysLog(fmt.Sprintf("通道「%s」（#%d）429 检测函数未配置，跳过延迟禁用", channelError.ChannelName, channelError.ChannelId))
+		common.SysLog(fmt.Sprintf("通道「%s」（#%d）延迟禁用检测函数未配置，跳过延迟禁用", channelError.ChannelName, channelError.ChannelId))
 		return
 	}
 	if !TryAcquireRetrySlot(channelError.ChannelId) {
-		common.SysLog(fmt.Sprintf("通道「%s」（#%d）429 检测已在进行中，跳过本次检测", channelError.ChannelName, channelError.ChannelId))
+		common.SysLog(fmt.Sprintf("通道「%s」（#%d）延迟禁用检测已在进行中，跳过本次检测", channelError.ChannelName, channelError.ChannelId))
 		return
 	}
 
@@ -107,16 +108,16 @@ func StartRetryCheck(channelError types.ChannelError, reason string, testFn func
 				common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测恢复正常，无需禁用", channelError.ChannelName, channelError.ChannelId, i+1))
 				return
 			}
-			if errResult.StatusCode != 429 {
-				common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测返回非 429 错误（StatusCode=%d），中断检测", channelError.ChannelName, channelError.ChannelId, i+1, errResult.StatusCode))
+			if errResult.StatusCode != 429 && !strings.Contains(strings.ToLower(errResult.Error()), "invalid token") {
+				common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测返回非禁用触发错误（StatusCode=%d），中断检测", channelError.ChannelName, channelError.ChannelId, i+1, errResult.StatusCode))
 				return
 			}
-			common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测仍返回 429，继续等待下一轮", channelError.ChannelName, channelError.ChannelId, i+1))
+			common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测仍命中禁用条件，继续等待下一轮", channelError.ChannelName, channelError.ChannelId, i+1))
 		}
 
-		common.SysLog(fmt.Sprintf("通道「%s」（#%d）三轮检测全部返回 429，即将禁用", channelError.ChannelName, channelError.ChannelId))
+		common.SysLog(fmt.Sprintf("通道「%s」（#%d）三轮检测全部命中禁用条件，即将禁用", channelError.ChannelName, channelError.ChannelId))
 		if reason == "" {
-			reason = "上游429限流，三轮检测后仍未恢复"
+			reason = "上游持续返回禁用触发错误（429 或 invalid token），三轮检测后仍未恢复"
 		}
 		DisableChannel(channelError, reason)
 	})

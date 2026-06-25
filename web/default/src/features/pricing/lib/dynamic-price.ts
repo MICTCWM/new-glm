@@ -26,6 +26,7 @@ import {
   tryParseRequestRuleExpr,
   type BillingVar,
   type ParsedTier,
+  type TierCondition,
 } from './billing-expr'
 
 type DynamicPriceOptions = {
@@ -186,4 +187,156 @@ export function getDynamicPricingSummary(
       (entry) => !PRIMARY_DYNAMIC_FIELDS.has(entry.field)
     ),
   }
+}
+
+export type PriceRange = {
+  minPrice: number
+  maxPrice: number
+  minFormatted: string
+  maxFormatted: string
+}
+
+export type DynamicPricingPriceRange = {
+  unitPrice?: PriceRange
+  fixedPrice?: PriceRange
+  tierCount: number
+}
+
+export function formatFixedPriceValue(
+  value: number,
+  options: DynamicPriceOptions
+): string {
+  const groupRatio = options.groupRatioMultiplier ?? 1
+  const priceRate = options.priceRate ?? 1
+  const usdExchangeRate = options.usdExchangeRate ?? 1
+  const priceUSD = value * groupRatio
+  const displayPrice = applyRechargeRate(
+    priceUSD,
+    options.showRechargePrice ?? false,
+    priceRate,
+    usdExchangeRate
+  )
+
+  return formatBillingCurrencyFromUSD(displayPrice, {
+    digitsLarge: 4,
+    digitsSmall: 6,
+    abbreviate: false,
+  })
+}
+
+export function getDynamicPricingPriceRange(
+  model: PricingModel,
+  options: DynamicPriceOptions
+): DynamicPricingPriceRange | null {
+  if (!isDynamicPricingModel(model)) return null
+
+  const tiers = getDynamicPricingTiers(model)
+  if (tiers.length === 0) return null
+
+  let minUnitPrice = Number.POSITIVE_INFINITY
+  let maxUnitPrice = Number.NEGATIVE_INFINITY
+  let minFixedPrice = Number.POSITIVE_INFINITY
+  let maxFixedPrice = Number.NEGATIVE_INFINITY
+  let hasUnitPrice = false
+  let hasFixedPrice = false
+
+  for (const tier of tiers) {
+    const entries = getDynamicPriceEntries(tier, options)
+    if (entries.length > 0) {
+      hasUnitPrice = true
+      for (const entry of entries) {
+        if (entry.value < minUnitPrice) minUnitPrice = entry.value
+        if (entry.value > maxUnitPrice) maxUnitPrice = entry.value
+      }
+    }
+
+    if (tier.fixed_price != null && tier.fixed_price > 0) {
+      hasFixedPrice = true
+      const fp = tier.fixed_price
+      if (fp < minFixedPrice) minFixedPrice = fp
+      if (fp > maxFixedPrice) maxFixedPrice = fp
+    }
+  }
+
+  if (!hasUnitPrice && !hasFixedPrice) {
+    return null
+  }
+
+  const result: DynamicPricingPriceRange = {
+    tierCount: tiers.length,
+  }
+
+  if (hasUnitPrice && Number.isFinite(minUnitPrice) && Number.isFinite(maxUnitPrice)) {
+    result.unitPrice = {
+      minPrice: minUnitPrice,
+      maxPrice: maxUnitPrice,
+      minFormatted: formatDynamicUnitPrice(minUnitPrice, options),
+      maxFormatted: formatDynamicUnitPrice(maxUnitPrice, options),
+    }
+  }
+
+  if (hasFixedPrice && Number.isFinite(minFixedPrice) && Number.isFinite(maxFixedPrice)) {
+    result.fixedPrice = {
+      minPrice: minFixedPrice,
+      maxPrice: maxFixedPrice,
+      minFormatted: formatFixedPriceValue(minFixedPrice, options),
+      maxFormatted: formatFixedPriceValue(maxFixedPrice, options),
+    }
+  }
+
+  return result
+}
+
+function formatTokenValue(value: number): string {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)}K`
+  }
+  return String(value)
+}
+
+export type TierConditionPart = {
+  op: string
+  opLabel: string
+  value: number
+  valueLabel: string
+  var: 'p' | 'c' | 'len'
+}
+
+export function getTierConditionParts(
+  conditions: TierCondition[]
+): TierConditionPart[] {
+  return conditions.map((cond) => ({
+    op: cond.op,
+    opLabel: cond.op === '<=' ? '≤' : cond.op === '>=' ? '≥' : cond.op,
+    value: cond.value,
+    valueLabel: formatTokenValue(cond.value),
+    var: cond.var,
+  }))
+}
+
+export function getDynamicPricingTierBreakpoints(
+  model: PricingModel
+): { label: string; value: number; var: 'p' | 'c' | 'len' }[] {
+  if (!isDynamicPricingModel(model)) return []
+
+  const tiers = getDynamicPricingTiers(model)
+  const breakpoints = new Map<string, { label: string; value: number; var: 'p' | 'c' | 'len' }>()
+
+  for (const tier of tiers) {
+    for (const cond of tier.conditions) {
+      const key = `${cond.var}-${cond.value}`
+      if (!breakpoints.has(key)) {
+        breakpoints.set(key, {
+          label: formatTokenValue(cond.value),
+          value: cond.value,
+          var: cond.var,
+        })
+      }
+    }
+  }
+
+  return Array.from(breakpoints.values()).sort((a, b) => a.value - b.value)
 }

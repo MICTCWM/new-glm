@@ -44,28 +44,28 @@ const ACCENT_CLASSES: Record<
   }
 > = {
   emerald: {
-    activeText: 'text-emerald-600 dark:text-emerald-400',
-    activeBorder: 'border-emerald-500 dark:border-emerald-400',
-    badge:
-      'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-400',
-  },
-  amber: {
-    activeText: 'text-amber-600 dark:text-amber-400',
+    activeText: 'text-amber-700 dark:text-amber-400',
     activeBorder: 'border-amber-500 dark:border-amber-400',
     badge:
-      'bg-amber-500/10 text-amber-600 dark:bg-amber-400/10 dark:text-amber-400',
+      'bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-400',
+  },
+  amber: {
+    activeText: 'text-rose-600 dark:text-rose-400',
+    activeBorder: 'border-rose-500 dark:border-rose-400',
+    badge:
+      'bg-rose-500/10 text-rose-600 dark:bg-rose-400/10 dark:text-rose-400',
   },
   blue: {
-    activeText: 'text-blue-600 dark:text-blue-400',
-    activeBorder: 'border-blue-500 dark:border-blue-400',
+    activeText: 'text-orange-600 dark:text-orange-400',
+    activeBorder: 'border-orange-500 dark:border-orange-400',
     badge:
-      'bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-400',
+      'bg-orange-500/10 text-orange-600 dark:bg-orange-400/10 dark:text-orange-400',
   },
   violet: {
-    activeText: 'text-violet-600 dark:text-violet-400',
-    activeBorder: 'border-violet-500 dark:border-violet-400',
+    activeText: 'text-orange-700 dark:text-orange-300',
+    activeBorder: 'border-orange-600 dark:border-orange-300',
     badge:
-      'bg-violet-500/10 text-violet-600 dark:bg-violet-400/10 dark:text-violet-400',
+      'bg-orange-600/10 text-orange-700 dark:bg-orange-300/10 dark:text-orange-300',
   },
 }
 
@@ -236,7 +236,7 @@ export function HeroTerminalDemo() {
             )
           })}
           <div className='ml-auto flex items-center gap-2 pr-2 sm:pr-3'>
-            <span className='inline-block size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.45)]' />
+            <span className='inline-block size-1.5 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.45)]' />
             <span className='text-foreground/40 font-mono text-[10px] tracking-wider uppercase'>
               200 ok
             </span>
@@ -499,7 +499,7 @@ function CodeLine(props: { children: ReactNode; indent?: number }) {
 
 function Command(props: { children: ReactNode }) {
   return (
-    <span className='font-medium text-emerald-600 dark:text-emerald-400'>
+    <span className='font-medium text-amber-700 dark:text-amber-400'>
       {props.children}
     </span>
   )
@@ -507,25 +507,25 @@ function Command(props: { children: ReactNode }) {
 
 function Flag(props: { children: ReactNode }) {
   return (
-    <span className='text-blue-600 dark:text-blue-400'>{props.children}</span>
+    <span className='text-orange-600 dark:text-orange-400'>{props.children}</span>
   )
 }
 
 function Key(props: { children: ReactNode }) {
   return (
-    <span className='text-sky-700 dark:text-sky-300'>{props.children}</span>
+    <span className='text-amber-600 dark:text-amber-300'>{props.children}</span>
   )
 }
 
 function StringText(props: { children: ReactNode }) {
   return (
-    <span className='text-amber-700 dark:text-amber-300'>{props.children}</span>
+    <span className='text-rose-600 dark:text-rose-300'>{props.children}</span>
   )
 }
 
 function NumberText(props: { children: ReactNode }) {
   return (
-    <span className='font-medium text-violet-600 dark:text-violet-300'>
+    <span className='font-medium text-orange-600 dark:text-orange-300'>
       {props.children}
     </span>
   )

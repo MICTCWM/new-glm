@@ -26,6 +26,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
+  getDynamicPricingPriceRange,
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
@@ -134,9 +135,94 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                     ))}
                   </>
                 ) : (
-                  <span className='text-muted-foreground text-xs'>
-                    {t('Dynamic Pricing')}
-                  </span>
+                  (() => {
+                    const priceRange = getDynamicPricingPriceRange(props.model, {
+                      tokenUnit,
+                      showRechargePrice,
+                      priceRate,
+                      usdExchangeRate,
+                      groupRatioMultiplier: getDynamicDisplayGroupRatio(props.model),
+                    })
+                    if (priceRange) {
+                      const hasUnitOnly = priceRange.unitPrice && !priceRange.fixedPrice
+                      const hasFixedOnly = priceRange.fixedPrice && !priceRange.unitPrice
+                      const hasMixed = priceRange.unitPrice && priceRange.fixedPrice
+
+                      if (hasUnitOnly && priceRange.unitPrice) {
+                        return (
+                          <span className='text-muted-foreground whitespace-nowrap'>
+                            <span className='text-foreground font-mono font-semibold'>
+                              {priceRange.unitPrice.minFormatted}
+                            </span>
+                            <span className='text-muted-foreground/40 mx-1'>~</span>
+                            <span className='text-foreground font-mono font-semibold'>
+                              {priceRange.unitPrice.maxFormatted}
+                            </span>
+                            <span className='text-muted-foreground'>/{tokenUnitLabel}</span>
+                            {priceRange.tierCount > 1 && (
+                              <span className='text-muted-foreground/50 ml-1'>
+                                ({t('{{count}} tiers', { count: priceRange.tierCount })})
+                              </span>
+                            )}
+                          </span>
+                        )
+                      }
+
+                      if (hasFixedOnly && priceRange.fixedPrice) {
+                        return (
+                          <span className='text-muted-foreground whitespace-nowrap'>
+                            <span className='text-foreground font-mono font-semibold'>
+                              {priceRange.fixedPrice.minFormatted}
+                            </span>
+                            <span className='text-muted-foreground/40 mx-1'>~</span>
+                            <span className='text-foreground font-mono font-semibold'>
+                              {priceRange.fixedPrice.maxFormatted}
+                            </span>
+                            <span className='text-muted-foreground'> / {t('request')}</span>
+                            {priceRange.tierCount > 1 && (
+                              <span className='text-muted-foreground/50 ml-1'>
+                                ({t('{{count}} tiers', { count: priceRange.tierCount })})
+                              </span>
+                            )}
+                          </span>
+                        )
+                      }
+
+                      if (hasMixed && priceRange.unitPrice && priceRange.fixedPrice) {
+                        return (
+                          <span className='text-muted-foreground whitespace-nowrap'>
+                            <span className='text-foreground font-mono font-semibold'>
+                              {priceRange.unitPrice.minFormatted}
+                            </span>
+                            <span className='text-muted-foreground/40 mx-1'>~</span>
+                            <span className='text-foreground font-mono font-semibold'>
+                              {priceRange.unitPrice.maxFormatted}
+                            </span>
+                            <span className='text-muted-foreground'>/{tokenUnitLabel}</span>
+                            <span className='text-muted-foreground/50 mx-1'>·</span>
+                            <span className='text-foreground font-mono font-semibold'>
+                              {priceRange.fixedPrice.minFormatted}
+                            </span>
+                            <span className='text-muted-foreground/40 mx-1'>~</span>
+                            <span className='text-foreground font-mono font-semibold'>
+                              {priceRange.fixedPrice.maxFormatted}
+                            </span>
+                            <span className='text-muted-foreground'>/{t('request')}</span>
+                            {priceRange.tierCount > 1 && (
+                              <span className='text-muted-foreground/50 ml-1'>
+                                ({t('{{count}} tiers', { count: priceRange.tierCount })})
+                              </span>
+                            )}
+                          </span>
+                        )
+                      }
+                    }
+                    return (
+                      <span className='text-muted-foreground text-xs'>
+                        {t('Dynamic Pricing')}
+                      </span>
+                    )
+                  })()
                 )
               ) : isTokenBased ? (
                 <>
