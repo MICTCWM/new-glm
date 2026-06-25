@@ -367,6 +367,12 @@ func updatePricing() {
 		pricingMap = append(pricingMap, pricing)
 	}
 
+	// Build quota type lookup from regular models' pricing entries (already built above)
+	regularQuotaTypes := make(map[string]int, len(pricingMap))
+	for _, p := range pricingMap {
+		regularQuotaTypes[p.ModelName] = p.QuotaType
+	}
+
 	for _, meta := range allMeta {
 		if !meta.IsAutoModel() || meta.Status != 1 || len(meta.AutoRouteModels) == 0 {
 			continue
@@ -376,44 +382,26 @@ func updatePricing() {
 		quotaSet := types.NewSet[int]()
 		endpointSet := make(map[constant.EndpointType]struct{})
 		for _, routeModel := range meta.AutoRouteModels {
-			for _, group := range GetModelEnableGroups(routeModel) {
-				groupSet.Add(group)
+			// Access local maps directly to avoid calling GetModelEnableGroups/
+			// GetModelQuotaTypes/GetModelSupportEndpointTypes which internally call
+			// GetPricing() and would deadlock (we already hold updatePricingLock
+			// and modelSupportEndpointsLock).
+			if groups, ok := modelGroupsMap[routeModel]; ok {
+				for _, group := range groups.Items() {
+					groupSet.Add(group)
+				}
 			}
-			for _, quotaType := range GetModelQuotaTypes(routeModel) {
-				quotaSet.Add(quotaType)
+			if qt, ok := regularQuotaTypes[routeModel]; ok {
+				quotaSet.Add(qt)
 			}
-			for _, endpointType := range GetModelSupportEndpointTypes(routeModel) {
-				endpointSet[endpointType] = struct{}{}
+			if endpoints, ok := modelSupportEndpointTypes[routeModel]; ok {
+				for _, endpointType := range endpoints {
+					endpointSet[endpointType] = struct{}{}
+				}
 			}
 		}
 		if groupSet.Len() == 0 {
 			continue
-		}
-
-		autoEndpoints := parseEndpointTypesFromConfig(meta.Endpoints)
-		if len(autoEndpoints) > 0 {
-			endpointSet = make(map[constant.EndpointType]struct{}, len(autoEndpoints))
-			for _, endpointType := range autoEndpoints {
-				endpointSet[endpointType] = struct{}{}
-			}
-			var raw map[string]interface{}
-			if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
-				for k, v := range raw {
-					switch val := v.(type) {
-					case string:
-						supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
-					case map[string]interface{}:
-						ep := common.EndpointInfo{Method: "POST"}
-						if p, ok := val["path"].(string); ok {
-							ep.Path = p
-						}
-						if m, ok := val["method"].(string); ok {
-							ep.Method = strings.ToUpper(m)
-						}
-						supportedEndpointMap[k] = ep
-					}
-				}
-			}
 		}
 
 		supportedEndpoints := make([]constant.EndpointType, 0, len(endpointSet))
