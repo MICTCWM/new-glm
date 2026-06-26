@@ -254,6 +254,11 @@ func (channel *Channel) DeleteAbilities() error {
 	return DB.Where("channel_id = ?", channel.Id).Delete(&Ability{}).Error
 }
 
+// DeleteAbilitiesWithTx 在事务中删除渠道的能力记录
+func (channel *Channel) DeleteAbilitiesWithTx(tx *gorm.DB) error {
+	return tx.Where("channel_id = ?", channel.Id).Delete(&Ability{}).Error
+}
+
 // UpdateAbilities updates abilities of this channel.
 // Make sure the channel is completed before calling this function.
 func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {

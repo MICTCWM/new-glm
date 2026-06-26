@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -349,4 +350,23 @@ func CacheUpdateChannel(channel *Channel) {
 	println("before:", channelsIDM[channel.Id].ChannelInfo.MultiKeyPollingIndex)
 	channelsIDM[channel.Id] = channel
 	println("after :", channelsIDM[channel.Id].ChannelInfo.MultiKeyPollingIndex)
+}
+
+// UpdateChannelCallCountInCache 更新缓存中渠道的调用次数计数（线程安全）
+// 用于渠道配额重置后同步内存缓存，避免最长 60s 内渠道仍因旧计数不可用。
+// 使用 RLock 而非 Lock：只修改 struct 字段不修改 map 结构，且调用方可接受最终一致性（缓存最长 60s 全量刷新）。
+func UpdateChannelCallCountInCache(channelId int, usedCallCount int64, maxCallCount int64) {
+	if !common.MemoryCacheEnabled {
+		return
+	}
+	channelSyncLock.RLock()
+	channel, ok := channelsIDM[channelId]
+	channelSyncLock.RUnlock()
+	if ok {
+		// 使用 atomic 写入避免 data race，且不阻塞其他 goroutine 的读操作
+		atomic.StoreInt64(&channel.UsedCallCount, usedCallCount)
+		if maxCallCount > 0 {
+			atomic.StoreInt64(&channel.MaxCallCount, maxCallCount)
+		}
+	}
 }

@@ -32,6 +32,7 @@ const ChannelsActions = ({
   enableBatchDelete,
   batchDeleteChannels,
   setShowBatchSetTag,
+  setShowBatchResetRule,
   testAllChannels,
   fixChannelsAbilities,
   updateAllChannelsBalance,
@@ -88,6 +89,16 @@ const ChannelsActions = ({
             className='w-full md:w-auto'
           >
             {t('批量设置标签')}
+          </Button>
+
+          <Button
+            size='small'
+            disabled={!enableBatchDelete}
+            type='tertiary'
+            onClick={() => setShowBatchResetRule(true)}
+            className='w-full md:w-auto'
+          >
+            {t('批量设置重置规则')}
           </Button>
 
           <Dropdown

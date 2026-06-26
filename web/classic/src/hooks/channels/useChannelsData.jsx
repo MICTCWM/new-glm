@@ -64,6 +64,7 @@ export const useChannelsData = () => {
   const [enableTagMode, setEnableTagMode] = useState(false);
   const [showBatchSetTag, setShowBatchSetTag] = useState(false);
   const [batchSetTagValue, setBatchSetTagValue] = useState('');
+  const [showBatchResetRule, setShowBatchResetRule] = useState(false);
   const [compactMode, setCompactMode] = useTableCompactMode('channels');
 
   // Column visibility states
@@ -117,6 +118,10 @@ export const useChannelsData = () => {
   // Multi-key management states
   const [showMultiKeyManageModal, setShowMultiKeyManageModal] = useState(false);
   const [currentMultiKeyChannel, setCurrentMultiKeyChannel] = useState(null);
+
+  // 单渠道重置规则管理 states
+  const [showChannelResetRule, setShowChannelResetRule] = useState(false);
+  const [resetRuleChannelId, setResetRuleChannelId] = useState(null);
 
   // Refs
   const requestCounter = useRef(0);
@@ -695,6 +700,48 @@ export const useChannelsData = () => {
     }
   };
 
+  // 批量设置渠道配额重置规则
+  const batchSetChannelResetRule = async ({
+    rule_type,
+    rule_config,
+    reset_value,
+    enabled,
+    remark,
+  }) => {
+    if (selectedChannels.length === 0) {
+      showError(t('请先选择要设置重置规则的渠道！'));
+      return false;
+    }
+    const ids = selectedChannels.map((channel) => channel.id);
+    try {
+      const res = await API.post('/api/channel/batch/reset_rule', {
+        ids,
+        rule_type,
+        rule_config,
+        reset_value,
+        enabled,
+        remark,
+      });
+      if (res.data.success) {
+        showSuccess(
+          t('已为 ${count} 个渠道设置重置规则！').replace(
+            '${count}',
+            res.data.data?.count ?? ids.length,
+          ),
+        );
+        await refresh();
+        setShowBatchResetRule(false);
+        return true;
+      } else {
+        showError(res.data.message);
+        return false;
+      }
+    } catch (error) {
+      showError(error?.response?.data?.message || error?.message || t('操作失败'));
+      return false;
+    }
+  };
+
   const batchDeleteChannels = async () => {
     if (selectedChannels.length === 0) {
       showError(t('请先选择要删除的通道！'));
@@ -1166,6 +1213,8 @@ export const useChannelsData = () => {
     setShowBatchSetTag,
     batchSetTagValue,
     setBatchSetTagValue,
+    showBatchResetRule,
+    setShowBatchResetRule,
 
     // Column states
     visibleColumns,
@@ -1205,6 +1254,12 @@ export const useChannelsData = () => {
     setShowMultiKeyManageModal,
     currentMultiKeyChannel,
     setCurrentMultiKeyChannel,
+
+    // 单渠道重置规则管理 states
+    showChannelResetRule,
+    setShowChannelResetRule,
+    resetRuleChannelId,
+    setResetRuleChannelId,
     ...upstreamUpdates,
 
     // Form
@@ -1230,6 +1285,7 @@ export const useChannelsData = () => {
     closeEdit,
     handleRow,
     batchSetChannelTag,
+    batchSetChannelResetRule,
     batchDeleteChannels,
     testAllChannels,
     deleteAllDisabledChannels,

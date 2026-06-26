@@ -457,6 +457,10 @@ func BatchDeleteChannels(ids []int) error {
 			tx.Rollback()
 			return err
 		}
+		if err := tx.Where("channel_id in (?)", chunk).Delete(&ChannelResetRule{}).Error; err != nil {
+			tx.Rollback()
+			return err
+		}
 	}
 	return tx.Commit().Error
 }
@@ -580,13 +584,24 @@ func (channel *Channel) UpdateBalance(balance float64) {
 }
 
 func (channel *Channel) Delete() error {
-	var err error
-	err = DB.Delete(channel).Error
-	if err != nil {
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if err := tx.Delete(channel).Error; err != nil {
+		tx.Rollback()
 		return err
 	}
-	err = channel.DeleteAbilities()
-	return err
+	if err := channel.DeleteAbilitiesWithTx(tx); err != nil {
+		tx.Rollback()
+		return err
+	}
+	// 清理关联的重置规则，避免产生孤岛数据
+	if err := DeleteChannelResetRulesByChannelIdWithTx(tx, channel.Id); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit().Error
 }
 
 var channelStatusLock sync.Mutex

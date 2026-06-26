@@ -1209,8 +1209,54 @@ func CopyChannel(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+
+	// 复制原渠道的重置规则到新渠道（失败不阻断主流程，仅记录日志）
+	// 选择复制：保持新渠道与原渠道配额重置行为一致，符合用户复制渠道的预期。
+	// next_reset_time 由 CreateChannelResetRule 重新计算，避免继承原规则的过期时间。
+	if clone.Id > 0 {
+		if err := copyChannelResetRules(id, clone.Id); err != nil {
+			common.SysLog(fmt.Sprintf("failed to copy channel reset rules: from=%d, to=%d, error=%v", id, clone.Id, err))
+		}
+	}
+
 	// success
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"id": clone.Id}})
+}
+
+// copyChannelResetRules 复制源渠道的重置规则到目标渠道
+// 只复制启用中的规则；next_reset_time 重新基于当前时间计算，last_reset_time 清零。
+func copyChannelResetRules(srcChannelId, dstChannelId int) error {
+	rules, err := model.GetChannelResetRules(srcChannelId)
+	if err != nil {
+		return err
+	}
+	if len(rules) == 0 {
+		return nil
+	}
+	var failedCount int
+	for _, r := range rules {
+		if !r.Enabled {
+			continue
+		}
+		newRule := model.ChannelResetRule{
+			ChannelId:  dstChannelId,
+			RuleType:   r.RuleType,
+			RuleConfig: r.RuleConfig,
+			ResetValue: r.ResetValue,
+			Enabled:    r.Enabled,
+			Remark:     r.Remark,
+			// NextResetTime / LastResetTime 留空，由 CreateChannelResetRule 重新计算
+		}
+		if err := model.CreateChannelResetRule(&newRule); err != nil {
+			common.SysLog(fmt.Sprintf("failed to copy single channel reset rule: dst_channel_id=%d, rule_type=%s, error=%v", dstChannelId, r.RuleType, err))
+			failedCount++
+			continue
+		}
+	}
+	if failedCount > 0 {
+		return fmt.Errorf("failed to copy %d/%d enabled reset rules from channel %d to %d", failedCount, len(rules), srcChannelId, dstChannelId)
+	}
+	return nil
 }
 
 // MultiKeyManageRequest represents the request for multi-key management operations

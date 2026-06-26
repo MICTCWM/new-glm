@@ -258,6 +258,12 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.POST("/upstream_updates/apply_all", controller.ApplyAllChannelUpstreamModelUpdates)
 			channelRoute.POST("/upstream_updates/detect", controller.DetectChannelUpstreamModelUpdates)
 			channelRoute.POST("/upstream_updates/detect_all", controller.DetectAllChannelUpstreamModelUpdates)
+			// 渠道配额重置规则管理
+			channelRoute.GET("/:id/reset_rules", controller.GetChannelResetRules)
+			channelRoute.POST("/reset_rule", controller.CreateChannelResetRule)
+			channelRoute.PUT("/reset_rule", controller.UpdateChannelResetRule)
+			channelRoute.DELETE("/reset_rule/:id", controller.DeleteChannelResetRule)
+			channelRoute.POST("/batch/reset_rule", controller.BatchSetChannelResetRules)
 		}
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())

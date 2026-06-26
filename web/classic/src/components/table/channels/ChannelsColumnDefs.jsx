@@ -327,6 +327,8 @@ export const getChannelsColumns = ({
   setCurrentMultiKeyChannel,
   openUpstreamUpdateModal,
   detectChannelUpstreamUpdates,
+  setShowChannelResetRule,
+  setResetRuleChannelId,
 }) => {
   return [
     {
@@ -749,6 +751,15 @@ export const getChannelsColumns = ({
                   content: t('复制渠道的所有信息'),
                   onOk: () => copySelectedChannel(record),
                 });
+              },
+            },
+            {
+              node: 'item',
+              name: t('重置规则'),
+              type: 'tertiary',
+              onClick: () => {
+                setResetRuleChannelId(record.id);
+                setShowChannelResetRule(true);
               },
             },
           ];

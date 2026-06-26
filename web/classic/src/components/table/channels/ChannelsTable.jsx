@@ -63,6 +63,9 @@ const ChannelsTable = (channelsData) => {
     setCurrentMultiKeyChannel,
     openUpstreamUpdateModal,
     detectChannelUpstreamUpdates,
+    // 单渠道重置规则管理
+    setShowChannelResetRule,
+    setResetRuleChannelId,
   } = channelsData;
 
   // Get all columns
@@ -90,6 +93,8 @@ const ChannelsTable = (channelsData) => {
       setCurrentMultiKeyChannel,
       openUpstreamUpdateModal,
       detectChannelUpstreamUpdates,
+      setShowChannelResetRule,
+      setResetRuleChannelId,
     });
   }, [
     t,
@@ -114,6 +119,8 @@ const ChannelsTable = (channelsData) => {
     setCurrentMultiKeyChannel,
     openUpstreamUpdateModal,
     detectChannelUpstreamUpdates,
+    setShowChannelResetRule,
+    setResetRuleChannelId,
   ]);
 
   // Filter columns based on visibility settings
