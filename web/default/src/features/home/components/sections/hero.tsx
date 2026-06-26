@@ -55,6 +55,8 @@ export function Hero(props: HeroProps) {
           className='landing-animate-fade-up text-[clamp(2rem,5.5vw,3.5rem)] leading-[1.15] font-bold tracking-tight font-serif'
           style={{ animationDelay: '0ms' }}
         >
+          {t('Unified API Gateway for')}
+          <br />
           <span className='bg-gradient-to-r from-amber-600 via-orange-500 to-rose-500 bg-clip-text text-transparent'>
             {t('All Your AI Models')}
           </span>
