@@ -141,6 +141,10 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 		passThroughStorage = storage
 		requestBody = common.ReaderOnly(storage)
+		// 捕获转换后请求体（数据点2，透传模式下等于用户原始请求）
+		if b, e := storage.Bytes(); e == nil {
+			info.UpstreamRequestBody = b
+		}
 	} else {
 		convertedRequest, err := adaptor.ConvertGeminiRequest(c, info, request)
 		if err != nil {
@@ -161,11 +165,14 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 		logger.LogDebug(c, "Gemini request body: "+string(jsonData))
 		requestBody = bytes.NewReader(jsonData)
+		// 捕获转换后请求体（数据点2）
+		info.UpstreamRequestBody = jsonData
 	}
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
+	var upstreamBuf *bytes.Buffer
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
@@ -208,6 +215,13 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				}
 			}
 			httpResp = resp.(*http.Response)
+			// 包装 Body 以捕获上游返回的原始响应体（数据点3）
+			upstreamBuf = &bytes.Buffer{}
+			httpResp.Body = &common.CapturingReadCloser{
+				Reader: httpResp.Body,
+				Closer: httpResp.Body,
+				Buf:    upstreamBuf,
+			}
 			info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 			if httpResp.StatusCode != http.StatusOK {
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
@@ -260,6 +274,10 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 
 		info.UpstreamRetryCount = attempt
+		// 捕获上游返回的原始响应体（数据点3）
+		if upstreamBuf != nil {
+			info.UpstreamResponseRaw = upstreamBuf.Bytes()
+		}
 		if usageDto, ok := usage.(*dto.Usage); ok {
 			service.PostTextConsumeQuota(c, info, usageDto, nil)
 		} else {
@@ -275,6 +293,10 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		usage, openaiErr := adaptor.DoResponse(c, httpResp, info)
 		if openaiErr != nil {
 			return openaiErr
+		}
+		// 捕获上游返回的原始响应体（数据点3）
+		if upstreamBuf != nil {
+			info.UpstreamResponseRaw = upstreamBuf.Bytes()
 		}
 		if usageDto, ok := usage.(*dto.Usage); ok {
 			service.PostTextConsumeQuota(c, info, usageDto, nil)

@@ -470,7 +470,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		}
 	}
 
-	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
+	logId := model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     summary.PromptTokens,
 		CompletionTokens: summary.CompletionTokens,
@@ -488,4 +488,27 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
+	recordLogDetail(ctx, relayInfo, logId)
+}
+
+// recordLogDetail 写入日志详情（5个数据点）。
+// 从 ctx.Writer 提取下游响应体（PostXxxConsumeQuota 在 handler 内调用，
+// 此时包装 writer 的 defer 尚未执行，需在此处主动提取）。
+func recordLogDetail(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, logId int) {
+	if logId == 0 {
+		return
+	}
+	// 捕获下游响应体（数据点4/5）
+	if cw, ok := ctx.Writer.(*common.CapturingResponseWriter); ok {
+		relayInfo.DownstreamResponseRaw = cw.Buf.Bytes()
+	}
+	hasConversion := len(relayInfo.RequestConversionChain) > 1
+	if err := model.RecordLogDetail(logId, relayInfo.RequestId,
+		string(relayInfo.UserRequestBody),
+		string(relayInfo.UpstreamRequestBody),
+		string(relayInfo.UpstreamResponseRaw),
+		string(relayInfo.DownstreamResponseRaw),
+		hasConversion); err != nil {
+		common.SysError("record log detail failed: " + err.Error())
+	}
 }

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -206,6 +207,24 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
+
+	// 数据点1：捕获用户原始请求体（GetBodyStorage 内部有缓存，循环内重复调用安全）
+	if bodyStorage, bodyErr := common.GetBodyStorage(c); bodyErr == nil {
+		if rawBytes, e := bodyStorage.Bytes(); e == nil {
+			relayInfo.UserRequestBody = rawBytes
+		}
+	}
+
+	// 数据点4：包装 c.Writer 以捕获下游响应体（排除 Realtime WebSocket 场景，避免 Hijack 失效）
+	if relayFormat != types.RelayFormatOpenAIRealtime {
+		downstreamBuf := &bytes.Buffer{}
+		origWriter := c.Writer
+		c.Writer = &common.CapturingResponseWriter{ResponseWriter: origWriter, Buf: downstreamBuf}
+		defer func() {
+			relayInfo.DownstreamResponseRaw = downstreamBuf.Bytes()
+			c.Writer = origWriter
+		}()
+	}
 
 	var retryDelays []int
 	var selectedChannel *model.Channel // track selected channel for RPM management

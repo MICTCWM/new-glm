@@ -177,6 +177,12 @@ type RelayInfo struct {
 	// 若为空，调用 GetFinalRequestRelayFormat 会回退到 RequestConversionChain 的最后一项或 RelayFormat。
 	FinalRequestRelayFormat types.RelayFormat
 
+	// 日志详情捕获字段（内部使用，不入库）
+	UserRequestBody       []byte
+	UpstreamRequestBody   []byte
+	UpstreamResponseRaw   []byte
+	DownstreamResponseRaw []byte
+
 	StreamStatus *StreamStatus
 
 	ThinkTagStreamStates map[int]*ThinkTagStreamState

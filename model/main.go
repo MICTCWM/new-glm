@@ -285,6 +285,7 @@ func migrateDB() error {
 		&Ticket{},
 		&TicketImage{},
 		&TicketReply{},
+		&LogDetail{},
 	)
 	if err != nil {
 		return err
@@ -317,6 +318,7 @@ func migrateDBFast() error {
 		{&Redemption{}, "Redemption"},
 		{&Ability{}, "Ability"},
 		{&Log{}, "Log"},
+		{&LogDetail{}, "LogDetail"},
 		{&Midjourney{}, "Midjourney"},
 		{&TopUp{}, "TopUp"},
 		{&QuotaData{}, "QuotaData"},
@@ -373,7 +375,7 @@ func migrateDBFast() error {
 
 func migrateLOGDB() error {
 	var err error
-	if err = LOG_DB.AutoMigrate(&Log{}); err != nil {
+	if err = LOG_DB.AutoMigrate(&Log{}, &LogDetail{}); err != nil {
 		return err
 	}
 	return nil

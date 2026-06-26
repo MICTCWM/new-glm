@@ -171,3 +171,18 @@ func DeleteHistoryLogs(c *gin.Context) {
 	})
 	return
 }
+
+func GetLogDetail(c *gin.Context) {
+	logIdStr := c.Param("id")
+	logId, err := strconv.Atoi(logIdStr)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	detail, err := model.GetLogDetailByLogId(logId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, detail)
+}

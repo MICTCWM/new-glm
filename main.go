@@ -300,6 +300,7 @@ func InitResources() error {
 	if err != nil {
 		return err
 	}
+	model.StartLogDetailCleanupTask()
 
 	// Initialize Redis
 	err = common.InitRedisClient()

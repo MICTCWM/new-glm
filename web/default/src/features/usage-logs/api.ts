@@ -25,6 +25,7 @@ import type {
   GetLogStatsResponse,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  LogDetail,
   UserInfo,
 } from './types'
 
@@ -87,6 +88,21 @@ export async function getUserInfo(
   userId: number
 ): Promise<{ success: boolean; message?: string; data?: UserInfo }> {
   const res = await api.get(`/api/user/${userId}`)
+  return res.data
+}
+
+// ============================================================================
+// Log Detail (Admin Only)
+// ============================================================================
+
+/**
+ * Fetch the detailed request/response bodies for a single log entry.
+ * Endpoint: GET /api/log/detail/:id (requires admin auth).
+ */
+export async function fetchLogDetail(
+  logId: number
+): Promise<{ success: boolean; message?: string; data?: LogDetail }> {
+  const res = await api.get(`/api/log/detail/${logId}`)
   return res.data
 }
 

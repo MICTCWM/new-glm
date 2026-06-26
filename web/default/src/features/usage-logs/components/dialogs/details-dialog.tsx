@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Copy,
   Check,
+  ChevronDown,
   Route,
   Settings2,
   AlertTriangle,
@@ -31,12 +32,20 @@ import {
   Info,
   RotateCw,
 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -48,6 +57,7 @@ import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
+import { fetchLogDetail } from '../../api'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
@@ -134,6 +144,191 @@ function DetailSection(props: {
 function formatRatio(ratio: number | undefined): string {
   if (ratio == null) return '-'
   return ratio.toFixed(4)
+}
+
+/**
+ * Pretty-print a JSON string. Falls back to the raw content when it cannot be
+ * parsed (e.g. SSE streams starting with `data:`) or when it is empty.
+ */
+function formatBodyContent(content: string | undefined | null): string {
+  if (!content) return ''
+  // SSE streaming responses (and other non-JSON payloads) are shown verbatim.
+  if (content.includes('data:')) return content
+  try {
+    const parsed = JSON.parse(content)
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return content
+  }
+}
+
+interface CollapsiblePanelProps {
+  title: string
+  content: string
+  badge?: string
+  defaultOpen?: boolean
+}
+
+function DetailCollapsiblePanel(props: CollapsiblePanelProps) {
+  const { t } = useTranslation()
+  const { copyToClipboard } = useCopyToClipboard({ notify: false })
+  const [open, setOpen] = useState(props.defaultOpen ?? false)
+  const [isCopied, setIsCopied] = useState(false)
+
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const formatted = useMemo(
+    () => formatBodyContent(props.content),
+    [props.content]
+  )
+  const hasContent = props.content.length > 0
+
+  const handleCopy = async () => {
+    const success = await copyToClipboard(props.content)
+    if (success) {
+      setIsCopied(true)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setIsCopied(false), 2000)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <div className='bg-background/60 flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5'>
+        <CollapsibleTrigger
+          className='flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-medium outline-none'
+          aria-expanded={open}
+        >
+          <ChevronDown
+            className={cn(
+              'size-3.5 shrink-0 text-muted-foreground transition-transform',
+              open && 'rotate-180'
+            )}
+            aria-hidden='true'
+          />
+          <span className='min-w-0 truncate'>{props.title}</span>
+          {props.badge && (
+            <span className='ml-1 shrink-0 text-[10px] font-medium text-amber-600 dark:text-amber-400'>
+              ({props.badge})
+            </span>
+          )}
+        </CollapsibleTrigger>
+        {hasContent && (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='shrink-0 h-5 gap-1 px-1'
+            onClick={handleCopy}
+            title={t('Copy to clipboard')}
+            aria-label={t('Copy to clipboard')}
+          >
+            {isCopied ? (
+              <Check className='size-3 text-green-600' />
+            ) : (
+              <Copy className='size-3' />
+            )}
+            {isCopied && (
+              <span className='text-[10px] text-green-600'>{t('Copied')}</span>
+            )}
+          </Button>
+        )}
+      </div>
+      <CollapsibleContent>
+        {hasContent ? (
+          <pre className='bg-muted/50 mt-1 max-h-96 overflow-auto rounded-md p-3 text-[11px] leading-relaxed'>
+            <code className='font-mono break-words whitespace-pre-wrap'>
+              {formatted}
+            </code>
+          </pre>
+        ) : (
+          <p className='text-muted-foreground mt-1 px-2.5 text-xs'>
+            {t('No data')}
+          </p>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+interface RequestResponseDetailsProps {
+  logId: number
+}
+
+function RequestResponseDetails(props: RequestResponseDetailsProps) {
+  const { t } = useTranslation()
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['log-detail', props.logId],
+    queryFn: async () => {
+      const result = await fetchLogDetail(props.logId)
+      if (!result?.success) {
+        toast.error(result?.message || t('Failed to load log detail'))
+        return null
+      }
+      return result.data ?? null
+    },
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  if (isLoading) {
+    return (
+      <DetailSection label={t('Request/Response Details')}>
+        <p className='text-muted-foreground px-1 text-xs'>
+          {t('Loading...')}
+        </p>
+      </DetailSection>
+    )
+  }
+
+  // Silently hide the section when the detail API fails or returns nothing,
+  // so admins viewing non-consume logs (e.g. top-up / refund) are not
+  // distracted by an error block.
+  if (isError || !data) return null
+
+  const hasConversion = data.has_conversion === true
+  const convertedRequestContent = data.upstream_request_body ?? ''
+  const panels: CollapsiblePanelProps[] = [
+    {
+      title: t('User Original Request'),
+      content: data.user_request_body ?? '',
+    },
+  ]
+  if (hasConversion && convertedRequestContent.length > 0) {
+    panels.push({
+      title: t('Converted Request'),
+      content: convertedRequestContent,
+    })
+  }
+  panels.push({
+    title: t('Upstream Response'),
+    content: data.upstream_response_body ?? '',
+  })
+  panels.push({
+    title: t('Downstream Response'),
+    content: data.downstream_response_body ?? '',
+    badge: hasConversion ? t('Protocol conversion occurred') : undefined,
+  })
+
+  return (
+    <DetailSection label={t('Request/Response Details')}>
+      <div className='space-y-1.5'>
+        {panels.map((panel) => (
+          <DetailCollapsiblePanel
+            key={panel.title}
+            title={panel.title}
+            content={panel.content}
+            badge={panel.badge}
+            defaultOpen={panel.defaultOpen}
+          />
+        ))}
+      </div>
+    </DetailSection>
+  )
 }
 
 function BillingBreakdown(props: {
@@ -1095,6 +1290,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 </div>
               </div>
             )}
+
+            {/* Request/Response details (admin only) */}
+            {props.isAdmin && <RequestResponseDetails logId={props.log.id} />}
           </div>
         </ScrollArea>
       </DialogContent>

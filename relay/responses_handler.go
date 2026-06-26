@@ -81,6 +81,10 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		}
 		passThroughStorage = storage
 		requestBody = common.ReaderOnly(storage)
+		// 捕获转换后请求体（数据点2，透传模式下等于用户原始请求）
+		if b, e := storage.Bytes(); e == nil {
+			info.UpstreamRequestBody = b
+		}
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
 		if err != nil {
@@ -107,12 +111,15 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		if common.DebugEnabled {
 			println("requestBody: ", string(jsonData))
 		}
+		// 捕获转换后请求体（数据点2）
+		info.UpstreamRequestBody = jsonData
 		requestBody = bytes.NewBuffer(jsonData)
 	}
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
+	var upstreamBuf *bytes.Buffer
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
@@ -154,6 +161,13 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 				httpResp.Body.Close()
 			}
 			httpResp = resp.(*http.Response)
+			// 包装 Body 以捕获上游返回的原始响应体（数据点3）
+			upstreamBuf = &bytes.Buffer{}
+			httpResp.Body = &common.CapturingReadCloser{
+				Reader: httpResp.Body,
+				Closer: httpResp.Body,
+				Buf:    upstreamBuf,
+			}
 
 			if httpResp.StatusCode != http.StatusOK {
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
@@ -210,6 +224,10 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		}
 
 		info.UpstreamRetryCount = attempt
+		// 捕获上游返回的原始响应体（数据点3）
+		if upstreamBuf != nil {
+			info.UpstreamResponseRaw = upstreamBuf.Bytes()
+		}
 
 		usageDto := usage.(*dto.Usage)
 		if info.RelayMode == relayconstant.RelayModeResponsesCompact {

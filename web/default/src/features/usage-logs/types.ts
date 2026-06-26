@@ -335,6 +335,26 @@ export interface GetTaskLogsParams {
 }
 
 // ============================================================================
+// Log Detail (Admin)
+// ============================================================================
+
+/**
+ * Detailed request/response bodies for a single log entry (admin only).
+ * Returned by GET /api/log/detail/:id
+ */
+export interface LogDetail {
+  id: number
+  log_id: number
+  request_id: string
+  user_request_body: string
+  upstream_request_body: string
+  upstream_response_body: string
+  downstream_response_body: string
+  has_conversion: boolean
+  created_at: number
+}
+
+// ============================================================================
 // Fetch Logs Configuration
 // ============================================================================
 
