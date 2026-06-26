@@ -2605,63 +2605,6 @@ const EditChannelModal = (props) => {
                   <Form.TextArea field='system_prompt' label={t('系统提示词')} placeholder={t('输入系统提示词，用户的系统提示词将优先于此设置')} onChange={(value) => handleChannelSettingsChange('system_prompt', value)} autosize showClear extraText={t('用户优先：如果用户在请求中指定了系统提示词，将优先使用用户的设置')} />
                   <Form.Switch field='system_prompt_override' label={t('系统提示词拼接')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('system_prompt_override', value)} extraText={t('如果用户请求中包含系统提示词，则使用此设置拼接到用户的系统提示词前面')} />
                 </div>
-
-                {/* 配额与重置 Section - 仅编辑模式显示 */}
-                {isEdit && (
-                  <div className='pt-3 border-t border-gray-100'>
-                    <Text className='text-sm font-medium text-gray-500 mb-3 block'>
-                      {t('配额与重置')}
-                    </Text>
-                    <Form.InputNumber
-                      field='max_call_count'
-                      label={t('总配额')}
-                      placeholder={t('0 表示不限')}
-                      min={0}
-                      onNumberChange={(value) =>
-                        handleInputChange('max_call_count', value)
-                      }
-                      style={{ width: '100%' }}
-                      extraText={t(
-                        '渠道累计成功调用次数达到此值后将不再分配请求',
-                      )}
-                    />
-                    <div className='mt-1 mb-1'>
-                      <Typography.Text type='tertiary' size='small'>
-                        {t('已用')} {usedCallCount} /{' '}
-                        {inputs.max_call_count || 0}
-                      </Typography.Text>
-                    </div>
-                    <div className='mt-3'>
-                      <Typography.Text className='text-sm font-medium text-gray-700 mb-2 block'>
-                        {t('重置时间（每小时）')}
-                      </Typography.Text>
-                      <Typography.Text
-                        type='tertiary'
-                        size='small'
-                        className='mb-2 block'
-                      >
-                        {t(
-                          '选择每天哪些时刻自动清零已用配额（按服务器时区）',
-                        )}
-                      </Typography.Text>
-                      <CheckboxGroup
-                        options={HOURS_OPTIONS}
-                        value={resetHours}
-                        onChange={setResetHours}
-                      />
-                    </div>
-                    <Form.InputNumber
-                      field='reset_minute'
-                      label={t('重置分钟')}
-                      min={0}
-                      max={59}
-                      onNumberChange={(value) =>
-                        handleInputChange('reset_minute', value)
-                      }
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                )}
               </div>
             );
 
@@ -3794,6 +3737,63 @@ const EditChannelModal = (props) => {
                     showClear
                   />
                 </Card>
+
+                {/* 配额与重置 Section - 仅编辑模式显示 */}
+                {isEdit && (
+                  <Card className='!rounded-2xl shadow-sm border-0'>
+                    <Text className='text-sm font-medium text-gray-500 mb-3 block'>
+                      {t('配额与重置')}
+                    </Text>
+                    <Form.InputNumber
+                      field='max_call_count'
+                      label={t('总配额')}
+                      placeholder={t('0 表示不限')}
+                      min={0}
+                      onNumberChange={(value) =>
+                        handleInputChange('max_call_count', value)
+                      }
+                      style={{ width: '100%' }}
+                      extraText={t(
+                        '渠道累计成功调用次数达到此值后将不再分配请求',
+                      )}
+                    />
+                    <div className='mt-1 mb-1'>
+                      <Typography.Text type='tertiary' size='small'>
+                        {t('已用')} {usedCallCount} /{' '}
+                        {inputs.max_call_count || 0}
+                      </Typography.Text>
+                    </div>
+                    <div className='mt-3'>
+                      <Typography.Text className='text-sm font-medium text-gray-700 mb-2 block'>
+                        {t('重置时间（每小时）')}
+                      </Typography.Text>
+                      <Typography.Text
+                        type='tertiary'
+                        size='small'
+                        className='mb-2 block'
+                      >
+                        {t(
+                          '选择每天哪些时刻自动清零已用配额（按服务器时区）',
+                        )}
+                      </Typography.Text>
+                      <CheckboxGroup
+                        options={HOURS_OPTIONS}
+                        value={resetHours}
+                        onChange={setResetHours}
+                      />
+                    </div>
+                    <Form.InputNumber
+                      field='reset_minute'
+                      label={t('重置分钟')}
+                      min={0}
+                      max={59}
+                      onNumberChange={(value) =>
+                        handleInputChange('reset_minute', value)
+                      }
+                      style={{ width: '100%' }}
+                    />
+                  </Card>
+                )}
 
                 {/* Advanced Settings Toggle / Collapse */}
                 {isMobile ? (
