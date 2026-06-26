@@ -292,27 +292,35 @@ function RequestResponseDetails(props: RequestResponseDetailsProps) {
 
   const hasConversion = data.has_conversion === true
   const convertedRequestContent = data.upstream_request_body ?? ''
-  const panels: CollapsiblePanelProps[] = [
-    {
-      title: t('User Original Request'),
-      content: data.user_request_body ?? '',
-    },
-  ]
+  const userRequestContent = data.user_request_body ?? ''
+  const upstreamResponseContent = data.upstream_response_body ?? ''
+  const downstreamResponseContent = data.downstream_response_body ?? ''
+  const panels: CollapsiblePanelProps[] = []
+  // 用户原始请求始终展示（即使为空，管理员可据此判断失败是否发生在请求体捕获之前）
+  panels.push({
+    title: t('User Original Request'),
+    content: userRequestContent,
+  })
   if (hasConversion && convertedRequestContent.length > 0) {
     panels.push({
       title: t('Converted Request'),
       content: convertedRequestContent,
     })
   }
-  panels.push({
-    title: t('Upstream Response'),
-    content: data.upstream_response_body ?? '',
-  })
-  panels.push({
-    title: t('Downstream Response'),
-    content: data.downstream_response_body ?? '',
-    badge: hasConversion ? t('Protocol conversion occurred') : undefined,
-  })
+  // 上游/下游响应为空时不渲染该面板（失败请求中上游可能未返回响应）
+  if (upstreamResponseContent.length > 0) {
+    panels.push({
+      title: t('Upstream Response'),
+      content: upstreamResponseContent,
+    })
+  }
+  if (downstreamResponseContent.length > 0) {
+    panels.push({
+      title: t('Downstream Response'),
+      content: downstreamResponseContent,
+      badge: hasConversion ? t('Protocol conversion occurred') : undefined,
+    })
+  }
 
   return (
     <DetailSection label={t('Request/Response Details')}>

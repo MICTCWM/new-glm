@@ -951,7 +951,7 @@ func confirm429DisableCandidates(candidates []channelTestDisableCandidate) {
 				continue
 			}
 			if service.ShouldDisableChannel(apiErr) && channel.GetAutoBan() {
-				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), apiErr)
+				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), apiErr, nil)
 			}
 		}
 		remaining = nextRemaining
@@ -1028,9 +1028,9 @@ func testAllChannels(notify bool) error {
 			}
 
 			// disable channel
-			if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
-			}
+		if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
+			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, nil)
+		}
 
 			// enable channel
 			if !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {

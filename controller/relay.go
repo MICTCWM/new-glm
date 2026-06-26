@@ -331,7 +331,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.LastError = newAPIError
 
 		c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
-		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
@@ -365,7 +365,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			)
 			// Also log this error for visibility in usage records
 			if constant.ErrorLogEnabled {
-				logRpmFinalError(c, selectedChannel, common.UserMessageRpmFailed)
+				logRpmFinalError(c, selectedChannel, common.UserMessageRpmFailed, relayInfo)
 			}
 		}
 		gopool.Go(func() {
@@ -796,7 +796,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	return operation_setting.ShouldRetryByStatusCode(code)
 }
 
-func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
@@ -864,7 +864,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 				retryCountInt = rcInt
 			}
 		}
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.GetUserFriendlyMessage(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, retryCountInt, other)
+		logId := model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.GetUserFriendlyMessage(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, retryCountInt, other)
+		service.RecordLogDetail(c, relayInfo, logId)
 	}
 }
 
@@ -1032,7 +1033,7 @@ func RelayTask(c *gin.Context) {
 			processChannelError(c,
 				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
 					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
-				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
+				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode), relayInfo)
 		}
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
@@ -1140,7 +1141,7 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError,
 
 // logRpmFinalError records an error log for RPM queue final failures,
 // ensuring the user-controlled message appears in usage records.
-func logRpmFinalError(c *gin.Context, selectedChannel *model.Channel, content string) {
+func logRpmFinalError(c *gin.Context, selectedChannel *model.Channel, content string, relayInfo *relaycommon.RelayInfo) {
 	userId := c.GetInt("id")
 	tokenName := c.GetString("token_name")
 	modelName := common.GetContextKeyString(c, constant.ContextKeyDisplayModel)
@@ -1172,6 +1173,7 @@ func logRpmFinalError(c *gin.Context, selectedChannel *model.Channel, content st
 		startTime = time.Now()
 	}
 	useTimeSeconds := int(time.Since(startTime).Seconds())
-	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, content, tokenId, useTimeSeconds,
+	logId := model.RecordErrorLog(c, userId, channelId, modelName, tokenName, content, tokenId, useTimeSeconds,
 		common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, retryCountInt, other)
+	service.RecordLogDetail(c, relayInfo, logId)
 }

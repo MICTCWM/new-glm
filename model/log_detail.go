@@ -10,7 +10,7 @@ import (
 )
 
 // LogDetail 记录每个请求的详细日志数据，保留1天后自动删除。
-// 关联 Log.Id / Log.RequestId，仅记录成功请求（错误日志不记录详情）。
+// 关联 Log.Id / Log.RequestId，成功和失败请求均记录详情。
 type LogDetail struct {
 	Id                     int    `json:"id" gorm:"primaryKey"`
 	LogId                  int    `json:"log_id" gorm:"index"`           // 关联 Log.Id

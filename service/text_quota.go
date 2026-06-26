@@ -491,11 +491,15 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	recordLogDetail(ctx, relayInfo, logId)
 }
 
-// recordLogDetail 写入日志详情（5个数据点）。
+// recordLogDetail 写入日志详情（5个数据点），供成功和失败路径共用。
 // 从 ctx.Writer 提取下游响应体（PostXxxConsumeQuota 在 handler 内调用，
 // 此时包装 writer 的 defer 尚未执行，需在此处主动提取）。
+// 失败场景下 relayInfo 的部分字段可能为空，model.RecordLogDetail 对空字段安全。
 func recordLogDetail(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, logId int) {
 	if logId == 0 {
+		return
+	}
+	if relayInfo == nil {
 		return
 	}
 	// 捕获下游响应体（数据点4/5）
@@ -511,4 +515,9 @@ func recordLogDetail(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, logId i
 		hasConversion); err != nil {
 		common.SysError("record log detail failed: " + err.Error())
 	}
+}
+
+// RecordLogDetail 是 recordLogDetail 的导出包装，供 controller 包在错误路径中调用。
+func RecordLogDetail(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, logId int) {
+	recordLogDetail(ctx, relayInfo, logId)
 }
