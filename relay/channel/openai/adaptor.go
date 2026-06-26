@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -163,6 +164,15 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		url = strings.Replace(url, "{model}", info.UpstreamModelName, -1)
 		return url, nil
 	default:
+		// 非 Azure 的 Realtime：将客户端 URL 中的 model 参数复写为上游真实模型名
+		if info.RelayMode == relayconstant.RelayModeRealtime && info.UpstreamModelName != "" {
+			if u, err := url.Parse(info.RequestURLPath); err == nil {
+				q := u.Query()
+				q.Set("model", info.UpstreamModelName)
+				u.RawQuery = q.Encode()
+				return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, u.String(), info.ChannelType), nil
+			}
+		}
 		if (info.RelayFormat == types.RelayFormatClaude || info.RelayFormat == types.RelayFormatGemini) &&
 			info.RelayMode != relayconstant.RelayModeResponses &&
 			info.RelayMode != relayconstant.RelayModeResponsesCompact {

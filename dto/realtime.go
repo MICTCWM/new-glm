@@ -56,6 +56,7 @@ type RealtimeSession struct {
 	Tools                   []RealTimeTool          `json:"tools"`
 	ToolChoice              string                  `json:"tool_choice"`
 	Temperature             float64                 `json:"temperature"`
+	Model                   string                  `json:"model,omitempty"`
 	//MaxResponseOutputTokens int                     `json:"max_response_output_tokens"`
 }
 

@@ -441,6 +441,14 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						if realtimeEvent.Session.Tools != nil {
 							info.RealtimeTools = realtimeEvent.Session.Tools
 						}
+						// model 复写：将 session.update 帧里的 model 字段改写为上游真实模型名，
+						// 重新 marshal 后替换 message，后续 WssString / sendChan 均使用改写后的字节
+						if info.IsModelMapped && info.UpstreamModelName != "" {
+							realtimeEvent.Session.Model = info.UpstreamModelName
+							if newMessage, mErr := common.Marshal(realtimeEvent); mErr == nil {
+								message = newMessage
+							}
+						}
 					}
 				}
 
