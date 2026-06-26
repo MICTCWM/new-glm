@@ -85,6 +85,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
+		relayInfo   *relaycommon.RelayInfo
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -103,6 +104,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// 使用用户友好的错误消息返回给客户端
 			userFriendlyMsg := newAPIError.GetUserFriendlyMessage()
 			newAPIError.SetMessage(common.MessageWithRequestId(userFriendlyMsg, requestId))
+
+			// 如果已经开始流式输出（HTTP 响应头已发送），将错误信息发送到正文内容
+			// 因为此时无法再通过 HTTP 状态码传递错误
+			if relayInfo != nil && relayInfo.IsStream && c.Writer.Written() && relayFormat != types.RelayFormatOpenAIRealtime {
+				if !relay.SendErrorNotice(c, relayInfo, userFriendlyMsg) {
+					logger.LogWarn(c, "failed to send error notice to stream, client may hang")
+				}
+				return
+			}
+
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -130,7 +141,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
+	relayInfo, err = relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return

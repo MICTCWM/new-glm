@@ -27,6 +27,12 @@ func SendRetryWaitNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	return streamnotice.SendRetryWaitNotice(c, info)
 }
 
+// SendErrorNotice 在已经开始流式输出后，将错误信息作为正文内容（content）流式输出给用户。
+// 用于所有重试都失败的场景，因为此时 HTTP 响应头已发送 200，无法再通过状态码传递错误。
+func SendErrorNotice(c *gin.Context, info *relaycommon.RelayInfo, errorMsg string) bool {
+	return streamnotice.SendErrorNotice(c, info, errorMsg)
+}
+
 // ApplyRetryDelay applies retry delay logic based on common.RetryDelays configuration.
 // Returns true if a delay was applied, false otherwise.
 // This is a helper to eliminate duplicated retry delay code across handlers.
