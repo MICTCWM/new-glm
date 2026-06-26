@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Modal,
@@ -87,6 +87,7 @@ const renderRuleConfigSummary = (ruleType, ruleConfig, t) => {
   if (typeof ruleConfig === 'string') {
     try {
       config = JSON.parse(ruleConfig);
+      if (!config || typeof config !== 'object') return '-';
     } catch (e) {
       return '-';
     }
@@ -127,12 +128,22 @@ const ChannelResetRuleModal = ({ visible, channelId, onClose, t: tProp }) => {
   const [editingRule, setEditingRule] = useState(null);
   const [ruleType, setRuleType] = useState('daily');
   const [formApi, setFormApi] = useState(null);
+  const mountedRef = useRef(true);
+
+  // 跟踪组件挂载状态，防止对已卸载组件的 setState
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const loadRules = useCallback(async () => {
     if (!channelId) return;
     setLoading(true);
     try {
       const res = await API.get(`/api/channel/${channelId}/reset_rules`);
+      if (!mountedRef.current) return;
       if (res.data.success) {
         const data = res.data.data;
         setRules(Array.isArray(data) ? data : data?.rules || []);
@@ -140,22 +151,30 @@ const ChannelResetRuleModal = ({ visible, channelId, onClose, t: tProp }) => {
         showError(res.data.message);
       }
     } catch (error) {
+      if (!mountedRef.current) return;
       showError(error?.message || t('获取重置规则失败'));
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [channelId, t]);
 
+  // 使用 ref 存储 loadRules，避免将其作为 useEffect 依赖导致无限循环
+  const loadRulesRef = useRef(loadRules);
+  loadRulesRef.current = loadRules;
+
   useEffect(() => {
     if (visible && channelId) {
-      loadRules();
+      loadRulesRef.current();
     }
     if (!visible) {
       setRules([]);
       setFormVisible(false);
       setEditingRule(null);
+      setFormApi(null);
     }
-  }, [visible, channelId, loadRules]);
+  }, [visible, channelId]);
 
   const openAddForm = () => {
     setEditingRule(null);
@@ -172,6 +191,7 @@ const ChannelResetRuleModal = ({ visible, channelId, onClose, t: tProp }) => {
   const closeForm = () => {
     setFormVisible(false);
     setEditingRule(null);
+    setFormApi(null);
   };
 
   const getFormInitValues = () => {

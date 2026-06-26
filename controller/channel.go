@@ -1234,10 +1234,12 @@ func copyChannelResetRules(srcChannelId, dstChannelId int) error {
 		return nil
 	}
 	var failedCount int
+	var enabledRulesCount int
 	for _, r := range rules {
 		if !r.Enabled {
 			continue
 		}
+		enabledRulesCount++
 		newRule := model.ChannelResetRule{
 			ChannelId:  dstChannelId,
 			RuleType:   r.RuleType,
@@ -1254,7 +1256,7 @@ func copyChannelResetRules(srcChannelId, dstChannelId int) error {
 		}
 	}
 	if failedCount > 0 {
-		return fmt.Errorf("failed to copy %d/%d enabled reset rules from channel %d to %d", failedCount, len(rules), srcChannelId, dstChannelId)
+		return fmt.Errorf("failed to copy %d/%d enabled reset rules from channel %d to %d", failedCount, enabledRulesCount, srcChannelId, dstChannelId)
 	}
 	return nil
 }

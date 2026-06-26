@@ -65,6 +65,7 @@ export const useChannelsData = () => {
   const [showBatchSetTag, setShowBatchSetTag] = useState(false);
   const [batchSetTagValue, setBatchSetTagValue] = useState('');
   const [showBatchResetRule, setShowBatchResetRule] = useState(false);
+  const [showBatchQuotaConfig, setShowBatchQuotaConfig] = useState(false);
   const [compactMode, setCompactMode] = useTableCompactMode('channels');
 
   // Column visibility states
@@ -742,6 +743,41 @@ export const useChannelsData = () => {
     }
   };
 
+  // 批量设置渠道配额与重置配置
+  const batchSetQuotaConfig = async ({
+    max_call_count,
+    reset_hours,
+    reset_minute,
+  }) => {
+    if (selectedChannels.length === 0) {
+      showError(t('请先选择要设置配额的渠道！'));
+      return false;
+    }
+    const ids = selectedChannels.map((channel) => channel.id);
+    try {
+      const res = await API.post('/api/channel/batch/quota_config', {
+        ids,
+        max_call_count,
+        reset_hours,
+        reset_minute,
+      });
+      if (res.data.success) {
+        showSuccess(
+          t('已为 ${count} 个渠道设置配额！').replace('${count}', ids.length),
+        );
+        await refresh();
+        setShowBatchQuotaConfig(false);
+        return true;
+      } else {
+        showError(res.data.message);
+        return false;
+      }
+    } catch (error) {
+      showError(error?.response?.data?.message || error?.message || t('操作失败'));
+      return false;
+    }
+  };
+
   const batchDeleteChannels = async () => {
     if (selectedChannels.length === 0) {
       showError(t('请先选择要删除的通道！'));
@@ -1215,6 +1251,8 @@ export const useChannelsData = () => {
     setBatchSetTagValue,
     showBatchResetRule,
     setShowBatchResetRule,
+    showBatchQuotaConfig,
+    setShowBatchQuotaConfig,
 
     // Column states
     visibleColumns,
@@ -1286,6 +1324,7 @@ export const useChannelsData = () => {
     handleRow,
     batchSetChannelTag,
     batchSetChannelResetRule,
+    batchSetQuotaConfig,
     batchDeleteChannels,
     testAllChannels,
     deleteAllDisabledChannels,

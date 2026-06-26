@@ -174,9 +174,11 @@ func BatchSetChannelResetRules(channelIds []int, rule *ChannelResetRule) (int, e
 	if tx.Error != nil {
 		return 0, tx.Error
 	}
+	var batchErr error
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			batchErr = fmt.Errorf("panic in batch insert: %v", r)
 		}
 	}()
 	inserted := 0
@@ -208,6 +210,9 @@ func BatchSetChannelResetRules(channelIds []int, rule *ChannelResetRule) (int, e
 	}
 	if err := tx.Commit().Error; err != nil {
 		return 0, err
+	}
+	if batchErr != nil {
+		return 0, batchErr
 	}
 	return inserted, nil
 }
@@ -331,6 +336,9 @@ func ResetDueChannelRules(now int64, limit int) (int, error) {
 		if err := applyChannelResetRule(rule, now, fromTime); err != nil {
 			common.SysLog(fmt.Sprintf("channel reset rule apply failed: rule_id=%d, channel_id=%d, error=%v", rule.Id, rule.ChannelId, err))
 			resetFailedCount++
+			// 单条规则失败时推迟其 next_reset_time，避免下次循环又查出同一条反复失败
+			DB.Model(&ChannelResetRule{}).Where("id = ?", rule.Id).
+				Update("next_reset_time", now+120)
 			continue
 		}
 		resetCount++
@@ -354,9 +362,9 @@ func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&lockedRule, rule.Id).Error; err != nil {
 			return err
 		}
-		// 验证渠道是否存在
+		// 验证渠道是否存在（加 FOR UPDATE 锁，避免同一渠道被多个规则并发重置）
 		var channel Channel
-		if err := tx.First(&channel, "id = ?", rule.ChannelId).Error; err != nil {
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&channel, "id = ?", rule.ChannelId).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fmt.Errorf("channel not found: id=%d", rule.ChannelId)
 			}
@@ -407,4 +415,22 @@ func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time
 	}
 	UpdateChannelCallCountInCache(rule.ChannelId, 0, maxCallCount)
 	return nil
+}
+
+// GetChannelQuotaConfigRules 获取某渠道的配额配置类重置规则（daily + remark=quota_config）
+func GetChannelQuotaConfigRules(channelId int) ([]ChannelResetRule, error) {
+	var rules []ChannelResetRule
+	if channelId <= 0 {
+		return rules, errors.New("invalid channel id")
+	}
+	err := DB.Where("channel_id = ? AND rule_type = ? AND remark = ?", channelId, ChannelResetRuleTypeDaily, "quota_config").Order("id asc").Find(&rules).Error
+	return rules, err
+}
+
+// DeleteChannelQuotaConfigRulesWithTx 事务内删除某渠道的配额配置规则
+func DeleteChannelQuotaConfigRulesWithTx(tx *gorm.DB, channelId int) error {
+	if channelId <= 0 {
+		return errors.New("invalid channel id")
+	}
+	return tx.Where("channel_id = ? AND rule_type = ? AND remark = ?", channelId, ChannelResetRuleTypeDaily, "quota_config").Delete(&ChannelResetRule{}).Error
 }

@@ -29,6 +29,7 @@ import { useChannelsData } from '../../../hooks/channels/useChannelsData';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import BatchTagModal from './modals/BatchTagModal';
 import BatchResetRuleModal from './modals/BatchResetRuleModal';
+import BatchQuotaConfigModal from './modals/BatchQuotaConfigModal';
 import ChannelResetRuleModal from './modals/ChannelResetRuleModal';
 import ModelTestModal from './modals/ModelTestModal';
 import ColumnSelectorModal from './modals/ColumnSelectorModal';
@@ -60,6 +61,7 @@ const ChannelsPage = () => {
       />
       <BatchTagModal {...channelsData} />
       <BatchResetRuleModal {...channelsData} />
+      <BatchQuotaConfigModal {...channelsData} />
       <ChannelResetRuleModal
         visible={channelsData.showChannelResetRule}
         channelId={channelsData.resetRuleChannelId}

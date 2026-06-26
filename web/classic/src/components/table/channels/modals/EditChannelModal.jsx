@@ -24,6 +24,7 @@ import {
   showError,
   showInfo,
   showSuccess,
+  showWarning,
   verifyJSON,
 } from '../../../../helpers';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
@@ -35,6 +36,7 @@ import {
   Button,
   Typography,
   Checkbox,
+  CheckboxGroup,
   Banner,
   Modal,
   ImagePreview,
@@ -104,6 +106,12 @@ const REGION_EXAMPLE = {
 };
 const UPSTREAM_DETECTED_MODEL_PREVIEW_LIMIT = 8;
 const ADVANCED_SETTINGS_EXPANDED_KEY = 'channel-advanced-settings-expanded';
+
+// 每日重置时刻选项（0-23 点）
+const HOURS_OPTIONS = Array.from({ length: 24 }, (_, h) => ({
+  label: `${String(h).padStart(2, '0')}:00`,
+  value: h,
+}));
 
 const PARAM_OVERRIDE_LEGACY_TEMPLATE = {
   temperature: 0,
@@ -216,6 +224,7 @@ const EditChannelModal = (props) => {
     upstream_model_update_last_detected_models: [],
     upstream_model_update_ignored_models: '',
     max_call_count: 0,
+    reset_minute: 0,
   };
   const [batch, setBatch] = useState(false);
   const [multiToSingle, setMultiToSingle] = useState(false);
@@ -519,6 +528,10 @@ const EditChannelModal = (props) => {
     pass_through_body_enabled: false,
     system_prompt: '',
   });
+  // 配额每日重置时刻（数组，元素为 0-23 的小时数）
+  const [resetHours, setResetHours] = useState([]);
+  // 配额已用调用次数（只读展示，来自 quota_config 接口）
+  const [usedCallCount, setUsedCallCount] = useState(0);
   const showApiConfigCard = true; // 控制是否显示 API 配置卡片
   const getInitValues = () => ({ ...originInputs });
 
@@ -1041,6 +1054,45 @@ const EditChannelModal = (props) => {
         data.system_prompt_override;
       if (hasAdvancedValues) {
         setAdvancedSettingsOpen(true);
+      }
+
+      // 加载渠道配额与重置配置（仅编辑模式）
+      try {
+        const quotaRes = await API.get(
+          `/api/channel/${channelId}/quota_config`,
+        );
+        if (quotaRes.data?.success) {
+          const quotaData = quotaRes.data.data || {};
+          setResetHours(
+            Array.isArray(quotaData.reset_hours) ? quotaData.reset_hours : [],
+          );
+          setUsedCallCount(
+            typeof quotaData.used_call_count === 'number'
+              ? quotaData.used_call_count
+              : 0,
+          );
+          if (typeof quotaData.max_call_count === 'number') {
+            data.max_call_count = quotaData.max_call_count;
+            if (formApiRef.current) {
+              formApiRef.current.setValue(
+                'max_call_count',
+                quotaData.max_call_count,
+              );
+            }
+          }
+          if (typeof quotaData.reset_minute === 'number') {
+            if (formApiRef.current) {
+              formApiRef.current.setValue(
+                'reset_minute',
+                quotaData.reset_minute,
+              );
+            }
+          }
+        }
+      } catch (quotaError) {
+        // 配额配置接口失败时不阻塞渠道加载
+        setResetHours([]);
+        setUsedCallCount(0);
       }
     } else {
       showError(message);
@@ -1880,8 +1932,29 @@ const EditChannelModal = (props) => {
     }
     const { success, message } = res.data;
     if (success) {
+      // 编辑模式下保存配额与重置配置
       if (isEdit) {
         showSuccess(t('渠道更新成功！'));
+        try {
+          await API.put('/api/channel/quota_config', {
+            channel_id: parseInt(channelId),
+            max_call_count:
+              localInputs.max_call_count === undefined
+                ? 0
+                : localInputs.max_call_count,
+            reset_hours: resetHours,
+            reset_minute:
+              localInputs.reset_minute === undefined
+                ? 0
+                : localInputs.reset_minute,
+          });
+        } catch (quotaError) {
+          // 配额配置保存失败不阻塞渠道更新成功提示
+          showWarning(
+            quotaError?.response?.data?.message ||
+              t('配额配置未保存，渠道基础信息已更新'),
+          );
+        }
       } else {
         showSuccess(t('渠道创建成功！'));
         setInputs(originInputs);
@@ -2486,15 +2559,6 @@ const EditChannelModal = (props) => {
                     </Col>
                   </Row>
 
-                  <Form.InputNumber
-                    field='max_call_count'
-                    label={t('最大调用次数')}
-                    placeholder={t('0 表示不限')}
-                    min={0}
-                    onNumberChange={(value) => handleInputChange('max_call_count', value)}
-                    style={{ width: '100%' }}
-                  />
-
                   {inputs.type === 1 && (
                     <>
                       <div className='mt-4 mb-2 text-sm font-medium text-gray-700'>
@@ -2541,6 +2605,63 @@ const EditChannelModal = (props) => {
                   <Form.TextArea field='system_prompt' label={t('系统提示词')} placeholder={t('输入系统提示词，用户的系统提示词将优先于此设置')} onChange={(value) => handleChannelSettingsChange('system_prompt', value)} autosize showClear extraText={t('用户优先：如果用户在请求中指定了系统提示词，将优先使用用户的设置')} />
                   <Form.Switch field='system_prompt_override' label={t('系统提示词拼接')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('system_prompt_override', value)} extraText={t('如果用户请求中包含系统提示词，则使用此设置拼接到用户的系统提示词前面')} />
                 </div>
+
+                {/* 配额与重置 Section - 仅编辑模式显示 */}
+                {isEdit && (
+                  <div className='pt-3 border-t border-gray-100'>
+                    <Text className='text-sm font-medium text-gray-500 mb-3 block'>
+                      {t('配额与重置')}
+                    </Text>
+                    <Form.InputNumber
+                      field='max_call_count'
+                      label={t('总配额')}
+                      placeholder={t('0 表示不限')}
+                      min={0}
+                      onNumberChange={(value) =>
+                        handleInputChange('max_call_count', value)
+                      }
+                      style={{ width: '100%' }}
+                      extraText={t(
+                        '渠道累计成功调用次数达到此值后将不再分配请求',
+                      )}
+                    />
+                    <div className='mt-1 mb-1'>
+                      <Typography.Text type='tertiary' size='small'>
+                        {t('已用')} {usedCallCount} /{' '}
+                        {inputs.max_call_count || 0}
+                      </Typography.Text>
+                    </div>
+                    <div className='mt-3'>
+                      <Typography.Text className='text-sm font-medium text-gray-700 mb-2 block'>
+                        {t('重置时间（每小时）')}
+                      </Typography.Text>
+                      <Typography.Text
+                        type='tertiary'
+                        size='small'
+                        className='mb-2 block'
+                      >
+                        {t(
+                          '选择每天哪些时刻自动清零已用配额（按服务器时区）',
+                        )}
+                      </Typography.Text>
+                      <CheckboxGroup
+                        options={HOURS_OPTIONS}
+                        value={resetHours}
+                        onChange={setResetHours}
+                      />
+                    </div>
+                    <Form.InputNumber
+                      field='reset_minute'
+                      label={t('重置分钟')}
+                      min={0}
+                      max={59}
+                      onNumberChange={(value) =>
+                        handleInputChange('reset_minute', value)
+                      }
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                )}
               </div>
             );
 

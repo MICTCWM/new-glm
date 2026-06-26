@@ -77,7 +77,8 @@ export const buildRuleConfig = (ruleType, values) => {
       config = { specific_time: toUnixSeconds(values.specific_time) };
       break;
     default:
-      config = {};
+      console.error('Unknown rule_type:', ruleType);
+      return JSON.stringify({});
   }
   return JSON.stringify(config);
 };
@@ -123,14 +124,18 @@ const BatchResetRuleModal = ({
     const remark = values.remark || '';
     setSubmitting(true);
     try {
-      await batchSetChannelResetRule({
+      const success = await batchSetChannelResetRule({
         rule_type: ruleType,
         rule_config: ruleConfig,
         reset_value: resetValue,
         enabled: true,
         remark,
       });
-    } finally {
+      // 成功时 batchSetChannelResetRule 内部已关闭弹窗，失败时保持打开让用户修正
+      if (!success) {
+        setSubmitting(false);
+      }
+    } catch {
       setSubmitting(false);
     }
   };

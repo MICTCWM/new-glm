@@ -264,6 +264,10 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.PUT("/reset_rule", controller.UpdateChannelResetRule)
 			channelRoute.DELETE("/reset_rule/:id", controller.DeleteChannelResetRule)
 			channelRoute.POST("/batch/reset_rule", controller.BatchSetChannelResetRules)
+			// 渠道配额配置（总配额+每日多时刻重置）
+			channelRoute.GET("/:id/quota_config", controller.GetChannelQuotaConfig)
+			channelRoute.PUT("/quota_config", controller.SetChannelQuotaConfig)
+			channelRoute.POST("/batch/quota_config", controller.BatchSetChannelQuotaConfig)
 		}
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())

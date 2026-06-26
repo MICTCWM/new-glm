@@ -33,6 +33,7 @@ const ChannelsActions = ({
   batchDeleteChannels,
   setShowBatchSetTag,
   setShowBatchResetRule,
+  setShowBatchQuotaConfig,
   testAllChannels,
   fixChannelsAbilities,
   updateAllChannelsBalance,
@@ -99,6 +100,16 @@ const ChannelsActions = ({
             className='w-full md:w-auto'
           >
             {t('批量设置重置规则')}
+          </Button>
+
+          <Button
+            size='small'
+            disabled={!enableBatchDelete}
+            type='tertiary'
+            onClick={() => setShowBatchQuotaConfig(true)}
+            className='w-full md:w-auto'
+          >
+            {t('批量编辑配额')}
           </Button>
 
           <Dropdown
