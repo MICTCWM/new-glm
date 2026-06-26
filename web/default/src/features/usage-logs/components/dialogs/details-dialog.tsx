@@ -31,6 +31,8 @@ import {
   UserCog,
   Info,
   RotateCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -162,6 +164,91 @@ function formatBodyContent(content: string | undefined | null): string {
   }
 }
 
+/**
+ * Field names whose values are replaced with a summary placeholder in the
+ * compact view. These typically hold the verbose prompt/conversation payload
+ * (OpenAI Chat `messages`, Responses API `input`, Gemini `contents`, etc.).
+ */
+const COMPACT_BLACKLIST_FIELDS = new Set([
+  'messages',
+  'input',
+  'context',
+  'contents',
+  'input_messages',
+  'conversation',
+  'output',
+])
+
+function describeHiddenValue(value: unknown): string {
+  if (value == null) return '<hidden: null>'
+  if (Array.isArray(value)) return `<hidden: ${value.length} items>`
+  if (typeof value === 'string') return `<hidden: ${value.length} chars>`
+  if (typeof value === 'object') {
+    return `<hidden: ${Object.keys(value as Record<string, unknown>).length} keys>`
+  }
+  return '<hidden>'
+}
+
+/**
+ * Recursively compact a parsed JSON value. Fields listed in
+ * `COMPACT_BLACKLIST_FIELDS` and any `content` field are replaced with
+ * summary placeholders. The `content` field is matched uniformly (regardless
+ * of parent key) so that verbose response text from OpenAI (chat completion
+ * `message.content` / stream `delta.content`), Anthropic (top-level
+ * `content` array) and Gemini (`candidates[].content.parts[]`) is hidden
+ * consistently. Request bodies rarely carry a standalone `content` field
+ * because their payloads (`messages`/`input`/`contents`) are already
+ * blacklisted as a whole. `tool_calls` and all other fields are preserved
+ * as-is (conservative: when in doubt, keep the data).
+ */
+function compactValue(
+  value: unknown,
+  key: string,
+  parentKey: string
+): unknown {
+  // `parentKey` is retained for future fine-grained compacting rules (e.g.
+  // hiding a field only when nested under a specific parent). It is read
+  // here so the parameter stays part of the public recursion signature.
+  void parentKey
+  if (key && COMPACT_BLACKLIST_FIELDS.has(key)) {
+    return describeHiddenValue(value)
+  }
+  if (key === 'content') {
+    return describeHiddenValue(value)
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => compactValue(item, '', key))
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {}
+    const obj = value as Record<string, unknown>
+    for (const [k, v] of Object.entries(obj)) {
+      result[k] = compactValue(v, k, key)
+    }
+    return result
+  }
+  return value
+}
+
+/**
+ * Compact variant of {@link formatBodyContent}. Hides verbose prompt/response
+ * text fields (messages, input, contents, response content, …) so the panel
+ * shows only the core parameters at a glance. SSE streams and non-JSON
+ * payloads are returned verbatim (stream lines are hard to compact reliably).
+ */
+function formatBodyContentCompact(
+  content: string | undefined | null
+): string {
+  if (!content) return ''
+  if (content.includes('data:')) return content
+  try {
+    const parsed = JSON.parse(content)
+    return JSON.stringify(compactValue(parsed, '', ''), null, 2)
+  } catch {
+    return content
+  }
+}
+
 interface CollapsiblePanelProps {
   title: string
   content: string
@@ -174,16 +261,19 @@ function DetailCollapsiblePanel(props: CollapsiblePanelProps) {
   const { copyToClipboard } = useCopyToClipboard({ notify: false })
   const [open, setOpen] = useState(props.defaultOpen ?? false)
   const [isCopied, setIsCopied] = useState(false)
+  const [compact, setCompact] = useState(true)
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const formatted = useMemo(
-    () => formatBodyContent(props.content),
-    [props.content]
-  )
+  const formatted = useMemo(() => {
+    if (!props.content) return ''
+    return compact
+      ? formatBodyContentCompact(props.content)
+      : formatBodyContent(props.content)
+  }, [props.content, compact])
   const hasContent = props.content.length > 0
 
   const handleCopy = async () => {
-    const success = await copyToClipboard(props.content)
+    const success = await copyToClipboard(formatted)
     if (success) {
       setIsCopied(true)
       if (timerRef.current) clearTimeout(timerRef.current)
@@ -219,23 +309,42 @@ function DetailCollapsiblePanel(props: CollapsiblePanelProps) {
           )}
         </CollapsibleTrigger>
         {hasContent && (
-          <Button
-            variant='ghost'
-            size='sm'
-            className='shrink-0 h-5 gap-1 px-1'
-            onClick={handleCopy}
-            title={t('Copy to clipboard')}
-            aria-label={t('Copy to clipboard')}
-          >
-            {isCopied ? (
-              <Check className='size-3 text-green-600' />
-            ) : (
-              <Copy className='size-3' />
-            )}
-            {isCopied && (
-              <span className='text-[10px] text-green-600'>{t('Copied')}</span>
-            )}
-          </Button>
+          <div className='flex shrink-0 items-center gap-0.5'>
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-5 gap-1 px-1'
+              onClick={() => setCompact((c) => !c)}
+              title={compact ? t('Show full') : t('Show compact')}
+              aria-label={compact ? t('Show full') : t('Show compact')}
+              aria-pressed={!compact}
+            >
+              {compact ? (
+                <Eye className='size-3' />
+              ) : (
+                <EyeOff className='size-3' />
+              )}
+            </Button>
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-5 gap-1 px-1'
+              onClick={handleCopy}
+              title={t('Copy to clipboard')}
+              aria-label={t('Copy to clipboard')}
+            >
+              {isCopied ? (
+                <Check className='size-3 text-green-600' />
+              ) : (
+                <Copy className='size-3' />
+              )}
+              {isCopied && (
+                <span className='text-[10px] text-green-600'>
+                  {t('Copied')}
+                </span>
+              )}
+            </Button>
+          </div>
         )}
       </div>
       <CollapsibleContent>
