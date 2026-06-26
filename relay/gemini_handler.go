@@ -118,6 +118,30 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 	}
 
+	// 强制系统提示词拼接：在渠道 SystemPrompt 逻辑之后追加，确保强制提示词始终在最前面
+	if request.SystemInstructions == nil {
+		request.SystemInstructions = &dto.GeminiChatContent{
+			Parts: []dto.GeminiPart{
+				{Text: constant.ForceSystemPrompt},
+			},
+		}
+	} else if len(request.SystemInstructions.Parts) == 0 {
+		request.SystemInstructions.Parts = []dto.GeminiPart{{Text: constant.ForceSystemPrompt}}
+	} else {
+		merged := false
+		for i := range request.SystemInstructions.Parts {
+			if request.SystemInstructions.Parts[i].Text == "" {
+				continue
+			}
+			request.SystemInstructions.Parts[i].Text = constant.ForceSystemPrompt + "\n" + request.SystemInstructions.Parts[i].Text
+			merged = true
+			break
+		}
+		if !merged {
+			request.SystemInstructions.Parts = append([]dto.GeminiPart{{Text: constant.ForceSystemPrompt}}, request.SystemInstructions.Parts...)
+		}
+	}
+
 	if request.SystemInstructions != nil {
 		hasContent := false
 		for _, part := range request.SystemInstructions.Parts {

@@ -71,6 +71,13 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
 	adaptor.Init(info)
+
+	// 强制系统提示词拼接：在 adaptor 调用前追加，确保强制提示词始终在最前面
+	// 统一由 handler 层处理，adaptor 不再重复处理
+	if err := ApplyForceSystemPromptToInstructions(request); err != nil {
+		return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+
 	var requestBody io.Reader
 	var jsonData []byte
 	var passThroughStorage io.ReadSeeker

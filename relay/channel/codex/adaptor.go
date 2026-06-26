@@ -90,6 +90,10 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 			}
 		}
 	}
+
+	// 强制系统提示词拼接由 handler 层统一处理（ApplyForceSystemPromptToInstructions），
+	// adaptor 不再重复处理，避免重复拼接。
+
 	// Codex backend requires the `instructions` field to be present.
 	// Keep it consistent with Codex CLI behavior by defaulting to an empty string.
 	if len(request.Instructions) == 0 {

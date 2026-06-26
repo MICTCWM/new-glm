@@ -23,51 +23,49 @@ func applySystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, requ
 	if info == nil || request == nil {
 		return
 	}
-	if info.ChannelSetting.SystemPrompt == "" {
-		return
-	}
 
-	systemRole := request.GetSystemRoleName()
+	// 渠道级 SystemPrompt 拼接
+	if info.ChannelSetting.SystemPrompt != "" {
+		systemRole := request.GetSystemRoleName()
 
-	containSystemPrompt := false
-	for _, message := range request.Messages {
-		if message.Role == systemRole {
-			containSystemPrompt = true
-			break
+		containSystemPrompt := false
+		for _, message := range request.Messages {
+			if message.Role == systemRole {
+				containSystemPrompt = true
+				break
+			}
+		}
+		if !containSystemPrompt {
+			systemMessage := dto.Message{
+				Role:    systemRole,
+				Content: info.ChannelSetting.SystemPrompt,
+			}
+			request.Messages = append([]dto.Message{systemMessage}, request.Messages...)
+		} else if info.ChannelSetting.SystemPromptOverride {
+			common.SetContextKey(c, constant.ContextKeySystemPromptOverride, true)
+			for i, message := range request.Messages {
+				if message.Role != systemRole {
+					continue
+				}
+				if message.IsStringContent() {
+					request.Messages[i].SetStringContent(info.ChannelSetting.SystemPrompt + "\n" + message.StringContent())
+				} else {
+					contents := message.ParseContent()
+					contents = append([]dto.MediaContent{
+						{
+							Type: dto.ContentTypeText,
+							Text: info.ChannelSetting.SystemPrompt,
+						},
+					}, contents...)
+					request.Messages[i].Content = contents
+				}
+				break
+			}
 		}
 	}
-	if !containSystemPrompt {
-		systemMessage := dto.Message{
-			Role:    systemRole,
-			Content: info.ChannelSetting.SystemPrompt,
-		}
-		request.Messages = append([]dto.Message{systemMessage}, request.Messages...)
-		return
-	}
 
-	if !info.ChannelSetting.SystemPromptOverride {
-		return
-	}
-
-	common.SetContextKey(c, constant.ContextKeySystemPromptOverride, true)
-	for i, message := range request.Messages {
-		if message.Role != systemRole {
-			continue
-		}
-		if message.IsStringContent() {
-			request.Messages[i].SetStringContent(info.ChannelSetting.SystemPrompt + "\n" + message.StringContent())
-			return
-		}
-		contents := message.ParseContent()
-		contents = append([]dto.MediaContent{
-			{
-				Type: dto.ContentTypeText,
-				Text: info.ChannelSetting.SystemPrompt,
-			},
-		}, contents...)
-		request.Messages[i].Content = contents
-		return
-	}
+	// 强制系统提示词拼接由 chatCompletionsViaResponses 在转换成 Responses 请求后统一处理
+	// （ApplyForceSystemPromptToInstructions），避免 Messages 与 Instructions 重复拼接。
 }
 
 func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, request *dto.GeneralOpenAIRequest) (*dto.Usage, *types.NewAPIError) {
@@ -96,6 +94,10 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	responsesReq, err := service.ChatCompletionsRequestToResponsesRequest(&overriddenChatReq)
 	if err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	// 强制系统提示词拼接：转换成 Responses 请求后统一处理 Instructions
+	if err := ApplyForceSystemPromptToInstructions(responsesReq); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	info.AppendRequestConversion(types.RelayFormatOpenAIResponses)
 
