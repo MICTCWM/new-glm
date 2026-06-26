@@ -170,7 +170,26 @@ func sendGeminiThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo, notic
 
 func sendResponsesThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo, notice string, logLabel string) bool {
 	itemID := fmt.Sprintf("rs_%s", helper.GetResponseID(c))
+	responseID := helper.GetResponseID(c)
 	events := []dto.ResponsesStreamResponse{
+		{
+			Type: "response.created",
+			Response: &dto.OpenAIResponsesResponse{
+				ID:     responseID,
+				Object: "response",
+				Status: json.RawMessage(`"in_progress"`),
+				Model:  info.GetDisplayModelName(),
+			},
+		},
+		{
+			Type: "response.in_progress",
+			Response: &dto.OpenAIResponsesResponse{
+				ID:     responseID,
+				Object: "response",
+				Status: json.RawMessage(`"in_progress"`),
+				Model:  info.GetDisplayModelName(),
+			},
+		},
 		{
 			Type: "response.reasoning_summary_part.added",
 			Item: &dto.ResponsesOutput{
@@ -286,7 +305,24 @@ func sendOpenAIChatContentNotice(c *gin.Context, info *relaycommon.RelayInfo, no
 		return false
 	}
 
-	// 3. 发送 [DONE] 结束流式输出
+	// 3. 发送 usage chunk（token 用量为 0，因为请求未完成，实际计费已在中间件完成）
+	usageChunk := helper.GenerateFinalUsageResponse(
+		helper.GetResponseID(c),
+		time.Now().Unix(),
+		info.GetDisplayModelName(),
+		dto.Usage{PromptTokens: 0, CompletionTokens: 0, TotalTokens: 0},
+	)
+	usageData, err := common.Marshal(usageChunk)
+	if err != nil {
+		logger.LogWarn(c, "failed to marshal "+logLabel+" usage notice: "+err.Error())
+		return false
+	}
+	if err := openai.HandleStreamFormat(c, info, string(usageData), info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+		logger.LogWarn(c, "failed to send "+logLabel+" usage notice: "+err.Error())
+		return false
+	}
+
+	// 4. 发送 [DONE] 结束流式输出
 	helper.Done(c)
 	info.RpmQueueThinkingNoticeSent = true
 	return flushNotice(c, logLabel)
@@ -327,7 +363,6 @@ func sendClaudeContentNotice(c *gin.Context, info *relaycommon.RelayInfo, notice
 			return false
 		}
 		info.ClaudeRpmQueueThinkingOpen = false
-		info.ClaudeRpmQueueMergedThinking = false
 		info.ClaudeRpmQueueIndexOffset = 1
 	}
 
@@ -387,6 +422,9 @@ func sendClaudeContentNotice(c *gin.Context, info *relaycommon.RelayInfo, notice
 		return false
 	}
 
+	// 7. 所有步骤成功后，再标记 thinking 内容已合并
+	info.ClaudeRpmQueueMergedThinking = false
+
 	return flushNotice(c, logLabel)
 }
 
@@ -411,8 +449,9 @@ func sendGeminiContentNotice(c *gin.Context, info *relaycommon.RelayInfo, notice
 			},
 		},
 		UsageMetadata: dto.GeminiUsageMetadata{
-			PromptTokenCount: info.GetEstimatePromptTokens(),
-			TotalTokenCount:  info.GetEstimatePromptTokens(),
+			PromptTokenCount:     info.GetEstimatePromptTokens(),
+			CandidatesTokenCount: 0,
+			TotalTokenCount:      info.GetEstimatePromptTokens(),
 		},
 	}
 	data, err := common.Marshal(resp)
@@ -435,6 +474,15 @@ func sendResponsesContentNotice(c *gin.Context, info *relaycommon.RelayInfo, not
 	events := []dto.ResponsesStreamResponse{
 		{
 			Type: "response.created",
+			Response: &dto.OpenAIResponsesResponse{
+				ID:     responseID,
+				Object: "response",
+				Status: json.RawMessage(`"in_progress"`),
+				Model:  info.GetDisplayModelName(),
+			},
+		},
+		{
+			Type: "response.in_progress",
 			Response: &dto.OpenAIResponsesResponse{
 				ID:     responseID,
 				Object: "response",

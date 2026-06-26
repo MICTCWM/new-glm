@@ -107,7 +107,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 			// 如果已经开始流式输出（HTTP 响应头已发送），将错误信息发送到正文内容
 			// 因为此时无法再通过 HTTP 状态码传递错误
-			if relayInfo != nil && relayInfo.IsStream && c.Writer.Written() && relayFormat != types.RelayFormatOpenAIRealtime {
+			canStreamError := relayInfo != nil && relayInfo.IsStream && c.Writer.Written() && relayFormat != types.RelayFormatOpenAIRealtime
+			if canStreamError {
 				if !relay.SendErrorNotice(c, relayInfo, userFriendlyMsg) {
 					logger.LogWarn(c, "failed to send error notice to stream, client may hang")
 				}

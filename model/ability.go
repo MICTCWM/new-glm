@@ -150,6 +150,7 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 	anyRpmLimited := false
 	anySpecialUserRestricted := false
 	anySpecialUserAllowed := false
+	anyCallCountLimited := false
 	requestUserId := firstUserId(userId...)
 	for _, ability_ := range abilities {
 		if len(usedChannelIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedChannelIds) {
@@ -164,6 +165,11 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 			continue
 		}
 		anySpecialUserAllowed = true
+		// 检查调用次数配额：max_call_count > 0 且 used_call_count >= max_call_count 时不可选
+		if candidateChannel.MaxCallCount > 0 && candidateChannel.UsedCallCount >= candidateChannel.MaxCallCount {
+			anyCallCountLimited = true
+			continue
+		}
 		if candidateChannel.MaxRPM > 0 {
 			anyRpmLimited = true
 			if CheckChannelRpmFullFunc != nil && CheckChannelRpmFullFunc(candidateChannel.Id) {
@@ -185,7 +191,7 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 			if anySpecialUserRestricted && !anySpecialUserAllowed {
 				return nil, ErrChannelSpecialUserUnauthorized
 			}
-			if anyRpmLimited {
+			if anyRpmLimited || anyCallCountLimited {
 				return nil, ErrAllChannelsRpmFull
 			}
 			return nil, nil

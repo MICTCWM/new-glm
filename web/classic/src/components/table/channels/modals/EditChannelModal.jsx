@@ -215,6 +215,7 @@ const EditChannelModal = (props) => {
     upstream_model_update_last_check_time: 0,
     upstream_model_update_last_detected_models: [],
     upstream_model_update_ignored_models: '',
+    max_call_count: 0,
   };
   const [batch, setBatch] = useState(false);
   const [multiToSingle, setMultiToSingle] = useState(false);
@@ -2484,6 +2485,15 @@ const EditChannelModal = (props) => {
                       />
                     </Col>
                   </Row>
+
+                  <Form.InputNumber
+                    field='max_call_count'
+                    label={t('最大调用次数')}
+                    placeholder={t('0 表示不限')}
+                    min={0}
+                    onNumberChange={(value) => handleInputChange('max_call_count', value)}
+                    style={{ width: '100%' }}
+                  />
 
                   {inputs.type === 1 && (
                     <>

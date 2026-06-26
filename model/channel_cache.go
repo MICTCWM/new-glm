@@ -164,6 +164,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 	var anyRpmLimited bool
 	var anySpecialUserRestricted bool
 	var anySpecialUserAllowed bool
+	var anyCallCountLimited bool
 	requestUserId := firstUserId(userId...)
 	for _, channelId := range availableChannels {
 		if channel, ok := channelsIDM[channelId]; ok {
@@ -172,6 +173,11 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 				continue
 			}
 			anySpecialUserAllowed = true
+			// 检查调用次数配额：max_call_count > 0 且 used_call_count >= max_call_count 时不可选
+			if channel.MaxCallCount > 0 && channel.UsedCallCount >= channel.MaxCallCount {
+				anyCallCountLimited = true
+				continue
+			}
 			if channel.MaxRPM > 0 {
 				anyRpmLimited = true
 				if CheckChannelRpmFullFunc != nil && CheckChannelRpmFullFunc(channelId) {
@@ -187,7 +193,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 		if anySpecialUserRestricted && !anySpecialUserAllowed {
 			return nil, ErrChannelSpecialUserUnauthorized
 		}
-		if anyRpmLimited {
+		if anyRpmLimited || anyCallCountLimited {
 			return nil, ErrAllChannelsRpmFull
 		}
 		return nil, nil

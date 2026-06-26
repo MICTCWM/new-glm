@@ -573,6 +573,32 @@ export const getChannelsColumns = ({
       },
     },
     {
+      key: COLUMN_KEYS.CALL_QUOTA,
+      title: t('调用配额'),
+      dataIndex: 'max_call_count',
+      render: (text, record, index) => {
+        if (record.children === undefined) {
+          const maxCallCount = record.max_call_count || 0;
+          const usedCallCount = record.used_call_count || 0;
+          if (maxCallCount > 0) {
+            return (
+              <Tag color='blue' shape='circle'>
+                {usedCallCount} / {maxCallCount}
+              </Tag>
+            );
+          } else {
+            return (
+              <Tag color='grey' shape='circle'>
+                {t('不限')}
+              </Tag>
+            );
+          }
+        } else {
+          return <Tag color='grey' shape='circle'>{t('-')}</Tag>;
+        }
+      },
+    },
+    {
       key: COLUMN_KEYS.PRIORITY,
       title: t('优先级'),
       dataIndex: 'priority',

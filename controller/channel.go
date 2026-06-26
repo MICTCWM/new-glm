@@ -1199,6 +1199,7 @@ func CopyChannel(c *gin.Context) {
 	if resetBalance {
 		clone.Balance = 0
 		clone.UsedQuota = 0
+		clone.UsedCallCount = 0
 	}
 
 	// insert

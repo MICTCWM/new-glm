@@ -56,6 +56,9 @@ type Channel struct {
 
 	MaxRPM int `json:"max_rpm" gorm:"default:0"` // 每分钟最大请求数，0=不限制
 
+	MaxCallCount  int64 `json:"max_call_count" gorm:"bigint;default:0"`  // 最大调用次数，0=不限制
+	UsedCallCount int64 `json:"used_call_count" gorm:"bigint;default:0"` // 已调用次数，成功调用+1
+
 	// cache info
 	Keys       []string `json:"-" gorm:"-"`
 	CurrentRPM int      `json:"current_rpm" gorm:"-"` // 当前RPM占用数（仅运行时，不持久化）
@@ -821,6 +824,23 @@ func updateChannelUsedQuota(id int, quota int) {
 	err := DB.Model(&Channel{}).Where("id = ?", id).Update("used_quota", gorm.Expr("used_quota + ?", quota)).Error
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to update channel used quota: channel_id=%d, delta_quota=%d, error=%v", id, quota, err))
+	}
+}
+
+// UpdateChannelCallCount 批量更新渠道调用次数入口
+func UpdateChannelCallCount(id int, count int) {
+	if common.BatchUpdateEnabled {
+		addNewRecord(BatchUpdateTypeChannelCallCount, id, count)
+		return
+	}
+	updateChannelCallCount(id, count)
+}
+
+// updateChannelCallCount 实际更新渠道调用次数（DB累加）
+func updateChannelCallCount(id int, count int) {
+	err := DB.Model(&Channel{}).Where("id = ?", id).Update("used_call_count", gorm.Expr("used_call_count + ?", count)).Error
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to update channel call count: channel_id=%d, delta_count=%d, error=%v", id, count, err))
 	}
 }
 
