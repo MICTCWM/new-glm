@@ -15,10 +15,10 @@ type LogDetail struct {
 	Id                     int    `json:"id" gorm:"primaryKey"`
 	LogId                  int    `json:"log_id" gorm:"index"`           // 关联 Log.Id
 	RequestId              string `json:"request_id" gorm:"index"`       // 关联 Log.RequestId
-	UserRequestBody        string `json:"user_request_body" gorm:"type:longtext"`        // 数据点1：用户原始请求 JSON
-	UpstreamRequestBody    string `json:"upstream_request_body" gorm:"type:longtext"`    // 数据点2：转换后发给上游的请求体（无转换时为空）
-	UpstreamResponseBody   string `json:"upstream_response_body" gorm:"type:longtext"`   // 数据点3：上游返回的原始响应体
-	DownstreamResponseBody string `json:"downstream_response_body" gorm:"type:longtext"` // 数据点4：系统最终返回给用户的响应体（=数据点5）
+	UserRequestBody        string `json:"user_request_body" gorm:"type:mediumtext"`        // 数据点1：用户原始请求 JSON
+	UpstreamRequestBody    string `json:"upstream_request_body" gorm:"type:mediumtext"`    // 数据点2：转换后发给上游的请求体（无转换时为空）
+	UpstreamResponseBody   string `json:"upstream_response_body" gorm:"type:mediumtext"`   // 数据点3：上游返回的原始响应体
+	DownstreamResponseBody string `json:"downstream_response_body" gorm:"type:mediumtext"` // 数据点4：系统最终返回给用户的响应体（=数据点5）
 	HasConversion          bool   `json:"has_conversion"`                                // 是否发生协议转换
 	CreatedAt              int64  `json:"created_at" gorm:"bigint"`
 }
