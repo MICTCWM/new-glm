@@ -119,3 +119,77 @@ func GetUsage(c *gin.Context) {
 	c.JSON(200, usage)
 	return
 }
+
+// GetV1UsageQuota returns the 5-hour quota usage for the cc-switch client (Kimi format).
+// It picks the active subscription with the highest used ratio (AmountUsed/AmountTotal),
+// and falls back to the wallet quota when no usable active subscription exists.
+func GetV1UsageQuota(c *gin.Context) {
+	userId := c.GetInt("id")
+
+	// 1. 查询所有 active 订阅
+	subs, err := model.GetAllActiveUserSubscriptions(userId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 2. 选取已用比例最高的订阅（AmountUsed/AmountTotal 最大，且 AmountTotal > 0）
+	var selectedLimit, selectedRemaining, selectedResetTime int64
+	foundSubscription := false
+
+	if len(subs) > 0 {
+		maxRatio := -1.0
+		for _, sub := range subs {
+			if sub.Subscription == nil {
+				continue
+			}
+			// 跳过无限额度订阅（AmountTotal <= 0）
+			if sub.Subscription.AmountTotal <= 0 {
+				continue
+			}
+			ratio := float64(sub.Subscription.AmountUsed) / float64(sub.Subscription.AmountTotal)
+			if ratio > maxRatio {
+				maxRatio = ratio
+				selectedLimit = sub.Subscription.AmountTotal
+				selectedRemaining = sub.Subscription.AmountTotal - sub.Subscription.AmountUsed
+				selectedResetTime = sub.Subscription.NextResetTime
+				foundSubscription = true
+			}
+		}
+	}
+
+	// 3. 如果没有可用的订阅，回退到钱包额度
+	if !foundSubscription {
+		userQuota, err := model.GetUserQuota(userId, false)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		userUsedQuota, err := model.GetUserUsedQuota(userId)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		selectedLimit = int64(userQuota + userUsedQuota)
+		selectedRemaining = int64(userQuota)
+		selectedResetTime = 0 // 钱包无重置周期
+	}
+
+	// 4. 确保剩余额度不为负
+	if selectedRemaining < 0 {
+		selectedRemaining = 0
+	}
+
+	// 5. 返回 Kimi 格式（resetTime 转毫秒）
+	c.JSON(http.StatusOK, gin.H{
+		"limits": []gin.H{
+			{
+				"detail": gin.H{
+					"limit":     selectedLimit,
+					"remaining": selectedRemaining,
+					"resetTime": selectedResetTime * 1000, // unix 秒 → 毫秒
+				},
+			},
+		},
+	})
+}
