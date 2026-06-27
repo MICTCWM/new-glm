@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -120,7 +121,7 @@ func GetUsage(c *gin.Context) {
 	return
 }
 
-// GetV1UsageQuota returns the 5-hour quota usage for the cc-switch client (Kimi format).
+// GetV1UsageQuota returns the 5-hour quota usage for the cc-switch client (ZenMux format).
 // It picks the active subscription with the highest used ratio (AmountUsed/AmountTotal),
 // and falls back to the wallet quota when no usable active subscription exists.
 func GetV1UsageQuota(c *gin.Context) {
@@ -129,7 +130,10 @@ func GetV1UsageQuota(c *gin.Context) {
 	// 1. 查询所有 active 订阅
 	subs, err := model.GetAllActiveUserSubscriptions(userId)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
 		return
 	}
 
@@ -162,12 +166,18 @@ func GetV1UsageQuota(c *gin.Context) {
 	if !foundSubscription {
 		userQuota, err := model.GetUserQuota(userId, false)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
 			return
 		}
 		userUsedQuota, err := model.GetUserUsedQuota(userId)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
 			return
 		}
 		selectedLimit = int64(userQuota + userUsedQuota)
@@ -180,16 +190,28 @@ func GetV1UsageQuota(c *gin.Context) {
 		selectedRemaining = 0
 	}
 
-	// 5. 返回 Kimi 格式（resetTime 转毫秒）
+	// 5. 计算 ZenMux 格式字段
+	usedValue := selectedLimit - selectedRemaining
+	var usagePercentage float64
+	if selectedLimit > 0 {
+		usagePercentage = float64(usedValue) / float64(selectedLimit)
+	}
+	usedValueUSD := float64(usedValue) / common.QuotaPerUnit
+	maxValueUSD := float64(selectedLimit) / common.QuotaPerUnit
+
+	quota5h := gin.H{
+		"usage_percentage": usagePercentage,
+		"used_value_usd":   usedValueUSD,
+		"max_value_usd":    maxValueUSD,
+	}
+	if selectedResetTime > 0 {
+		quota5h["resets_at"] = time.Unix(selectedResetTime, 0).UTC().Format(time.RFC3339)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"limits": []gin.H{
-			{
-				"detail": gin.H{
-					"limit":     selectedLimit,
-					"remaining": selectedRemaining,
-					"resetTime": selectedResetTime * 1000, // unix 秒 → 毫秒
-				},
-			},
+		"success": true,
+		"data": gin.H{
+			"quota_5_hour": quota5h,
 		},
 	})
 }
