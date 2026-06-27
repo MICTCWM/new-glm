@@ -5,6 +5,12 @@
 .history/
 .claude/
 .cursor/
+.codex/
+.codebuddy/
+.trae/
+.windsurf/
+.aider/
+.kilo/
 *.swp
 *.swo
 *~
@@ -105,6 +111,14 @@ plans/
 skills-lock.json
 
 # ==================== 其他 ====================
+# AI/自动化工具
+.playwright-mcp/
+.playwright/
+.test-results/
+.specify/
+.gemini/
+.github/copilot-instructions.md
+
 # 临时文件
 *.tmp
 *.temp

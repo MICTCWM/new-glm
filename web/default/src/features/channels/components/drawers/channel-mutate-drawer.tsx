@@ -335,6 +335,7 @@ export function ChannelMutateDrawer({
     ((action: MissingModelsAction) => void) | null
   >(null)
   const [advancedSettingsOpen, setAdvancedSettingsOpen] = useState(false)
+  const [rateLimitingOpen, setRateLimitingOpen] = useState(false)
   const [paramOverrideEditorOpen, setParamOverrideEditorOpen] = useState(false)
   const [specialUserPickerOpen, setSpecialUserPickerOpen] = useState(false)
 
@@ -684,6 +685,10 @@ export function ChannelMutateDrawer({
       initialStatusCodeMappingRef.current = ''
     }
   }, [isEditing, channelData, form])
+
+  useEffect(() => {
+    setRateLimitingOpen(isEditing)
+  }, [isEditing, currentRow?.id])
 
   useEffect(() => {
     if (!isEditing || !quotaConfigData?.data) return
@@ -3459,7 +3464,11 @@ export function ChannelMutateDrawer({
               </Collapsible>
 
               {/* Max RPM Configuration */}
-              <Collapsible defaultOpen={false} className='border-b'>
+              <Collapsible
+                open={rateLimitingOpen}
+                onOpenChange={setRateLimitingOpen}
+                className='border-b'
+              >
                 <CollapsibleTrigger className='hover:bg-muted/50 flex w-full items-center justify-between px-4 py-3 text-sm font-medium'>
                   <div className='flex items-center gap-2'>
                     <Gauge className='text-muted-foreground size-4' />
@@ -3469,6 +3478,11 @@ export function ChannelMutateDrawer({
                 </CollapsibleTrigger>
                 <CollapsibleContent className='px-4 pb-4'>
                   <div className='flex flex-col gap-4'>
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'Set the per-minute request cap here. When editing an existing channel, this section also includes the successful request quota and reset schedule.'
+                      )}
+                    </p>
                     <FormField
                       control={form.control}
                       name='max_rpm'
