@@ -165,7 +165,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 
 		// 强制系统提示词拼接：在渠道 SystemPrompt 逻辑之后追加，确保强制提示词始终在最前面
 		if forceReq, ok := convertedRequest.(*dto.GeneralOpenAIRequest); ok {
-			ApplyForceSystemPromptToMessages(forceReq)
+			ApplyForceSystemPromptToMessages(forceReq, info.OriginModelName)
 		}
 
 		jsonData, err = common.Marshal(convertedRequest)

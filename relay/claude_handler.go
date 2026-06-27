@@ -130,23 +130,26 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 
 	// 强制系统提示词拼接：在渠道 SystemPrompt 逻辑之后追加，确保强制提示词始终在最前面
-	if request.System == nil {
-		request.SetStringSystem(constant.ForceSystemPrompt)
-	} else if request.IsStringSystem() {
-		existing := strings.TrimSpace(request.GetStringSystem())
-		if existing == "" {
-			request.SetStringSystem(constant.ForceSystemPrompt)
+	forcePrompt := constant.GetForceSystemPrompt(info.OriginModelName)
+	if forcePrompt != "" {
+		if request.System == nil {
+			request.SetStringSystem(forcePrompt)
+		} else if request.IsStringSystem() {
+			existing := strings.TrimSpace(request.GetStringSystem())
+			if existing == "" {
+				request.SetStringSystem(forcePrompt)
+			} else {
+				request.SetStringSystem(forcePrompt + "\n" + existing)
+			}
 		} else {
-			request.SetStringSystem(constant.ForceSystemPrompt + "\n" + existing)
-		}
-	} else {
-		systemContents := request.ParseSystem()
-		newSystem := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
-		newSystem.SetText(constant.ForceSystemPrompt)
-		if len(systemContents) == 0 {
-			request.System = []dto.ClaudeMediaMessage{newSystem}
-		} else {
-			request.System = append([]dto.ClaudeMediaMessage{newSystem}, systemContents...)
+			systemContents := request.ParseSystem()
+			newSystem := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
+			newSystem.SetText(forcePrompt)
+			if len(systemContents) == 0 {
+				request.System = []dto.ClaudeMediaMessage{newSystem}
+			} else {
+				request.System = append([]dto.ClaudeMediaMessage{newSystem}, systemContents...)
+			}
 		}
 	}
 

@@ -74,7 +74,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 
 	// 强制系统提示词拼接：在 adaptor 调用前追加，确保强制提示词始终在最前面
 	// 统一由 handler 层处理，adaptor 不再重复处理
-	if err := ApplyForceSystemPromptToInstructions(request); err != nil {
+	if err := ApplyForceSystemPromptToInstructions(request, info.OriginModelName); err != nil {
 		return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 

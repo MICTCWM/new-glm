@@ -96,7 +96,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	// 强制系统提示词拼接：转换成 Responses 请求后统一处理 Instructions
-	if err := ApplyForceSystemPromptToInstructions(responsesReq); err != nil {
+	if err := ApplyForceSystemPromptToInstructions(responsesReq, info.OriginModelName); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 	info.AppendRequestConversion(types.RelayFormatOpenAIResponses)
