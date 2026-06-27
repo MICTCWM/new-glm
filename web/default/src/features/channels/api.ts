@@ -296,6 +296,18 @@ export async function batchSetChannelQuotaConfig(data: {
   return res.data
 }
 
+/**
+ * Batch reset channel used call count (quota reset).
+ * Clears used_call_count to 0; max_call_count remains unchanged.
+ * Channels auto-disabled due to quota exhaustion will be re-enabled.
+ */
+export async function batchResetChannelQuota(data: {
+  ids: number[]
+}): Promise<{ success: boolean; message?: string; data?: { count: number } }> {
+  const res = await api.post('/api/channel/batch/reset_quota', data)
+  return res.data
+}
+
 // ============================================================================
 // Codex Channel Operations
 // ============================================================================

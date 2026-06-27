@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type Table } from '@tanstack/react-table'
-import { Power, PowerOff, RotateCcw, Tag, Trash2 } from 'lucide-react'
+import { Power, PowerOff, RefreshCcw, RotateCcw, Tag, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -43,6 +43,7 @@ import {
   handleBatchDelete,
   handleBatchDisable,
   handleBatchEnable,
+  handleBatchResetQuota,
   handleBatchSetQuotaConfig,
   handleBatchSetTag,
 } from '../lib'
@@ -62,6 +63,7 @@ export function DataTableBulkActions<TData>({
   const [showTagDialog, setShowTagDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showQuotaDialog, setShowQuotaDialog] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [tagValue, setTagValue] = useState('')
   const [maxCallCount, setMaxCallCount] = useState('0')
   const [resetMinute, setResetMinute] = useState('0')
@@ -122,6 +124,13 @@ export function DataTableBulkActions<TData>({
         handleClearSelection()
       }
     )
+  }
+
+  const handleResetQuotaConfirm = () => {
+    handleBatchResetQuota(selectedIds, queryClient, () => {
+      setShowResetConfirm(false)
+      handleClearSelection()
+    })
   }
 
   return (
@@ -189,6 +198,29 @@ export function DataTableBulkActions<TData>({
           </TooltipTrigger>
           <TooltipContent>
             <p>{t('Set quota for selected channels')}</p>
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='outline'
+                size='icon'
+                onClick={() => setShowResetConfirm(true)}
+                className='size-8'
+                aria-label={t('Reset quota for selected channels')}
+                title={t('Reset quota for selected channels')}
+              />
+            }
+          >
+            <RefreshCcw />
+            <span className='sr-only'>
+              {t('Reset quota for selected channels')}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('Reset quota for selected channels')}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -364,6 +396,31 @@ export function DataTableBulkActions<TData>({
               {t('Cancel')}
             </Button>
             <Button onClick={handleSetQuota}>{t('Save changes')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Quota Confirmation Dialog */}
+      <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Reset Channel Quota')}</DialogTitle>
+            <DialogDescription>
+              {t('Confirm reset used quota for')} {selectedIds.length}{' '}
+              {t(
+                'selected channel(s)? Total quota remains unchanged, used count will be cleared.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setShowResetConfirm(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button onClick={handleResetQuotaConfirm}>{t('Reset')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

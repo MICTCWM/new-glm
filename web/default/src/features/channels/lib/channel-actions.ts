@@ -26,6 +26,7 @@ import {
   testChannel,
   updateChannel,
   batchDeleteChannels,
+  batchResetChannelQuota,
   batchSetChannelQuotaConfig,
   batchSetChannelTag,
   enableTagChannels,
@@ -474,6 +475,37 @@ export async function handleBatchSetQuotaConfig(
     }
   } catch (_error) {
     toast.error(i18next.t('Failed to update batch quota'))
+  }
+}
+
+/**
+ * Batch reset channel quota (clear used_call_count to 0).
+ * Total quota (max_call_count) remains unchanged; channels auto-disabled
+ * due to quota exhaustion will be re-enabled.
+ */
+export async function handleBatchResetQuota(
+  ids: number[],
+  queryClient?: QueryClient,
+  onSuccess?: () => void
+): Promise<void> {
+  if (ids.length === 0) {
+    toast.error(i18next.t('No channels selected'))
+    return
+  }
+
+  try {
+    const response = await batchResetChannelQuota({ ids })
+    if (response.success) {
+      toast.success(
+        i18next.t('{{count}} channel(s) quota reset', {
+          count: response.data?.count ?? ids.length,
+        })
+      )
+      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      onSuccess?.()
+    }
+  } catch (_error) {
+    toast.error(i18next.t('Failed to reset channel quota'))
   }
 }
 
