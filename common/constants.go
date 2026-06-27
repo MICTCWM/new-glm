@@ -164,6 +164,12 @@ var RetryDelays = []time.Duration{
 	15 * time.Second, // 第 5 次重试
 }
 
+// MaxRetryTimes 极限重试模式下的最大重试次数
+var MaxRetryTimes = 50
+
+// MaxRetryDelay 极限重试模式下第6次起的固定延迟
+var MaxRetryDelay = 10 * time.Second
+
 //var RootUserEmail = ""
 
 var IsMasterNode bool

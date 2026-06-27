@@ -256,7 +256,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
-	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
+	maxRetryEnabled := common.GetContextKeyBool(c, constant.ContextKeyTokenMaxRetryEnabled)
+	maxRetryTimes := common.RetryTimes
+	if maxRetryEnabled {
+		maxRetryTimes = common.MaxRetryTimes
+	}
+
+	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
@@ -285,8 +291,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if !tracker.TryIncrement() {
 				// RPM just filled up, skip this channel and retry another
 				retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
-				runtimeRpmFull = true
-				if retryParam.GetRetry() >= common.RetryTimes {
+			runtimeRpmFull = true
+			if retryParam.GetRetry() >= maxRetryTimes {
 					if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
 						wasQueued = true
 						runtimeRpmFull = false
@@ -345,13 +351,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+		if !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
 			break
 		}
 
-		if delay := getRetryDelay(retryParam.GetRetry() + 1); delay > 0 {
-			retryDelays = append(retryDelays, int(delay.Seconds()))
-			relay.WaitBeforeRetry(c, relayInfo, delay, retryParam.GetRetry()+1, "Relay retry")
+		currentRetry := retryParam.GetRetry() + 1
+		if maxRetryEnabled && currentRetry > common.RetryTimes {
+			// 极限重试模式：第6次起每10秒一次，发送 "retry X/total" 提示
+			if currentRetry <= maxRetryTimes {
+				retryDelays = append(retryDelays, int(common.MaxRetryDelay.Seconds()))
+				relay.WaitBeforeMaxRetry(c, relayInfo, currentRetry, maxRetryTimes)
+			}
+		} else {
+			// 默认逻辑：前5次用现有延迟和提示
+			if delay := getRetryDelay(currentRetry); delay > 0 {
+				retryDelays = append(retryDelays, int(delay.Seconds()))
+				relay.WaitBeforeRetry(c, relayInfo, delay, currentRetry, "Relay retry")
+			}
 		}
 	}
 

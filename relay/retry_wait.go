@@ -23,6 +23,19 @@ func WaitBeforeRetry(c *gin.Context, info *relaycommon.RelayInfo, delay time.Dur
 	time.Sleep(delay)
 }
 
+// WaitBeforeMaxRetry 极限重试模式下，第6次起每次重试前发送 "retry X/total" 提示并等待
+func WaitBeforeMaxRetry(c *gin.Context, info *relaycommon.RelayInfo, retryNumber int, total int) {
+	delay := common.MaxRetryDelay
+	if delay <= 0 {
+		return
+	}
+	msg := fmt.Sprintf("retry %d/%d", retryNumber, total)
+	logger.LogInfo(c, fmt.Sprintf("max retry #%d: waiting %v before next attempt (%s)", retryNumber, delay, msg))
+	// 发送固定格式提示到 thinking/reasoning_content 通道
+	streamnotice.SendRetryMessage(c, info, msg)
+	time.Sleep(delay)
+}
+
 func SendRetryWaitNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	return streamnotice.SendRetryWaitNotice(c, info)
 }

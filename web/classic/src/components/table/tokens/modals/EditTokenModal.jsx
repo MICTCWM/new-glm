@@ -53,6 +53,7 @@ import {
   IconSave,
   IconClose,
   IconKey,
+  IconRefresh,
 } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { StatusContext } from '../../../../context/Status';
@@ -81,6 +82,7 @@ const EditTokenModal = (props) => {
     allow_ips: '',
     group: '',
     cross_group_retry: false,
+    max_retry_enabled: false,
     tokenCount: 1,
   });
 
@@ -641,6 +643,31 @@ const EditTokenModal = (props) => {
                     />
                   </Col>
                 </Row>
+              </Card>
+
+              {/* 重试设置 */}
+              <Card className='!rounded-2xl shadow-sm border-0'>
+                <div className='flex items-center mb-2'>
+                  <Avatar size='small' color='orange' className='mr-2 shadow-md'>
+                    <IconRefresh size={16} />
+                  </Avatar>
+                  <div>
+                    <Text className='text-lg font-medium'>{t('重试设置')}</Text>
+                    <div className='text-xs text-gray-600'>
+                      {t('配置请求失败时的重试策略')}
+                    </div>
+                  </div>
+                </div>
+                <Form.Switch
+                  field='max_retry_enabled'
+                  label={t('极限重试')}
+                  size='default'
+                  checkedText={t('开')}
+                  uncheckedText={t('关')}
+                  extraText={t(
+                    '开启后请求失败将重试最多 50 次：前 5 次按常规延迟重试，第 6 次起每 10 秒重试一次，直到成功或达到 50 次上限',
+                  )}
+                />
               </Card>
             </div>
           )}

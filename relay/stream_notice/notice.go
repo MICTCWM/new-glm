@@ -20,6 +20,11 @@ func SendRetryWaitNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	return sendThinkingNotice(c, info, RandomRetryMessage(), "retry wait")
 }
 
+// SendRetryMessage 发送固定格式的重试提示消息（如 "retry 6/50"）
+func SendRetryMessage(c *gin.Context, info *relaycommon.RelayInfo, message string) bool {
+	return sendThinkingNotice(c, info, message, "retry message")
+}
+
 func sendThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo, notice string, logLabel string) bool {
 	if info == nil || !info.IsStream {
 		return false

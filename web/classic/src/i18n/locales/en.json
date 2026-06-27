@@ -3871,6 +3871,10 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "重试设置": "Retry Settings",
+    "极限重试": "Max Retry",
+    "配置请求失败时的重试策略": "Configure retry strategy for failed requests",
+    "开启后请求失败将重试最多 50 次：前 5 次按常规延迟重试，第 6 次起每 10 秒重试一次，直到成功或达到 50 次上限": "When enabled, failed requests will retry up to 50 times: the first 5 retries follow standard delays, from the 6th retry onwards it retries every 10 seconds until success or the 50-attempt limit is reached"
   }
 }
