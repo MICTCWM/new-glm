@@ -723,6 +723,19 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
+		// 重试时：强制调用 CacheGetRandomSatisfiedChannel 过滤已使用渠道并切换新渠道，
+		// 避免直接返回 ContextKeySelectedChannel 中缓存的旧渠道导致重试不切换渠道
+		if retryParam.GetRetry() > 0 {
+			channel, _, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+			if err == nil && channel != nil {
+				newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
+				if newAPIError != nil {
+					return nil, newAPIError
+				}
+				return channel, nil
+			}
+			// CacheGetRandomSatisfiedChannel 失败（如所有渠道都用完），fallback 到原逻辑
+		}
 		if common.GetContextKeyBool(c, constant.ContextKeyRpmQueuePending) {
 			channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 			if err != nil {
