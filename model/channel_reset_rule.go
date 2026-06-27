@@ -374,6 +374,19 @@ func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time
 		channelUpdates := map[string]interface{}{
 			"used_call_count": 0,
 		}
+		if channel.Status == common.ChannelStatusAutoDisabled {
+			info := channel.GetOtherInfo()
+			if reason, _ := info["status_reason"].(string); reason == ChannelStatusReasonQuotaExhausted {
+				delete(info, "status_reason")
+				delete(info, "status_time")
+				otherInfoJSON, marshalErr := json.Marshal(info)
+				if marshalErr != nil {
+					return marshalErr
+				}
+				channelUpdates["status"] = common.ChannelStatusEnabled
+				channelUpdates["other_info"] = string(otherInfoJSON)
+			}
+		}
 		if rule.ResetValue > 0 {
 			channelUpdates["max_call_count"] = rule.ResetValue
 		}
@@ -414,6 +427,13 @@ func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time
 		maxCallCount = rule.ResetValue
 	}
 	UpdateChannelCallCountInCache(rule.ChannelId, 0, maxCallCount)
+	channel, err := CacheGetChannel(rule.ChannelId)
+	if err == nil && channel != nil && channel.Status == common.ChannelStatusAutoDisabled {
+		info := channel.GetOtherInfo()
+		if reason, _ := info["status_reason"].(string); reason == ChannelStatusReasonQuotaExhausted {
+			CacheUpdateChannelStatus(rule.ChannelId, common.ChannelStatusEnabled)
+		}
+	}
 	return nil
 }
 

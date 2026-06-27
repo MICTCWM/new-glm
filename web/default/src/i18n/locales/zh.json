@@ -3112,6 +3112,7 @@
     "Quota given to users who invite others": "授予邀请其他用户的配额",
     "Quota must be a positive number": "配额必须是正数",
     "Quota Per Unit": "每单位配额",
+    "Quota exhausted": "配额已用尽",
     "Quota reminder (tokens)": "配额提醒（token）",
     "Quota Reset": "额度重置",
     "Quota Settings": "额度设置",

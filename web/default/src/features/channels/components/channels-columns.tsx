@@ -945,6 +945,10 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
             /* empty */
           }
 
+          if (statusReason === 'quota_exhausted') {
+            statusReason = t('Quota exhausted')
+          }
+
           if (statusReason || statusTime) {
             return (
               <TooltipProvider delay={100}>

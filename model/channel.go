@@ -19,6 +19,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+const ChannelStatusReasonQuotaExhausted = "quota_exhausted"
+
 type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
@@ -853,9 +855,45 @@ func UpdateChannelCallCount(id int, count int) {
 
 // updateChannelCallCount 实际更新渠道调用次数（DB累加）
 func updateChannelCallCount(id int, count int) {
-	err := DB.Model(&Channel{}).Where("id = ?", id).Update("used_call_count", gorm.Expr("used_call_count + ?", count)).Error
+	if count == 0 {
+		return
+	}
+	var autoDisabled bool
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var channel Channel
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&channel, "id = ?", id).Error; err != nil {
+			return err
+		}
+		nextUsedCallCount := channel.UsedCallCount + int64(count)
+		updates := map[string]interface{}{
+			"used_call_count": nextUsedCallCount,
+		}
+		if count > 0 &&
+			channel.Status == common.ChannelStatusEnabled &&
+			channel.MaxCallCount > 0 &&
+			nextUsedCallCount >= channel.MaxCallCount {
+			info := channel.GetOtherInfo()
+			info["status_reason"] = ChannelStatusReasonQuotaExhausted
+			info["status_time"] = common.GetTimestamp()
+			otherInfoJSON, marshalErr := json.Marshal(info)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			updates["status"] = common.ChannelStatusAutoDisabled
+			updates["other_info"] = string(otherInfoJSON)
+			autoDisabled = true
+		}
+		return tx.Model(&Channel{}).Where("id = ?", id).Updates(updates).Error
+	})
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to update channel call count: channel_id=%d, delta_count=%d, error=%v", id, count, err))
+		return
+	}
+	if common.MemoryCacheEnabled {
+		UpdateChannelCallCountInCache(id, int64(count), 0)
+		if autoDisabled {
+			CacheUpdateChannelStatus(id, common.ChannelStatusAutoDisabled)
+		}
 	}
 }
 
