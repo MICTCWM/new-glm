@@ -82,6 +82,10 @@ export const channelFormSchema = z.object({
   upstream_model_update_ignored_models: z.string().optional(),
   // RPM limit
   max_rpm: z.number().min(0).optional(),
+  // Channel successful request quota config
+  max_call_count: z.number().min(0).optional(),
+  reset_hours: z.array(z.number().min(0).max(23)).optional(),
+  reset_minute: z.number().min(0).max(59).optional(),
 })
 
 export type ChannelFormValues = z.infer<typeof channelFormSchema>
@@ -142,6 +146,9 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
   max_rpm: 0,
+  max_call_count: 0,
+  reset_hours: [],
+  reset_minute: 0,
 }
 
 // ============================================================================

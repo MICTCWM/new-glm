@@ -73,6 +73,8 @@ export const channelSchema = z.object({
   settings: z.string().default('{}'), // other_settings JSON
   max_rpm: z.number().default(0), // max requests per minute, 0=unlimited
   current_rpm: z.number().default(0), // current RPM usage (from server)
+  max_call_count: z.number().default(0), // max successful requests, 0=unlimited
+  used_call_count: z.number().default(0), // successful requests used
 })
 
 export type Channel = z.infer<typeof channelSchema>
@@ -261,6 +263,20 @@ export interface CopyChannelParams {
   reset_balance?: boolean
 }
 
+export interface ChannelQuotaConfig {
+  max_call_count: number
+  used_call_count: number
+  reset_hours: number[]
+  reset_minute: number
+}
+
+export interface SetChannelQuotaConfigParams {
+  channel_id: number
+  max_call_count: number
+  reset_hours: number[]
+  reset_minute: number
+}
+
 export interface MultiKeyManageParams {
   channel_id: number
   action:
@@ -322,6 +338,9 @@ export interface ChannelFormData {
   header_override?: string
   settings?: string
   other?: string
+  max_call_count?: number
+  reset_hours?: number[]
+  reset_minute?: number
   // Multi-key specific
   multi_key_mode?: 'single' | 'batch' | 'multi_to_single'
   multi_key_type?: 'random' | 'polling'

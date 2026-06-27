@@ -63,6 +63,7 @@ import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Collapsible,
   CollapsibleContent,
@@ -116,10 +117,12 @@ import {
   getAllModels,
   getChannel,
   getChannelKey,
+  getChannelQuotaConfig,
   getGroups,
   getPrefillGroups,
   refreshCodexCredential,
   searchChannelSpecialUsers,
+  setChannelQuotaConfig,
   updateChannel,
 } from '../../api'
 import {
@@ -164,8 +167,8 @@ import {
   type MissingModelsAction,
 } from '../dialogs/missing-models-confirmation-dialog'
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
-import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { SpecialUserPickerDialog } from '../dialogs/special-user-picker-dialog'
+import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
 
 type ChannelMutateDrawerProps = {
@@ -224,6 +227,7 @@ const MODEL_MAPPING_PREVIEW_FALLBACK: Array<{
 
 const ADVANCED_SETTINGS_EXPANDED_KEY = 'channel-advanced-settings-expanded'
 const UPSTREAM_DETECTED_MODEL_PREVIEW_LIMIT = 8
+const RESET_HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => hour)
 
 function readAdvancedSettingsPreference(): boolean {
   if (typeof window === 'undefined') return false
@@ -341,6 +345,12 @@ export function ChannelMutateDrawer({
   const { data: channelData } = useQuery({
     queryKey: channelsQueryKeys.detail(currentRow?.id || 0),
     queryFn: () => getChannel(currentRow!.id),
+    enabled: isEditing && Boolean(currentRow?.id),
+  })
+
+  const { data: quotaConfigData } = useQuery({
+    queryKey: ['channel_quota_config', currentRow?.id || 0],
+    queryFn: () => getChannelQuotaConfig(currentRow!.id),
     enabled: isEditing && Boolean(currentRow?.id),
   })
 
@@ -674,6 +684,18 @@ export function ChannelMutateDrawer({
       initialStatusCodeMappingRef.current = ''
     }
   }, [isEditing, channelData, form])
+
+  useEffect(() => {
+    if (!isEditing || !quotaConfigData?.data) return
+
+    const quotaConfig = quotaConfigData.data
+    form.setValue('max_call_count', quotaConfig.max_call_count ?? 0)
+    form.setValue(
+      'reset_hours',
+      Array.isArray(quotaConfig.reset_hours) ? quotaConfig.reset_hours : []
+    )
+    form.setValue('reset_minute', quotaConfig.reset_minute ?? 0)
+  }, [isEditing, channelData, quotaConfigData, form])
 
   // Handle type change - set default values for specific types
   useEffect(() => {
@@ -1109,6 +1131,20 @@ export function ChannelMutateDrawer({
             payloadWithKeyMode
           )
           if (response.success) {
+            const quotaResponse = await setChannelQuotaConfig({
+              channel_id: currentRow.id,
+              max_call_count: data.max_call_count ?? 0,
+              reset_hours: data.reset_hours ?? [],
+              reset_minute: data.reset_minute ?? 0,
+            })
+            if (!quotaResponse.success) {
+              throw new Error(
+                quotaResponse.message || t('Failed to save quota settings')
+              )
+            }
+            queryClient.invalidateQueries({
+              queryKey: ['channel_quota_config', currentRow.id],
+            })
             toast.success(t(SUCCESS_MESSAGES.UPDATED))
             handleSuccess()
           }
@@ -1135,6 +1171,7 @@ export function ChannelMutateDrawer({
       handleSuccess,
       confirmMissingModelMappings,
       confirmStatusCodeRisk,
+      queryClient,
       t,
     ]
   )
@@ -1146,7 +1183,6 @@ export function ChannelMutateDrawer({
       if (!v) {
         form.reset(CHANNEL_FORM_DEFAULT_VALUES)
         setAdvancedSettingsOpen(false)
-        setSpecialUserKeyword('')
       }
     },
     [onOpenChange, form]
@@ -3432,34 +3468,163 @@ export function ChannelMutateDrawer({
                   <ChevronUp className='size-4 transition-transform duration-200 group-data-[state=closed]:rotate-180' />
                 </CollapsibleTrigger>
                 <CollapsibleContent className='px-4 pb-4'>
-                  <FormField
-                    control={form.control}
-                    name='max_rpm'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Maximum RPM')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            type='number'
-                            min={0}
-                            placeholder='0'
-                            {...field}
-                            onChange={(e) => {
-                              const val = Number(e.target.value) || 0
-                              field.onChange(Math.max(0, val))
-                            }}
-                            value={field.value ?? 0}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {t(
-                            'Maximum requests per minute for this channel. 0 means unlimited.'
+                  <div className='flex flex-col gap-4'>
+                    <FormField
+                      control={form.control}
+                      name='max_rpm'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Maximum RPM')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={0}
+                              placeholder='0'
+                              {...field}
+                              onChange={(e) => {
+                                const val = Number(e.target.value) || 0
+                                field.onChange(Math.max(0, val))
+                              }}
+                              value={field.value ?? 0}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Maximum requests per minute for this channel. 0 means unlimited.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {isEditing && (
+                      <div className='flex flex-col gap-4 rounded-lg border p-4'>
+                        <SubHeading
+                          title={t('Quota Reset')}
+                          icon={<RefreshCw className='h-3.5 w-3.5' />}
+                        />
+                        <FormField
+                          control={form.control}
+                          name='max_call_count'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('Max successful requests')}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={0}
+                                  placeholder='0'
+                                  {...field}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value) || 0
+                                    field.onChange(Math.max(0, val))
+                                  }}
+                                  value={field.value ?? 0}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {t(
+                                  'Only successful requests count toward this limit. 0 means unlimited.'
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
                           )}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
+                        />
+
+                        <div className='text-muted-foreground text-xs'>
+                          {t('Used')}:{' '}
+                          {quotaConfigData?.data?.used_call_count ?? 0} /{' '}
+                          {form.watch('max_call_count') ?? 0}
+                        </div>
+
+                        <FormField
+                          control={form.control}
+                          name='reset_hours'
+                          render={({ field }) => {
+                            const selectedHours = field.value ?? []
+                            return (
+                              <FormItem>
+                                <FormLabel>
+                                  {t('Reset time (hourly)')}
+                                </FormLabel>
+                                <FormDescription>
+                                  {t(
+                                    'Select the daily hours to clear used request quota, using the server timezone.'
+                                  )}
+                                </FormDescription>
+                                <FormControl>
+                                  <div className='grid grid-cols-4 gap-2 sm:grid-cols-6'>
+                                    {RESET_HOUR_OPTIONS.map((hour) => {
+                                      const checked =
+                                        selectedHours.includes(hour)
+                                      return (
+                                        <label
+                                          key={hour}
+                                          className='border-input hover:bg-muted/50 flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs'
+                                        >
+                                          <Checkbox
+                                            checked={checked}
+                                            onCheckedChange={(value) => {
+                                              const next = value
+                                                ? Array.from(
+                                                    new Set([
+                                                      ...selectedHours,
+                                                      hour,
+                                                    ])
+                                                  ).sort((a, b) => a - b)
+                                                : selectedHours.filter(
+                                                    (item) => item !== hour
+                                                  )
+                                              field.onChange(next)
+                                            }}
+                                          />
+                                          <span>
+                                            {String(hour).padStart(2, '0')}:00
+                                          </span>
+                                        </label>
+                                      )
+                                    })}
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )
+                          }}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='reset_minute'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t('Reset minute')}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type='number'
+                                  min={0}
+                                  max={59}
+                                  placeholder='0'
+                                  {...field}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value) || 0
+                                    field.onChange(
+                                      Math.min(59, Math.max(0, val))
+                                    )
+                                  }}
+                                  value={field.value ?? 0}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
                     )}
-                  />
+                  </div>
                 </CollapsibleContent>
               </Collapsible>
 

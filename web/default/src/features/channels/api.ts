@@ -26,6 +26,7 @@ import type {
   BatchSetTagParams,
   Channel,
   ChannelBalanceResponse,
+  ChannelQuotaConfig,
   ChannelTestResponse,
   CopyChannelParams,
   CopyChannelResponse,
@@ -37,6 +38,7 @@ import type {
   MultiKeyStatusResponse,
   SearchChannelsParams,
   SearchChannelsResponse,
+  SetChannelQuotaConfigParams,
   TagOperationParams,
 } from './types'
 
@@ -250,6 +252,30 @@ export async function getChannelKey(
 ): Promise<{ success: boolean; message?: string; data?: { key: string } }> {
   const payload = code ? { code } : undefined
   const res = await api.post(`/api/channel/${id}/key`, payload)
+  return res.data
+}
+
+/**
+ * Get channel quota configuration.
+ */
+export async function getChannelQuotaConfig(
+  id: number
+): Promise<{ success: boolean; message?: string; data?: ChannelQuotaConfig }> {
+  const res = await api.get(`/api/channel/${id}/quota_config`)
+  return res.data
+}
+
+/**
+ * Set channel quota configuration.
+ */
+export async function setChannelQuotaConfig(
+  data: SetChannelQuotaConfigParams
+): Promise<{
+  success: boolean
+  message?: string
+  data?: Omit<ChannelQuotaConfig, 'used_call_count'>
+}> {
+  const res = await api.put('/api/channel/quota_config', data)
   return res.data
 }
 
