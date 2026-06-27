@@ -252,10 +252,10 @@ func NormalizeCacheCreationSplit(totalTokens int, tokens5m int, tokens1h int) (i
 	return tokens5m + remainder, tokens1h
 }
 
-// isPlaceholderContent 判断 content 是否仅由句号、换行、空白组成（无业务语义的占位符）。
+// IsPlaceholderContent 判断 content 是否仅由句号、换行、空白组成（无业务语义的占位符）。
 // 模型在调用工具前常输出 ".." / ".\n\n" 等占位/停顿符号，拼接后即 "...\n\n"，
 // 这些符号会被下游前端渲染出无意义的 "..."，需要过滤。
-func isPlaceholderContent(s string) bool {
+func IsPlaceholderContent(s string) bool {
 	if s == "" {
 		return false
 	}
@@ -388,7 +388,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			reasoning := openAIResponse.Choices[0].Delta.GetReasoningContent()
 			content := openAIResponse.Choices[0].Delta.GetContentString()
 			// 占位符过滤：仅由句号/换行/空白组成的 content 视为占位符，置空以跳过 text_delta 构造
-			if isPlaceholderContent(content) {
+			if IsPlaceholderContent(content) {
 				content = ""
 			}
 
@@ -562,7 +562,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			reasoning := chosenChoice.Delta.GetReasoningContent()
 			textContent := chosenChoice.Delta.GetContentString()
 			// 占位符过滤：仅由句号/换行/空白组成的 textContent 视为占位符，置空以跳过 text_delta 构造
-			if isPlaceholderContent(textContent) {
+			if IsPlaceholderContent(textContent) {
 				textContent = ""
 			}
 			if reasoning != "" || textContent != "" {

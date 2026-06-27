@@ -22,6 +22,12 @@ import (
 func HandleStreamFormat(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {
 	info.SendResponseCount++
 
+	// 占位符过滤：模型在调用工具前常输出 ".." / ".\n\n" 等无语义占位符，
+	// 此处统一过滤，覆盖 OpenAI 透传 / Claude 转换 / Gemini 转换三种格式。
+	// 注意：OpenAI 透传路径用 helper.StringData(c, data) 发送原始字符串，
+	// 所以必须替换 data 字符串本身，而非只修改结构体。
+	data = filterPlaceholderContent(data)
+
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
 		return sendStreamData(c, info, data, forceFormat, thinkToContent)
@@ -31,6 +37,36 @@ func HandleStreamFormat(c *gin.Context, info *relaycommon.RelayInfo, data string
 		return handleGeminiFormat(c, data, info)
 	}
 	return nil
+}
+
+// filterPlaceholderContent 反序列化流式 chunk，过滤掉 delta.content 中仅由句号/换行/空白组成的占位符，
+// 然后重新序列化返回新的 data 字符串。
+// 如果 chunk 无需修改（非占位符或解析失败），原样返回 data。
+func filterPlaceholderContent(data string) string {
+	if len(data) == 0 {
+		return data
+	}
+	var streamResponse dto.ChatCompletionsStreamResponse
+	if err := common.Unmarshal(common.StringToByteSlice(data), &streamResponse); err != nil {
+		return data // 解析失败，原样返回，不阻断正常流式响应
+	}
+	modified := false
+	for i := range streamResponse.Choices {
+		content := streamResponse.Choices[i].Delta.GetContentString()
+		if content != "" && service.IsPlaceholderContent(content) {
+			// 置空 content（JSON omitempty 会省略字段），不动 tool_calls/reasoning/role/finish_reason
+			streamResponse.Choices[i].Delta.Content = nil
+			modified = true
+		}
+	}
+	if !modified {
+		return data // 无修改，原样返回避免重新序列化开销
+	}
+	newData, err := common.Marshal(streamResponse)
+	if err != nil {
+		return data // 序列化失败，原样返回
+	}
+	return string(newData)
 }
 
 func handleClaudeFormat(c *gin.Context, data string, info *relaycommon.RelayInfo) error {

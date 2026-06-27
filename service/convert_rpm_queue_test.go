@@ -91,8 +91,8 @@ func TestIsPlaceholderContent(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isPlaceholderContent(tt.s); got != tt.want {
-				t.Errorf("isPlaceholderContent(%q) = %v, want %v", tt.s, got, tt.want)
+			if got := IsPlaceholderContent(tt.s); got != tt.want {
+				t.Errorf("IsPlaceholderContent(%q) = %v, want %v", tt.s, got, tt.want)
 			}
 		})
 	}

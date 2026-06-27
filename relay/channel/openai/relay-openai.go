@@ -222,6 +222,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		if shouldSendLastResp {
 			// 强制把流式 chunk 的 model 字段覆盖为用户原始请求的 model ID
 			lastStreamData = relaycommon.OverrideStreamChunkModel(lastStreamData, info)
+			// 占位符过滤：最后一个 chunk 也需要过滤（与 HandleStreamFormat 保持一致）
+			lastStreamData = filterPlaceholderContent(lastStreamData)
 			if err := sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			}
