@@ -22,6 +22,7 @@ import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as ConsoleTopupRouteImport } from './routes/console/topup'
 import { Route as ConsoleLogRouteImport } from './routes/console/log'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
+import { Route as errorsNotInServiceAreaRouteImport } from './routes/(errors)/not-in-service-area'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
@@ -133,6 +134,11 @@ const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
   id: '/chat2link',
   path: '/chat2link',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const errorsNotInServiceAreaRoute = errorsNotInServiceAreaRouteImport.update({
+  id: '/(errors)/not-in-service-area',
+  path: '/not-in-service-area',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const errors503Route = errors503RouteImport.update({
   id: '/(errors)/503',
@@ -423,6 +429,7 @@ export interface FileRoutesByFullPath {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/not-in-service-area': typeof errorsNotInServiceAreaRoute
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -483,6 +490,7 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
+  '/not-in-service-area': typeof errorsNotInServiceAreaRoute
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -547,6 +555,7 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
+  '/(errors)/not-in-service-area': typeof errorsNotInServiceAreaRoute
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -610,6 +619,7 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/not-in-service-area'
     | '/chat2link'
     | '/console/log'
     | '/console/topup'
@@ -670,6 +680,7 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
+    | '/not-in-service-area'
     | '/chat2link'
     | '/console/log'
     | '/console/topup'
@@ -733,6 +744,7 @@ export interface FileRouteTypes {
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
+    | '/(errors)/not-in-service-area'
     | '/_authenticated/chat2link'
     | '/console/log'
     | '/console/topup'
@@ -790,6 +802,7 @@ export interface RootRouteChildren {
   errors404Route: typeof errors404Route
   errors500Route: typeof errors500Route
   errors503Route: typeof errors503Route
+  errorsNotInServiceAreaRoute: typeof errorsNotInServiceAreaRoute
   ConsoleLogRoute: typeof ConsoleLogRoute
   ConsoleTopupRoute: typeof ConsoleTopupRoute
   OauthProviderRoute: typeof OauthProviderRoute
@@ -892,6 +905,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/chat2link'
       preLoaderRoute: typeof AuthenticatedChat2linkRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/(errors)/not-in-service-area': {
+      id: '/(errors)/not-in-service-area'
+      path: '/not-in-service-area'
+      fullPath: '/not-in-service-area'
+      preLoaderRoute: typeof errorsNotInServiceAreaRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/(errors)/503': {
       id: '/(errors)/503'
@@ -1378,6 +1398,7 @@ const rootRouteChildren: RootRouteChildren = {
   errors404Route: errors404Route,
   errors500Route: errors500Route,
   errors503Route: errors503Route,
+  errorsNotInServiceAreaRoute: errorsNotInServiceAreaRoute,
   ConsoleLogRoute: ConsoleLogRoute,
   ConsoleTopupRoute: ConsoleTopupRoute,
   OauthProviderRoute: OauthProviderRoute,

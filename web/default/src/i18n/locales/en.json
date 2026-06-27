@@ -4533,6 +4533,9 @@
     "Friday": "Friday",
     "Saturday": "Saturday",
     "Config": "Config",
-    "{{count}} rule(s)": "{{count}} rule(s)"
+    "{{count}} rule(s)": "{{count}} rule(s)",
+    "Not In Service Area": "Not In Service Area",
+    "Sorry, this service is not available in your region.": "Sorry, this service is not available in your region.",
+    "If you believe this is a mistake, please contact the administrator.": "If you believe this is a mistake, please contact the administrator."
   }
 }

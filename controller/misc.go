@@ -158,6 +158,10 @@ func GetStatus(c *gin.Context) {
 		data["custom_oauth_providers"] = providersInfo
 	}
 
+	// 地区检测：附加 region_blocked 字段供前端判断是否展示"不在服务区"
+	clientIP := c.ClientIP()
+	data["region_blocked"] = common.IsRegionBlockEnabled() && common.IsChinaIP(clientIP)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

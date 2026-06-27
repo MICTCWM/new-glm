@@ -100,6 +100,9 @@ tiktoken_cache/
 *.db-wal
 *.db-shm
 data/
+# 保留 ip2region 离线数据文件（用于中国 IP 检测）
+!common/data/
+!common/data/ip2region.xdb
 .session_secret
 
 # ==================== 上传和媒体文件 ====================

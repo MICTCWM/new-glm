@@ -4539,6 +4539,9 @@
     "Friday": "周五",
     "Saturday": "周六",
     "Config": "配置",
-    "{{count}} rule(s)": "共 {{count}} 条规则"
+    "{{count}} rule(s)": "共 {{count}} 条规则",
+    "Not In Service Area": "不在服务区",
+    "Sorry, this service is not available in your region.": "抱歉，本服务在您所在的地区不可用。",
+    "If you believe this is a mistake, please contact the administrator.": "如果您认为这是一个错误，请联系管理员。"
   }
 }

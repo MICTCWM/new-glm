@@ -33,6 +33,7 @@ import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
 import { getSetupStatus } from '@/features/setup/api'
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
+import { getStatus } from '@/lib/api'
 
 function RootComponent() {
   // Load system configuration (logo, system name, etc.) from backend
@@ -92,6 +93,11 @@ function setSetupStatusCache(value: boolean): void {
 // 内存中的标记，避免同一会话中重复检查
 let setupStatusChecked = getSetupStatusFromCache()
 
+// 地区检测缓存：首次导航后缓存结果，避免每次导航都请求 /api/status
+// not-in-service-area 页面的"重试"按钮使用 window.location.reload()，会刷新整个页面重置本变量
+let regionCheckDone = false
+let regionCheckBlocked = false
+
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
 }>()({
@@ -124,6 +130,24 @@ export const Route = createRootRouteWithContext<{
     }
     // 用户认证状态完全依赖 localStorage 缓存
     // 如果用户有有效 session 但 localStorage 被清空，会被重定向到登录页重新登录
+
+    // 地区检测：中国 IP 跳转"不在服务区"页面
+    // 排除 not-in-service-area 页面自身，避免死循环
+    // 排除 setup 页面，否则无法完成初始化
+    const isRegionBlockedPath = pathname.startsWith('/not-in-service-area')
+    const isSetupPath = pathname.startsWith('/setup')
+    if (!regionCheckDone && !isRegionBlockedPath && !isSetupPath) {
+      try {
+        const status = await getStatus()
+        regionCheckBlocked = !!status?.region_blocked
+      } catch {
+        // 网络错误等不阻断访问，避免后端故障导致所有人无法访问
+      }
+      regionCheckDone = true
+    }
+    if (regionCheckBlocked && !isRegionBlockedPath) {
+      throw redirect({ to: '/not-in-service-area' })
+    }
   },
   component: RootComponent,
   notFoundComponent: NotFoundError,
