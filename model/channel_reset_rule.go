@@ -454,3 +454,58 @@ func DeleteChannelQuotaConfigRulesWithTx(tx *gorm.DB, channelId int) error {
 	}
 	return tx.Where("channel_id = ? AND rule_type = ? AND remark = ?", channelId, ChannelResetRuleTypeDaily, "quota_config").Delete(&ChannelResetRule{}).Error
 }
+
+// ResetChannelUsedCallCount 重置指定渠道的已用调用次数为 0，保留 max_call_count 不变。
+// 若渠道因配额耗尽被自动禁用（status=AutoDisabled 且 other_info.status_reason=quota_exhausted），
+// 恢复为启用状态。事务内 FOR UPDATE 锁定渠道行，事务外同步缓存。
+func ResetChannelUsedCallCount(channelId int) error {
+	if channelId <= 0 {
+		return errors.New("invalid channel id")
+	}
+	var maxCallCount int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// FOR UPDATE 锁定渠道，避免并发重置同一渠道
+		var channel Channel
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&channel, "id = ?", channelId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("channel not found: id=%d", channelId)
+			}
+			return err
+		}
+		maxCallCount = channel.MaxCallCount
+		channelUpdates := map[string]interface{}{
+			"used_call_count": 0,
+		}
+		// 若渠道因配额耗尽被自动禁用，恢复为启用状态并清理 other_info 中的标记
+		if channel.Status == common.ChannelStatusAutoDisabled {
+			info := channel.GetOtherInfo()
+			if reason, _ := info["status_reason"].(string); reason == ChannelStatusReasonQuotaExhausted {
+				delete(info, "status_reason")
+				delete(info, "status_time")
+				otherInfoJSON, marshalErr := json.Marshal(info)
+				if marshalErr != nil {
+					return marshalErr
+				}
+				channelUpdates["status"] = common.ChannelStatusEnabled
+				channelUpdates["other_info"] = string(otherInfoJSON)
+			}
+		}
+		if err := tx.Model(&Channel{}).Where("id = ?", channelId).Updates(channelUpdates).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// 事务外同步缓存（与 applyChannelResetRule 保持一致）
+	UpdateChannelCallCountInCache(channelId, 0, maxCallCount)
+	channel, cacheErr := CacheGetChannel(channelId)
+	if cacheErr == nil && channel != nil && channel.Status == common.ChannelStatusAutoDisabled {
+		info := channel.GetOtherInfo()
+		if reason, _ := info["status_reason"].(string); reason == ChannelStatusReasonQuotaExhausted {
+			CacheUpdateChannelStatus(channelId, common.ChannelStatusEnabled)
+		}
+	}
+	return nil
+}

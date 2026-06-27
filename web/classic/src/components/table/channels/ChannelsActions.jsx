@@ -27,6 +27,7 @@ import {
   Select,
 } from '@douyinfe/semi-ui';
 import CompactModeToggle from '../../common/ui/CompactModeToggle';
+import { showError } from '../../../helpers';
 
 const ChannelsActions = ({
   enableBatchDelete,
@@ -58,8 +59,28 @@ const ChannelsActions = ({
   activePage,
   pageSize,
   setActivePage,
+  selectedChannels,
+  batchResetChannelQuota,
   t,
 }) => {
+  const handleResetChannelQuota = async () => {
+    if (selectedChannels.length === 0) {
+      showError(t('请先选择要重置配额的渠道！'));
+      return;
+    }
+    Modal.confirm({
+      title: t('重置所有渠道配额'),
+      content: t(
+        '确认重置所选 ${count} 个渠道的已用配额？总配额保持不变，已用次数清零。',
+      ).replace('${count}', selectedChannels.length),
+      okText: t('确认'),
+      cancelText: t('取消'),
+      onOk: async () => {
+        await batchResetChannelQuota();
+      },
+    });
+  };
+
   return (
     <div className='flex flex-col gap-2'>
       {/* 第一行：批量操作按钮 + 设置开关 */}
@@ -110,6 +131,16 @@ const ChannelsActions = ({
             className='w-full md:w-auto'
           >
             {t('批量编辑配额')}
+          </Button>
+
+          <Button
+            size='small'
+            disabled={!enableBatchDelete}
+            type='tertiary'
+            onClick={handleResetChannelQuota}
+            className='w-full md:w-auto'
+          >
+            {t('重置所有渠道配额')}
           </Button>
 
           <Dropdown

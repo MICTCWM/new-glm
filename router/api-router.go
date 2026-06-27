@@ -268,6 +268,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.GET("/:id/quota_config", controller.GetChannelQuotaConfig)
 			channelRoute.PUT("/quota_config", controller.SetChannelQuotaConfig)
 			channelRoute.POST("/batch/quota_config", controller.BatchSetChannelQuotaConfig)
+			channelRoute.POST("/batch/reset_quota", controller.BatchResetChannelQuota)
 		}
 		tokenRoute := apiRouter.Group("/token")
 		tokenRoute.Use(middleware.UserAuth())

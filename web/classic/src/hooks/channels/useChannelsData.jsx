@@ -778,6 +778,34 @@ export const useChannelsData = () => {
     }
   };
 
+  // 批量重置渠道已用配额（总配额不变，已用次数清零）
+  const batchResetChannelQuota = async () => {
+    if (selectedChannels.length === 0) {
+      showError(t('请先选择要重置配额的渠道！'));
+      return false;
+    }
+    const ids = selectedChannels.map((channel) => channel.id);
+    try {
+      const res = await API.post('/api/channel/batch/reset_quota', { ids });
+      if (res.data.success) {
+        showSuccess(
+          t('已重置 ${count} 个渠道的配额！').replace(
+            '${count}',
+            res.data.data.count,
+          ),
+        );
+        await refresh();
+        return true;
+      } else {
+        showError(res.data.message || t('操作失败'));
+        return false;
+      }
+    } catch (error) {
+      showError(error?.response?.data?.message || error?.message || t('操作失败'));
+      return false;
+    }
+  };
+
   const batchDeleteChannels = async () => {
     if (selectedChannels.length === 0) {
       showError(t('请先选择要删除的通道！'));
@@ -1325,6 +1353,7 @@ export const useChannelsData = () => {
     batchSetChannelTag,
     batchSetChannelResetRule,
     batchSetQuotaConfig,
+    batchResetChannelQuota,
     batchDeleteChannels,
     testAllChannels,
     deleteAllDisabledChannels,

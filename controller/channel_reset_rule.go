@@ -463,3 +463,47 @@ func BatchSetChannelQuotaConfig(c *gin.Context) {
 	}
 	common.ApiSuccess(c, gin.H{"count": successCount})
 }
+
+// batchResetChannelQuotaRequest 批量重置渠道配额请求体
+type batchResetChannelQuotaRequest struct {
+	Ids []int `json:"ids"`
+}
+
+// BatchResetChannelQuota 批量重置渠道已用配额（used_call_count=0），保留 max_call_count 不变。
+// 若渠道因配额耗尽被自动禁用，恢复为启用状态。
+// POST /api/channel/batch/reset_quota
+func BatchResetChannelQuota(c *gin.Context) {
+	req := batchResetChannelQuotaRequest{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if len(req.Ids) == 0 {
+		common.ApiErrorMsg(c, "ids 不能为空")
+		return
+	}
+	for _, id := range req.Ids {
+		if id <= 0 {
+			common.ApiErrorMsg(c, "ids 中存在无效的渠道 id")
+			return
+		}
+	}
+	// 去重
+	seen := make(map[int]bool)
+	uniqueIds := make([]int, 0, len(req.Ids))
+	for _, id := range req.Ids {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			uniqueIds = append(uniqueIds, id)
+		}
+	}
+	successCount := 0
+	for _, id := range uniqueIds {
+		if err := model.ResetChannelUsedCallCount(id); err != nil {
+			common.SysError(fmt.Sprintf("failed to reset channel used call count for channel %d: %s", id, err.Error()))
+			continue
+		}
+		successCount++
+	}
+	common.ApiSuccess(c, gin.H{"count": successCount})
+}
