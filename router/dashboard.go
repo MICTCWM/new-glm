@@ -20,6 +20,9 @@ func SetDashboardRouter(router *gin.Engine) {
 		apiRouter.GET("/dashboard/billing/usage", controller.GetUsage)
 		apiRouter.GET("/v1/dashboard/billing/usage", controller.GetUsage)
 		apiRouter.GET("/v1/usage/quota", controller.GetV1UsageQuota)
+		// cc-switch ZenMux quota query endpoint (base_url: https://glm-relayapi.top/zenmux/)
+		apiRouter.GET("/zenmux", controller.GetV1UsageQuota)
+		apiRouter.GET("/zenmux/", controller.GetV1UsageQuota)
 	}
 
 	// Admin-only routes
