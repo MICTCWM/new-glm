@@ -252,6 +252,24 @@ func NormalizeCacheCreationSplit(totalTokens int, tokens5m int, tokens1h int) (i
 	return tokens5m + remainder, tokens1h
 }
 
+// isPlaceholderContent 判断 content 是否仅由句号、换行、空白组成（无业务语义的占位符）。
+// 模型在调用工具前常输出 ".." / ".\n\n" 等占位/停顿符号，拼接后即 "...\n\n"，
+// 这些符号会被下游前端渲染出无意义的 "..."，需要过滤。
+func isPlaceholderContent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch r {
+		case '.', '\n', '\r', ' ', '\t':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamResponse, info *relaycommon.RelayInfo) []*dto.ClaudeResponse {
 	if info.ClaudeConvertInfo.Done {
 		return nil
@@ -369,6 +387,10 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		if len(openAIResponse.Choices) > 0 {
 			reasoning := openAIResponse.Choices[0].Delta.GetReasoningContent()
 			content := openAIResponse.Choices[0].Delta.GetContentString()
+			// 占位符过滤：仅由句号/换行/空白组成的 content 视为占位符，置空以跳过 text_delta 构造
+			if isPlaceholderContent(content) {
+				content = ""
+			}
 
 			if reasoning != "" {
 				if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeThinking {
@@ -539,6 +561,10 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		} else {
 			reasoning := chosenChoice.Delta.GetReasoningContent()
 			textContent := chosenChoice.Delta.GetContentString()
+			// 占位符过滤：仅由句号/换行/空白组成的 textContent 视为占位符，置空以跳过 text_delta 构造
+			if isPlaceholderContent(textContent) {
+				textContent = ""
+			}
 			if reasoning != "" || textContent != "" {
 				if reasoning != "" {
 					if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeThinking {
