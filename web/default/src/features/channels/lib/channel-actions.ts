@@ -26,6 +26,7 @@ import {
   testChannel,
   updateChannel,
   batchDeleteChannels,
+  batchSetChannelQuotaConfig,
   batchSetChannelTag,
   enableTagChannels,
   disableTagChannels,
@@ -438,6 +439,41 @@ export async function handleBatchSetTag(
     }
   } catch (_error) {
     toast.error(i18next.t('Failed to set tag'))
+  }
+}
+
+/**
+ * Batch set quota config
+ */
+export async function handleBatchSetQuotaConfig(
+  ids: number[],
+  data: {
+    max_call_count: number
+    reset_hours: number[]
+    reset_minute: number
+  },
+  queryClient?: QueryClient,
+  onSuccess?: () => void
+): Promise<void> {
+  if (ids.length === 0) {
+    toast.error(i18next.t('No channels selected'))
+    return
+  }
+
+  try {
+    const response = await batchSetChannelQuotaConfig({
+      ids,
+      max_call_count: data.max_call_count,
+      reset_hours: data.reset_hours,
+      reset_minute: data.reset_minute,
+    })
+    if (response.success) {
+      toast.success(i18next.t('Batch quota updated'))
+      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      onSuccess?.()
+    }
+  } catch (_error) {
+    toast.error(i18next.t('Failed to update batch quota'))
   }
 }
 

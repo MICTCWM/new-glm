@@ -279,6 +279,23 @@ export async function setChannelQuotaConfig(
   return res.data
 }
 
+/**
+ * Batch set channel quota configuration.
+ */
+export async function batchSetChannelQuotaConfig(data: {
+  ids: number[]
+  max_call_count: number
+  reset_hours: number[]
+  reset_minute: number
+}): Promise<{
+  success: boolean
+  message?: string
+  data?: Omit<ChannelQuotaConfig, 'used_call_count'>
+}> {
+  const res = await api.post('/api/channel/batch/quota_config', data)
+  return res.data
+}
+
 // ============================================================================
 // Codex Channel Operations
 // ============================================================================

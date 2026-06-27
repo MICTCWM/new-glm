@@ -19,9 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type Table } from '@tanstack/react-table'
-import { Power, PowerOff, Tag, Trash2 } from 'lucide-react'
+import { Power, PowerOff, RotateCcw, Tag, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -42,6 +43,7 @@ import {
   handleBatchDelete,
   handleBatchDisable,
   handleBatchEnable,
+  handleBatchSetQuotaConfig,
   handleBatchSetTag,
 } from '../lib'
 import type { Channel } from '../types'
@@ -50,6 +52,8 @@ interface DataTableBulkActionsProps<TData> {
   table: Table<TData>
 }
 
+const RESET_HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => hour)
+
 export function DataTableBulkActions<TData>({
   table,
 }: DataTableBulkActionsProps<TData>) {
@@ -57,7 +61,11 @@ export function DataTableBulkActions<TData>({
   const queryClient = useQueryClient()
   const [showTagDialog, setShowTagDialog] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showQuotaDialog, setShowQuotaDialog] = useState(false)
   const [tagValue, setTagValue] = useState('')
+  const [maxCallCount, setMaxCallCount] = useState('0')
+  const [resetMinute, setResetMinute] = useState('0')
+  const [resetHours, setResetHours] = useState<number[]>([])
 
   const selectedRows = table.getFilteredSelectedRowModel().rows
   const selectedIds = selectedRows.reduce<number[]>((ids, row) => {
@@ -95,6 +103,25 @@ export function DataTableBulkActions<TData>({
       setTagValue('')
       handleClearSelection()
     })
+  }
+
+  const handleSetQuota = () => {
+    handleBatchSetQuotaConfig(
+      selectedIds,
+      {
+        max_call_count: Math.max(0, Number(maxCallCount) || 0),
+        reset_hours: [...resetHours].sort((a, b) => a - b),
+        reset_minute: Math.min(59, Math.max(0, Number(resetMinute) || 0)),
+      },
+      queryClient,
+      () => {
+        setShowQuotaDialog(false)
+        setMaxCallCount('0')
+        setResetMinute('0')
+        setResetHours([])
+        handleClearSelection()
+      }
+    )
   }
 
   return (
@@ -139,6 +166,29 @@ export function DataTableBulkActions<TData>({
           </TooltipTrigger>
           <TooltipContent>
             <p>{t('Disable selected channels')}</p>
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='outline'
+                size='icon'
+                onClick={() => setShowQuotaDialog(true)}
+                className='size-8'
+                aria-label={t('Set quota for selected channels')}
+                title={t('Set quota for selected channels')}
+              />
+            }
+          >
+            <RotateCcw />
+            <span className='sr-only'>
+              {t('Set quota for selected channels')}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('Set quota for selected channels')}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -221,6 +271,99 @@ export function DataTableBulkActions<TData>({
               {t('Cancel')}
             </Button>
             <Button onClick={handleSetTag}>{t('Set Tag')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showQuotaDialog} onOpenChange={setShowQuotaDialog}>
+        <DialogContent className='sm:max-w-2xl'>
+          <DialogHeader>
+            <DialogTitle>{t('Batch Quota Settings')}</DialogTitle>
+            <DialogDescription>
+              {t('Set quota rules for')} {selectedIds.length}{' '}
+              {t('selected channel(s).')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='grid gap-4 py-4'>
+            <div className='grid gap-2'>
+              <Label htmlFor='batch-max-call-count'>
+                {t('Max successful requests')}
+              </Label>
+              <Input
+                id='batch-max-call-count'
+                type='number'
+                min={0}
+                value={maxCallCount}
+                onChange={(e) => setMaxCallCount(e.target.value)}
+                placeholder='0'
+              />
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'The channel will be auto-disabled after successful requests reach this value. 0 means unlimited.'
+                )}
+              </p>
+            </div>
+
+            <div className='grid gap-2'>
+              <Label htmlFor='batch-reset-minute'>{t('Reset minute')}</Label>
+              <Input
+                id='batch-reset-minute'
+                type='number'
+                min={0}
+                max={59}
+                value={resetMinute}
+                onChange={(e) => setResetMinute(e.target.value)}
+                placeholder='0'
+              />
+            </div>
+
+            <div className='grid gap-2'>
+              <Label>{t('Reset time (hourly)')}</Label>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Select the daily hours to clear used request quota, using the server timezone.'
+                )}
+              </p>
+              <div className='grid grid-cols-4 gap-2 sm:grid-cols-6'>
+                {RESET_HOUR_OPTIONS.map((hour) => {
+                  const checked = resetHours.includes(hour)
+                  return (
+                    <label
+                      key={hour}
+                      className='border-input hover:bg-muted/50 flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-xs'
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(value) => {
+                          setResetHours((current) =>
+                            value
+                              ? Array.from(new Set([...current, hour]))
+                              : current.filter((item) => item !== hour)
+                          )
+                        }}
+                      />
+                      <span>{String(hour).padStart(2, '0')}:00</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setShowQuotaDialog(false)
+                setMaxCallCount('0')
+                setResetMinute('0')
+                setResetHours([])
+              }}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button onClick={handleSetQuota}>{t('Save changes')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
