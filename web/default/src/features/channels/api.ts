@@ -309,6 +309,87 @@ export async function batchResetChannelQuota(data: {
 }
 
 // ============================================================================
+// Reset Rule Management
+// ============================================================================
+
+export interface ChannelResetRule {
+  id: number
+  channel_id: number
+  rule_type: string
+  rule_config: string
+  reset_value: number
+  enabled: boolean
+  remark: string
+  next_reset_time: number
+}
+
+/**
+ * Get all reset rules for a channel
+ */
+export async function getChannelResetRules(
+  channelId: number
+): Promise<{ success: boolean; message?: string; data?: ChannelResetRule[] }> {
+  const res = await api.get(`/api/channel/${channelId}/reset_rules`)
+  return res.data
+}
+
+/**
+ * Create a new reset rule
+ */
+export async function createChannelResetRule(data: {
+  channel_id: number
+  rule_type: string
+  rule_config: string
+  reset_value: number
+  enabled: boolean
+  remark?: string
+}): Promise<{ success: boolean; message?: string; data?: ChannelResetRule }> {
+  const res = await api.post('/api/channel/reset_rule', data)
+  return res.data
+}
+
+/**
+ * Update an existing reset rule
+ */
+export async function updateChannelResetRule(data: {
+  id: number
+  channel_id: number
+  rule_type: string
+  rule_config: string
+  reset_value: number
+  enabled: boolean
+  remark?: string
+}): Promise<{ success: boolean; message?: string; data?: ChannelResetRule }> {
+  const res = await api.put('/api/channel/reset_rule', data)
+  return res.data
+}
+
+/**
+ * Delete a reset rule
+ */
+export async function deleteChannelResetRule(
+  ruleId: number
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.delete(`/api/channel/reset_rule/${ruleId}`)
+  return res.data
+}
+
+/**
+ * Batch set reset rule for channels.
+ */
+export async function batchSetChannelResetRule(data: {
+  ids: number[]
+  rule_type: string
+  rule_config: string
+  reset_value: number
+  enabled: boolean
+  remark?: string
+}): Promise<{ success: boolean; message?: string; data?: unknown }> {
+  const res = await api.post('/api/channel/batch/reset_rule', data)
+  return res.data
+}
+
+// ============================================================================
 // Codex Channel Operations
 // ============================================================================
 

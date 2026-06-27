@@ -28,6 +28,7 @@ import {
   batchDeleteChannels,
   batchResetChannelQuota,
   batchSetChannelQuotaConfig,
+  batchSetChannelResetRule,
   batchSetChannelTag,
   enableTagChannels,
   disableTagChannels,
@@ -475,6 +476,49 @@ export async function handleBatchSetQuotaConfig(
     }
   } catch (_error) {
     toast.error(i18next.t('Failed to update batch quota'))
+  }
+}
+
+/**
+ * Batch set reset rule for channels
+ */
+export async function handleBatchSetResetRule(
+  ids: number[],
+  data: {
+    rule_type: string
+    rule_config: string
+    reset_value: number
+    enabled: boolean
+    remark?: string
+  },
+  queryClient?: QueryClient,
+  onSuccess?: () => void
+): Promise<void> {
+  if (ids.length === 0) {
+    toast.error(i18next.t('No channels selected'))
+    return
+  }
+
+  try {
+    const response = await batchSetChannelResetRule({
+      ids,
+      rule_type: data.rule_type,
+      rule_config: data.rule_config,
+      reset_value: data.reset_value,
+      enabled: data.enabled,
+      remark: data.remark,
+    })
+    if (response.success) {
+      toast.success(
+        i18next.t('{{count}} channel(s) reset rule set', {
+          count: ids.length,
+        })
+      )
+      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      onSuccess?.()
+    }
+  } catch (_error) {
+    toast.error(i18next.t('Failed to set reset rule'))
   }
 }
 

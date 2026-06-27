@@ -34,6 +34,7 @@ import {
   Trash2,
   RefreshCw,
   Loader2,
+  CalendarClock,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -120,6 +121,11 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const handleCopy = () => {
     setCurrentRow(channel)
     setOpen('copy-channel')
+  }
+
+  const handleResetRule = () => {
+    setCurrentRow(channel)
+    setOpen('reset-rule')
   }
 
   const handleManageKeys = () => {
@@ -281,6 +287,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             {t('Copy Channel')}
             <DropdownMenuShortcut>
               <Copy size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          {/* Reset Rules */}
+          <DropdownMenuItem onClick={handleResetRule}>
+            {t('Reset Rules')}
+            <DropdownMenuShortcut>
+              <CalendarClock size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 

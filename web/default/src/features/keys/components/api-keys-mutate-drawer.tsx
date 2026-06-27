@@ -361,6 +361,31 @@ export function ApiKeysMutateDrawer({
 
               <FormField
                 control={form.control}
+                name='max_retry_enabled'
+                render={({ field }) => (
+                  <FormItem className='flex min-h-16 flex-row items-center justify-between gap-3 rounded-lg border px-3 py-2.5 sm:min-h-20 sm:gap-4 sm:px-4 sm:py-3'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-sm'>
+                        {t('Max Retry')}
+                      </FormLabel>
+                      <FormDescription className='line-clamp-2 text-xs sm:line-clamp-none'>
+                        {t(
+                          'When enabled, failed requests will retry up to 50 times: the first 5 retries follow standard delays, from the 6th retry onwards it retries every 10 seconds until success or the 50-attempt limit is reached.'
+                        )}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={!!field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name='expired_time'
                 render={({ field }) => (
                   <FormItem>

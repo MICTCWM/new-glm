@@ -19,7 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type Table } from '@tanstack/react-table'
-import { Power, PowerOff, RefreshCcw, RotateCcw, Tag, Trash2 } from 'lucide-react'
+import {
+  CalendarClock,
+  Power,
+  PowerOff,
+  RefreshCcw,
+  RotateCcw,
+  Tag,
+  Trash2,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -34,6 +42,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -45,8 +60,10 @@ import {
   handleBatchEnable,
   handleBatchResetQuota,
   handleBatchSetQuotaConfig,
+  handleBatchSetResetRule,
   handleBatchSetTag,
 } from '../lib'
+import { buildRuleConfig } from '../lib/reset-rule-utils'
 import type { Channel } from '../types'
 
 interface DataTableBulkActionsProps<TData> {
@@ -64,10 +81,20 @@ export function DataTableBulkActions<TData>({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showQuotaDialog, setShowQuotaDialog] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [showResetRuleDialog, setShowResetRuleDialog] = useState(false)
   const [tagValue, setTagValue] = useState('')
   const [maxCallCount, setMaxCallCount] = useState('0')
   const [resetMinute, setResetMinute] = useState('0')
   const [resetHours, setResetHours] = useState<number[]>([])
+  const [ruleType, setRuleType] = useState<string>('daily')
+  const [ruleHour, setRuleHour] = useState('0')
+  const [ruleMinute, setRuleMinute] = useState('0')
+  const [ruleWeekday, setRuleWeekday] = useState('0')
+  const [ruleDayOfMonth, setRuleDayOfMonth] = useState('1')
+  const [ruleIntervalSeconds, setRuleIntervalSeconds] = useState('3600')
+  const [ruleSpecificTime, setRuleSpecificTime] = useState('')
+  const [resetValue, setResetValue] = useState('0')
+  const [ruleRemark, setRuleRemark] = useState('')
 
   const selectedRows = table.getFilteredSelectedRowModel().rows
   const selectedIds = selectedRows.reduce<number[]>((ids, row) => {
@@ -131,6 +158,44 @@ export function DataTableBulkActions<TData>({
       setShowResetConfirm(false)
       handleClearSelection()
     })
+  }
+
+  const handleSetResetRule = () => {
+    const values: Record<string, unknown> = {
+      hour: Number(ruleHour),
+      minute: Number(ruleMinute),
+      weekday: Number(ruleWeekday),
+      day_of_month: Number(ruleDayOfMonth),
+      interval_seconds: Number(ruleIntervalSeconds),
+      specific_time: ruleSpecificTime
+        ? new Date(ruleSpecificTime).getTime()
+        : 0,
+    }
+    const ruleConfig = buildRuleConfig(ruleType, values)
+    handleBatchSetResetRule(
+      selectedIds,
+      {
+        rule_type: ruleType,
+        rule_config: ruleConfig,
+        reset_value: Math.max(0, Number(resetValue) || 0),
+        enabled: true,
+        remark: ruleRemark || undefined,
+      },
+      queryClient,
+      () => {
+        setShowResetRuleDialog(false)
+        setRuleType('daily')
+        setRuleHour('0')
+        setRuleMinute('0')
+        setRuleWeekday('0')
+        setRuleDayOfMonth('1')
+        setRuleIntervalSeconds('3600')
+        setRuleSpecificTime('')
+        setResetValue('0')
+        setRuleRemark('')
+        handleClearSelection()
+      }
+    )
   }
 
   return (
@@ -221,6 +286,29 @@ export function DataTableBulkActions<TData>({
           </TooltipTrigger>
           <TooltipContent>
             <p>{t('Reset quota for selected channels')}</p>
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='outline'
+                size='icon'
+                onClick={() => setShowResetRuleDialog(true)}
+                className='size-8'
+                aria-label={t('Set reset rule for selected channels')}
+                title={t('Set reset rule for selected channels')}
+              />
+            }
+          >
+            <CalendarClock />
+            <span className='sr-only'>
+              {t('Set reset rule for selected channels')}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('Set reset rule for selected channels')}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -421,6 +509,216 @@ export function DataTableBulkActions<TData>({
               {t('Cancel')}
             </Button>
             <Button onClick={handleResetQuotaConfirm}>{t('Reset')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Set Reset Rule Dialog */}
+      <Dialog open={showResetRuleDialog} onOpenChange={setShowResetRuleDialog}>
+        <DialogContent className='sm:max-w-2xl'>
+          <DialogHeader>
+            <DialogTitle>{t('Batch Set Reset Rule')}</DialogTitle>
+            <DialogDescription>
+              {t('Set reset rule for')} {selectedIds.length}{' '}
+              {t('selected channel(s).')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='grid gap-4 py-4'>
+            <div className='grid gap-2'>
+              <Label htmlFor='batch-rule-type'>{t('Rule Type')}</Label>
+              <Select
+                value={ruleType}
+                onValueChange={(v) => v !== null && setRuleType(v)}
+              >
+                <SelectTrigger id='batch-rule-type'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='daily'>{t('Daily')}</SelectItem>
+                  <SelectItem value='weekly'>{t('Weekly')}</SelectItem>
+                  <SelectItem value='monthly'>{t('Monthly')}</SelectItem>
+                  <SelectItem value='custom_interval'>
+                    {t('Custom Interval')}
+                  </SelectItem>
+                  <SelectItem value='specific_time'>
+                    {t('Specific Time')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {ruleType === 'daily' && (
+              <div className='grid grid-cols-2 gap-4'>
+                <div className='grid gap-2'>
+                  <Label htmlFor='batch-rule-hour'>{t('Hour')}</Label>
+                  <Input
+                    id='batch-rule-hour'
+                    type='number'
+                    min={0}
+                    max={23}
+                    value={ruleHour}
+                    onChange={(e) => setRuleHour(e.target.value)}
+                  />
+                </div>
+                <div className='grid gap-2'>
+                  <Label htmlFor='batch-rule-minute'>{t('Minute')}</Label>
+                  <Input
+                    id='batch-rule-minute'
+                    type='number'
+                    min={0}
+                    max={59}
+                    value={ruleMinute}
+                    onChange={(e) => setRuleMinute(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {ruleType === 'weekly' && (
+              <div className='grid grid-cols-3 gap-4'>
+                <div className='grid gap-2'>
+                  <Label htmlFor='batch-rule-weekday'>{t('Weekday')}</Label>
+                  <Select
+                    value={ruleWeekday}
+                    onValueChange={(v) => v !== null && setRuleWeekday(v)}
+                  >
+                    <SelectTrigger id='batch-rule-weekday'>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[0, 1, 2, 3, 4, 5, 6].map((d) => (
+                        <SelectItem key={d} value={String(d)}>
+                          {t('weekday_' + d)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className='grid gap-2'>
+                  <Label htmlFor='batch-rule-hour-w'>{t('Hour')}</Label>
+                  <Input
+                    id='batch-rule-hour-w'
+                    type='number'
+                    min={0}
+                    max={23}
+                    value={ruleHour}
+                    onChange={(e) => setRuleHour(e.target.value)}
+                  />
+                </div>
+                <div className='grid gap-2'>
+                  <Label htmlFor='batch-rule-minute-w'>{t('Minute')}</Label>
+                  <Input
+                    id='batch-rule-minute-w'
+                    type='number'
+                    min={0}
+                    max={59}
+                    value={ruleMinute}
+                    onChange={(e) => setRuleMinute(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {ruleType === 'monthly' && (
+              <div className='grid grid-cols-3 gap-4'>
+                <div className='grid gap-2'>
+                  <Label htmlFor='batch-rule-dom'>{t('Day of Month')}</Label>
+                  <Input
+                    id='batch-rule-dom'
+                    type='number'
+                    min={1}
+                    max={31}
+                    value={ruleDayOfMonth}
+                    onChange={(e) => setRuleDayOfMonth(e.target.value)}
+                  />
+                </div>
+                <div className='grid gap-2'>
+                  <Label htmlFor='batch-rule-hour-m'>{t('Hour')}</Label>
+                  <Input
+                    id='batch-rule-hour-m'
+                    type='number'
+                    min={0}
+                    max={23}
+                    value={ruleHour}
+                    onChange={(e) => setRuleHour(e.target.value)}
+                  />
+                </div>
+                <div className='grid gap-2'>
+                  <Label htmlFor='batch-rule-minute-m'>{t('Minute')}</Label>
+                  <Input
+                    id='batch-rule-minute-m'
+                    type='number'
+                    min={0}
+                    max={59}
+                    value={ruleMinute}
+                    onChange={(e) => setRuleMinute(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {ruleType === 'custom_interval' && (
+              <div className='grid gap-2'>
+                <Label htmlFor='batch-rule-interval'>
+                  {t('Interval (seconds)')}
+                </Label>
+                <Input
+                  id='batch-rule-interval'
+                  type='number'
+                  min={60}
+                  value={ruleIntervalSeconds}
+                  onChange={(e) => setRuleIntervalSeconds(e.target.value)}
+                />
+              </div>
+            )}
+
+            {ruleType === 'specific_time' && (
+              <div className='grid gap-2'>
+                <Label htmlFor='batch-rule-specific'>{t('Specific Time')}</Label>
+                <Input
+                  id='batch-rule-specific'
+                  type='datetime-local'
+                  value={ruleSpecificTime}
+                  onChange={(e) => setRuleSpecificTime(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className='grid gap-2'>
+              <Label htmlFor='batch-reset-value'>{t('Reset Value')}</Label>
+              <Input
+                id='batch-reset-value'
+                type='number'
+                min={0}
+                value={resetValue}
+                onChange={(e) => setResetValue(e.target.value)}
+                placeholder='0'
+              />
+              <p className='text-muted-foreground text-sm'>
+                {t('0 means keep unchanged')}
+              </p>
+            </div>
+
+            <div className='grid gap-2'>
+              <Label htmlFor='batch-rule-remark'>{t('Remark')}</Label>
+              <Input
+                id='batch-rule-remark'
+                value={ruleRemark}
+                onChange={(e) => setRuleRemark(e.target.value)}
+                placeholder={t('Optional')}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => setShowResetRuleDialog(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button onClick={handleSetResetRule}>{t('Set Reset Rule')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
