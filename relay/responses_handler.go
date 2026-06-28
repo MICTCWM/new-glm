@@ -231,6 +231,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		}
 
 		info.UpstreamRetryCount = attempt
+		info.ActualApiCallCount = attempt + 1
 		// 捕获上游返回的原始响应体（数据点3）
 		if upstreamBuf != nil {
 			info.UpstreamResponseRaw = upstreamBuf.Bytes()

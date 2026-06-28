@@ -291,8 +291,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if !tracker.TryIncrement() {
 				// RPM just filled up, skip this channel and retry another
 				retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
-			runtimeRpmFull = true
-			if retryParam.GetRetry() >= maxRetryTimes {
+				runtimeRpmFull = true
+				if retryParam.GetRetry() >= maxRetryTimes {
 					if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
 						wasQueued = true
 						runtimeRpmFull = false
@@ -349,7 +349,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.LastError = newAPIError
 
 		// 渠道已被上游实际调用但请求失败，扣减渠道配额（重试失败补偿，避免配额漏扣）
-		model.UpdateChannelCallCount(channel.Id, 1)
+		// 使用 UpstreamRetryCount（内部重试次数）+ 本次失败 = 总调用次数
+		callCount := 1
+		if relayInfo.UpstreamRetryCount > 0 {
+			callCount = relayInfo.UpstreamRetryCount + 1
+		}
+		model.UpdateChannelCallCount(channel.Id, callCount)
 
 		c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
@@ -726,19 +731,7 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
-		// 重试时：强制调用 CacheGetRandomSatisfiedChannel 过滤已使用渠道并切换新渠道，
-		// 避免直接返回 ContextKeySelectedChannel 中缓存的旧渠道导致重试不切换渠道
-		if retryParam.GetRetry() > 0 {
-			channel, _, err := service.CacheGetRandomSatisfiedChannel(retryParam)
-			if err == nil && channel != nil {
-				newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
-				if newAPIError != nil {
-					return nil, newAPIError
-				}
-				return channel, nil
-			}
-			// CacheGetRandomSatisfiedChannel 失败（如所有渠道都用完），fallback 到原逻辑
-		}
+		// RPM 队列挂起时优先处理（即使是首次 retry==0）
 		if common.GetContextKeyBool(c, constant.ContextKeyRpmQueuePending) {
 			channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 			if err != nil {
@@ -758,22 +751,68 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			if newAPIError != nil {
 				return nil, newAPIError
 			}
+			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 			return channel, nil
 		}
-		if channel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel); ok && channel != nil {
-			return channel, nil
+
+		if retryParam.GetRetry() == 0 {
+			// 首次调用：使用 distributor 预选的渠道
+			if channel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel); ok && channel != nil {
+				return channel, nil
+			}
+			// fallback 从 context 字段构造 Channel（兼容旧路径）
+			autoBan := c.GetBool("auto_ban")
+			autoBanInt := 1
+			if !autoBan {
+				autoBanInt = 0
+			}
+			return &model.Channel{
+				Id:      c.GetInt("channel_id"),
+				Type:    c.GetInt("channel_type"),
+				Name:    c.GetString("channel_name"),
+				AutoBan: &autoBanInt,
+			}, nil
 		}
-		autoBan := c.GetBool("auto_ban")
-		autoBanInt := 1
-		if !autoBan {
-			autoBanInt = 0
+
+		// 重试时：强制选新渠道，从 usedChannelIds 排除已试渠道
+		channel, _, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+		if err != nil {
+			if errors.Is(err, model.ErrAllChannelsRpmFull) {
+				return nil, types.NewErrorWithStatusCode(
+					err,
+					types.ErrorCodeGetChannelFailed,
+					http.StatusTooManyRequests,
+				)
+			}
+			if errors.Is(err, model.ErrChannelSpecialUserUnauthorized) {
+				return nil, types.NewErrorWithStatusCode(
+					fmt.Errorf("未有权限调用模型 %s", info.GetDisplayModelName()),
+					types.ErrorCodeModelNotFound,
+					http.StatusForbidden,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
+			return nil, types.NewError(fmt.Errorf("获取模型 %s 的可用渠道失败（retry）: %w", info.GetDisplayModelName(), err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 		}
-		return &model.Channel{
-			Id:      c.GetInt("channel_id"),
-			Type:    c.GetInt("channel_type"),
-			Name:    c.GetString("channel_name"),
-			AutoBan: &autoBanInt,
-		}, nil
+
+		// 所有渠道已用完，清空 usedChannelIds 允许复用
+		if channel == nil {
+			retryParam.UsedChannelIds = retryParam.UsedChannelIds[:0]
+			channel, _, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+			if err != nil || channel == nil {
+				return nil, types.NewError(
+					fmt.Errorf("分组下模型 %s 无可用渠道", info.GetDisplayModelName()),
+					types.ErrorCodeGetChannelFailed,
+					types.ErrOptionWithSkipRetry(),
+				)
+			}
+		}
+
+		newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
+		if newAPIError != nil {
+			return nil, newAPIError
+		}
+		return channel, nil
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 

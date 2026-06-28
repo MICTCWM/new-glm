@@ -141,6 +141,7 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		}
 
 		info.UpstreamRetryCount = attempt
+		info.ActualApiCallCount = attempt + 1
 
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 		return nil

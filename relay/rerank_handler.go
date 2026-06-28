@@ -160,6 +160,7 @@ func RerankHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 
 		info.UpstreamRetryCount = attempt
+		info.ActualApiCallCount = attempt + 1
 
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 		return nil

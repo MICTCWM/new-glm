@@ -176,6 +176,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		}
 
 		info.UpstreamRetryCount = attempt
+		info.ActualApiCallCount = attempt + 1
 
 		imageN := uint(1)
 		if request.N != nil {

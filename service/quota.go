@@ -216,7 +216,11 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 
 	// record all the consume log even if quota is 0
 	// 渠道调用次数：只要请求成功到达上游就 +1，不依赖 usage
-	model.UpdateChannelCallCount(relayInfo.ChannelId, 1)
+	callCount := relayInfo.ActualApiCallCount
+	if callCount < 1 {
+		callCount = 1
+	}
+	model.UpdateChannelCallCount(relayInfo.ChannelId, callCount)
 	if totalTokens == 0 {
 		// in this case, must be some error happened
 		// we cannot just return, because we may have to return the pre-consumed quota
@@ -351,7 +355,11 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 
 	// record all the consume log even if quota is 0
 	// 渠道调用次数：只要请求成功到达上游就 +1，不依赖 usage
-	model.UpdateChannelCallCount(relayInfo.ChannelId, 1)
+	callCount := relayInfo.ActualApiCallCount
+	if callCount < 1 {
+		callCount = 1
+	}
+	model.UpdateChannelCallCount(relayInfo.ChannelId, callCount)
 	if totalTokens == 0 {
 		// in this case, must be some error happened
 		// we cannot just return, because we may have to return the pre-consumed quota

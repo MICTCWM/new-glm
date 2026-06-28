@@ -142,6 +142,7 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		}
 
 		info.UpstreamRetryCount = attempt
+		info.ActualApiCallCount = attempt + 1
 
 		if usage.(*dto.Usage).CompletionTokenDetails.AudioTokens > 0 || usage.(*dto.Usage).PromptTokensDetails.AudioTokens > 0 {
 			service.PostAudioConsumeQuota(c, info, usage.(*dto.Usage), "")

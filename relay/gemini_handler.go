@@ -270,6 +270,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 
 		if info.IsStream {
+			info.ActualApiCallCount = attempt + 1
 			break
 		}
 
@@ -301,6 +302,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 
 		info.UpstreamRetryCount = attempt
+		info.ActualApiCallCount = attempt + 1
 		// 捕获上游返回的原始响应体（数据点3）
 		if upstreamBuf != nil {
 			info.UpstreamResponseRaw = upstreamBuf.Bytes()
@@ -476,6 +478,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 
 		if usageDto, ok := usage.(*dto.Usage); ok {
 			info.UpstreamRetryCount = attempt
+			info.ActualApiCallCount = attempt + 1
 			service.PostTextConsumeQuota(c, info, usageDto, nil)
 			return nil
 		} else {

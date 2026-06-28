@@ -183,6 +183,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		}
 
 		if info.IsStream {
+			info.ActualApiCallCount = attempt + 1
 			break
 		}
 
@@ -208,6 +209,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		}
 
 		info.UpstreamRetryCount = attempt
+		info.ActualApiCallCount = attempt + 1
 		return usage, nil
 	}
 

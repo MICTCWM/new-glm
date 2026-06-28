@@ -157,6 +157,7 @@ type RelayInfo struct {
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
 	UpstreamRetryCount                    int
+	ActualApiCallCount                    int // 本次请求实际向上游发起的调用次数（含首次），由 handler 在成功返回前设置
 	RuntimeHeadersOverride                map[string]interface{}
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
