@@ -883,6 +883,16 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
+
+	// 如果错误包含 429 或 Invalid token，直接强制禁用渠道并标记为配额耗尽
+	// 跳过延迟检测流程，直接采取强制措施确保渠道不再被使用
+	if service.ShouldForceDisableFor429OrInvalidToken(err) && channelError.AutoBan {
+		gopool.Go(func() {
+			service.ForceDisableChannelFor429OrInvalidToken(channelError, err.ErrorWithStatusCode())
+		})
+		return
+	}
+
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {
 		if service.ShouldDelayDisableChannel(err) {
 			service.StartRetryCheck(channelError, err.ErrorWithStatusCode(), nil)
