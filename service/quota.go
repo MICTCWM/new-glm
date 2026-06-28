@@ -215,6 +215,8 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	}
 
 	// record all the consume log even if quota is 0
+	// 渠道调用次数：只要请求成功到达上游就 +1，不依赖 usage
+	model.UpdateChannelCallCount(relayInfo.ChannelId, 1)
 	if totalTokens == 0 {
 		// in this case, must be some error happened
 		// we cannot just return, because we may have to return the pre-consumed quota
@@ -225,7 +227,6 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 	} else {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
-		model.UpdateChannelCallCount(relayInfo.ChannelId, 1)
 	}
 
 	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
@@ -349,6 +350,8 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	}
 
 	// record all the consume log even if quota is 0
+	// 渠道调用次数：只要请求成功到达上游就 +1，不依赖 usage
+	model.UpdateChannelCallCount(relayInfo.ChannelId, 1)
 	if totalTokens == 0 {
 		// in this case, must be some error happened
 		// we cannot just return, because we may have to return the pre-consumed quota
@@ -359,7 +362,6 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	} else {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
-		model.UpdateChannelCallCount(relayInfo.ChannelId, 1)
 	}
 
 	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
