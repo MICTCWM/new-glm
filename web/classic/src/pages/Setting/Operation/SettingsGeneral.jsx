@@ -57,6 +57,7 @@ export default function GeneralSettings(props) {
     DefaultCollapseSidebar: false,
     DemoSiteEnabled: false,
     SelfUseModeEnabled: false,
+    RegionBlockEnabled: true,
     'token_setting.max_user_tokens': 1000,
   });
   const refForm = useRef();
@@ -388,6 +389,19 @@ export default function GeneralSettings(props) {
                   checkedText='｜'
                   uncheckedText='〇'
                   onChange={handleFieldChange('SelfUseModeEnabled')}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'RegionBlockEnabled'}
+                  label={t('屏蔽国内 IP 访问前端')}
+                  extraText={t(
+                    '启用后国内 IP 访问前端将跳转到不在服务区页面，不影响 API 接口',
+                  )}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={handleFieldChange('RegionBlockEnabled')}
                 />
               </Col>
             </Row>

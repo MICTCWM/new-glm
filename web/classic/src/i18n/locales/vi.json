@@ -3125,6 +3125,8 @@
     "自定义错误响应": "Phản hồi lỗi tùy chỉnh",
     "自定义镜像": "Custom Image",
     "自用模式": "Chế độ tự dùng",
+    "屏蔽国内 IP 访问前端": "Chặn truy cập frontend từ IP Trung Quốc",
+    "启用后国内 IP 访问前端将跳转到不在服务区页面，不影响 API 接口": "Khi bật, truy cập frontend từ IP Trung Quốc sẽ chuyển hướng đến trang 'không trong khu vực dịch vụ', API không bị ảnh hưởng",
     "自适应": "Thích ứng",
     "自适应列表": "Danh sách thích ứng",
     "至": "đến",

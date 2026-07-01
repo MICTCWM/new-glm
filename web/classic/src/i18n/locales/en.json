@@ -2886,6 +2886,8 @@
     "自定义错误响应": "Custom Error Response",
     "自定义镜像": "Custom Image",
     "自用模式": "Self-use mode",
+    "屏蔽国内 IP 访问前端": "Block China IP Access to Frontend",
+    "启用后国内 IP 访问前端将跳转到不在服务区页面，不影响 API 接口": "When enabled, China IP access to frontend will redirect to 'not in service area' page, API endpoints are not affected",
     "自适应列表": "Adaptive list",
     "至": "until",
     "节省": "Save",

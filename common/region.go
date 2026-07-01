@@ -2,7 +2,6 @@ package common
 
 import (
 	_ "embed"
-	"os"
 	"strings"
 	"sync"
 
@@ -43,10 +42,8 @@ func getRegionSearcher() (*xdb.Searcher, error) {
 }
 
 // IsRegionBlockEnabled 检查是否启用中国 IP 拦截
-// 默认启用，设置 BLOCK_CN_REGION=false 或 0 可关闭
 func IsRegionBlockEnabled() bool {
-	v := strings.ToLower(os.Getenv("BLOCK_CN_REGION"))
-	return v != "false" && v != "0"
+	return RegionBlockEnabled
 }
 
 // IsChinaIP 判断 IP 是否属于中国大陆

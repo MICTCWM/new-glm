@@ -128,6 +128,12 @@ func InitEnv() {
 	SearchRateLimitEnable = GetEnvOrDefaultBool("SEARCH_RATE_LIMIT_ENABLE", true)
 	SearchRateLimitNum = GetEnvOrDefault("SEARCH_RATE_LIMIT", 10)
 	SearchRateLimitDuration = int64(GetEnvOrDefault("SEARCH_RATE_LIMIT_DURATION", 60))
+
+	// 保持环境变量兼容：BLOCK_CN_REGION=false/0 时关闭
+	blockCnRegion := strings.ToLower(os.Getenv("BLOCK_CN_REGION"))
+	if blockCnRegion == "false" || blockCnRegion == "0" {
+		RegionBlockEnabled = false
+	}
 	initConstantEnv()
 }
 

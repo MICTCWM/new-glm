@@ -2826,6 +2826,8 @@
     "自定义错误响应": "Réponse d'erreur personnalisée",
     "自定义镜像": "Custom Image",
     "自用模式": "Mode auto-utilisation",
+    "屏蔽国内 IP 访问前端": "Bloquer l'accès au frontend depuis les IP chinoises",
+    "启用后国内 IP 访问前端将跳转到不在服务区页面，不影响 API 接口": "Lorsqu'activé, l'accès au frontend depuis les IP chinoises sera redirigé vers la page 'hors zone de service', les API ne sont pas affectées",
     "自适应列表": "Liste adaptative",
     "至": "jusqu'à",
     "节省": "Économiser",
