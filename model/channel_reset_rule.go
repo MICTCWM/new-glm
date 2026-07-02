@@ -355,6 +355,7 @@ func ResetDueChannelRules(now int64, limit int) (int, error) {
 // 使用事务包裹渠道更新和规则更新，对规则行加 FOR UPDATE 锁避免并发冲突；
 // 事务成功后同步内存缓存，避免最长 60s 内渠道仍因旧计数不可用。
 func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time) error {
+	var recovered bool // 标记渠道是否从 AutoDisabled 恢复为 Enabled
 	// 在事务中完成：锁定规则行 + 验证并更新渠道计数 + 更新规则状态
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		// 锁定规则行，避免并发重置同一规则
@@ -385,6 +386,7 @@ func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time
 				}
 				channelUpdates["status"] = common.ChannelStatusEnabled
 				channelUpdates["other_info"] = string(otherInfoJSON)
+				recovered = true
 			}
 		}
 		if rule.ResetValue > 0 {
@@ -419,6 +421,12 @@ func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time
 	})
 	if err != nil {
 		return err
+	}
+	// 同步启用 abilities 表，确保渠道可被路由（针对 401/429 硬禁用路径的恢复）
+	if recovered {
+		if abilityErr := UpdateAbilityStatus(rule.ChannelId, true); abilityErr != nil {
+			common.SysLog(fmt.Sprintf("failed to update ability status on recovery: channel_id=%d, error=%v", rule.ChannelId, abilityErr))
+		}
 	}
 	// 事务成功后同步内存缓存（在事务外，避免锁竞争）
 	// 若事务提交后、缓存更新前系统崩溃，缓存会在最长 60s 内通过 SyncChannelCache 自动刷新，最终一致性可接受
@@ -463,6 +471,7 @@ func ResetChannelUsedCallCount(channelId int) error {
 		return errors.New("invalid channel id")
 	}
 	var maxCallCount int64
+	var recovered bool // 标记渠道是否从 AutoDisabled 恢复为 Enabled
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		// FOR UPDATE 锁定渠道，避免并发重置同一渠道
 		var channel Channel
@@ -488,6 +497,7 @@ func ResetChannelUsedCallCount(channelId int) error {
 				}
 				channelUpdates["status"] = common.ChannelStatusEnabled
 				channelUpdates["other_info"] = string(otherInfoJSON)
+				recovered = true
 			}
 		}
 		if err := tx.Model(&Channel{}).Where("id = ?", channelId).Updates(channelUpdates).Error; err != nil {
@@ -497,6 +507,12 @@ func ResetChannelUsedCallCount(channelId int) error {
 	})
 	if err != nil {
 		return err
+	}
+	// 同步启用 abilities 表，确保渠道可被路由（针对 401/429 硬禁用路径的恢复）
+	if recovered {
+		if abilityErr := UpdateAbilityStatus(channelId, true); abilityErr != nil {
+			common.SysLog(fmt.Sprintf("failed to update ability status on recovery: channel_id=%d, error=%v", channelId, abilityErr))
+		}
 	}
 	// 事务外同步缓存（与 applyChannelResetRule 保持一致）
 	UpdateChannelCallCountInCache(channelId, 0, maxCallCount)

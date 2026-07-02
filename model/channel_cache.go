@@ -332,6 +332,47 @@ func CacheUpdateChannelStatus(id int, status int) {
 				}
 			}
 		}
+	} else {
+		// 渠道重新启用时，把它加回 group2model2channels 路由表，否则不会被路由
+		if channel, ok := channelsIDM[id]; ok && channel.Status == common.ChannelStatusEnabled {
+			groups := strings.Split(channel.Group, ",")
+			for _, group := range groups {
+				if group == "" {
+					continue
+				}
+				if _, ok := group2model2channels[group]; !ok {
+					group2model2channels[group] = make(map[string][]int)
+				}
+				models := strings.Split(channel.Models, ",")
+				for _, model := range models {
+					if model == "" {
+						continue
+					}
+					channels := group2model2channels[group][model]
+					// 避免重复添加
+					alreadyExists := false
+					for _, cid := range channels {
+						if cid == id {
+							alreadyExists = true
+							break
+						}
+					}
+					if !alreadyExists {
+						channels = append(channels, id)
+					}
+					// 按优先级重新排序
+					sort.Slice(channels, func(i, j int) bool {
+						ci := channelsIDM[channels[i]]
+						cj := channelsIDM[channels[j]]
+						if ci == nil || cj == nil {
+							return false
+						}
+						return ci.GetPriority() > cj.GetPriority()
+					})
+					group2model2channels[group][model] = channels
+				}
+			}
+		}
 	}
 }
 

@@ -709,6 +709,13 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			if channelCache.Status == status {
 				return false
 			}
+			// 单 Key 模式：同步更新缓存的 OtherInfo，避免恢复路径读取缓存的 status_reason 为空
+			if status != common.ChannelStatusEnabled {
+				info := channelCache.GetOtherInfo()
+				info["status_reason"] = reason
+				info["status_time"] = common.GetTimestamp()
+				channelCache.SetOtherInfo(info)
+			}
 			CacheUpdateChannelStatus(channelId, status)
 		}
 	}
