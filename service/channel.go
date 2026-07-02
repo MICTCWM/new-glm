@@ -16,28 +16,6 @@ func formatNotifyType(channelId int, status int) string {
 	return fmt.Sprintf("%s_%d_%d", dto.NotifyTypeChannelUpdate, channelId, status)
 }
 
-// ForceDisableChannelFor429OrInvalidToken 强制禁用渠道并标记为配额耗尽
-// 当用户请求遇到 429 或 Invalid token 错误时，直接禁用渠道，状态标记为配额耗尽。
-// 设计思路：429 和 InvalidToken 是明确的上游容量/鉴权问题，无需延迟确认。
-// 直接禁用比原有的延迟禁用+三次重试更高效，减少对上游的无效请求，
-// 且能更快切换到可用渠道，提升用户响应速度。
-func ForceDisableChannelFor429OrInvalidToken(channelError types.ChannelError, reason string) {
-	common.SysLog(fmt.Sprintf("通道「%s」（#%d）发生 429/InvalidToken 错误，强制禁用并标记配额耗尽，原因：%s", channelError.ChannelName, channelError.ChannelId, reason))
-
-	// 检查是否启用自动禁用功能
-	if !channelError.AutoBan {
-		common.SysLog(fmt.Sprintf("通道「%s」（#%d）未启用自动禁用功能，跳过强制禁用操作", channelError.ChannelName, channelError.ChannelId))
-		return
-	}
-
-	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, model.ChannelStatusReasonQuotaExhausted)
-	if success {
-		subject := fmt.Sprintf("通道「%s」（#%d）已被强制禁用（配额耗尽）", channelError.ChannelName, channelError.ChannelId)
-		content := fmt.Sprintf("通道「%s」（#%d）已被强制禁用，原因：检测到 429/InvalidToken 错误，已标记为配额耗尽", channelError.ChannelName, channelError.ChannelId)
-		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
-	}
-}
-
 // disable & notify
 func DisableChannel(channelError types.ChannelError, reason string) {
 	common.SysLog(fmt.Sprintf("通道「%s」（#%d）发生错误，准备禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, reason))
@@ -97,11 +75,26 @@ func is429OrInvalidTokenError(err *types.NewAPIError) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "invalid token")
 }
 
-func ShouldForceDisableFor429OrInvalidToken(err *types.NewAPIError) bool {
-	if !common.AutomaticDisableChannelEnabled {
+// ShouldHardDisableChannel 判断是否需要硬禁用渠道（401/429），不依赖总开关
+func ShouldHardDisableChannel(err *types.NewAPIError) bool {
+	if err == nil {
 		return false
 	}
-	return is429OrInvalidTokenError(err)
+	return err.StatusCode == 401 || err.StatusCode == 429 || is429OrInvalidTokenError(err)
+}
+
+// HardDisableChannel 硬禁用渠道，根据错误码设置对应的禁用原因
+func HardDisableChannel(channelError types.ChannelError, err *types.NewAPIError) {
+	reason := model.ChannelStatusReasonRateLimit
+	if err.StatusCode == 401 {
+		reason = model.ChannelStatusReasonAuthError
+	}
+	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason)
+	if success {
+		subject := fmt.Sprintf("通道「%s」（#%d）已被强制禁用（HTTP %d）", channelError.ChannelName, channelError.ChannelId, err.StatusCode)
+		content := fmt.Sprintf("通道「%s」（#%d）因上游返回 HTTP %d 错误被强制禁用。\n错误详情：%s", channelError.ChannelName, channelError.ChannelId, err.StatusCode, err.ErrorWithStatusCode())
+		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
+	}
 }
 
 func ShouldDelayDisableChannel(err *types.NewAPIError) bool {

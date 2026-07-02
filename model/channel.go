@@ -20,6 +20,8 @@ import (
 )
 
 const ChannelStatusReasonQuotaExhausted = "quota_exhausted"
+const ChannelStatusReasonAuthError = "401"
+const ChannelStatusReasonRateLimit = "429"
 
 type Channel struct {
 	Id                 int     `json:"id"`
@@ -753,6 +755,13 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		}
 	}
 	return true
+}
+
+// IsAutoRecoverableReason 判断该禁用原因是否允许在配额重置时自动恢复
+func IsAutoRecoverableReason(reason string) bool {
+	return reason == ChannelStatusReasonQuotaExhausted ||
+		reason == ChannelStatusReasonAuthError ||
+		reason == ChannelStatusReasonRateLimit
 }
 
 func EnableChannelByTag(tag string) error {

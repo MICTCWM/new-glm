@@ -376,7 +376,7 @@ func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time
 		}
 		if channel.Status == common.ChannelStatusAutoDisabled {
 			info := channel.GetOtherInfo()
-			if reason, _ := info["status_reason"].(string); reason == ChannelStatusReasonQuotaExhausted {
+			if reason, _ := info["status_reason"].(string); IsAutoRecoverableReason(reason) {
 				delete(info, "status_reason")
 				delete(info, "status_time")
 				otherInfoJSON, marshalErr := json.Marshal(info)
@@ -430,7 +430,7 @@ func applyChannelResetRule(rule *ChannelResetRule, now int64, fromTime time.Time
 	channel, err := CacheGetChannel(rule.ChannelId)
 	if err == nil && channel != nil && channel.Status == common.ChannelStatusAutoDisabled {
 		info := channel.GetOtherInfo()
-		if reason, _ := info["status_reason"].(string); reason == ChannelStatusReasonQuotaExhausted {
+		if reason, _ := info["status_reason"].(string); IsAutoRecoverableReason(reason) {
 			CacheUpdateChannelStatus(rule.ChannelId, common.ChannelStatusEnabled)
 		}
 	}
@@ -456,7 +456,7 @@ func DeleteChannelQuotaConfigRulesWithTx(tx *gorm.DB, channelId int) error {
 }
 
 // ResetChannelUsedCallCount 重置指定渠道的已用调用次数为 0，保留 max_call_count 不变。
-// 若渠道因配额耗尽被自动禁用（status=AutoDisabled 且 other_info.status_reason=quota_exhausted），
+// 若渠道因配额耗尽或 401/429 错误被自动禁用（status=AutoDisabled 且 status_reason 可自动恢复），
 // 恢复为启用状态。事务内 FOR UPDATE 锁定渠道行，事务外同步缓存。
 func ResetChannelUsedCallCount(channelId int) error {
 	if channelId <= 0 {
@@ -479,7 +479,7 @@ func ResetChannelUsedCallCount(channelId int) error {
 		// 若渠道因配额耗尽被自动禁用，恢复为启用状态并清理 other_info 中的标记
 		if channel.Status == common.ChannelStatusAutoDisabled {
 			info := channel.GetOtherInfo()
-			if reason, _ := info["status_reason"].(string); reason == ChannelStatusReasonQuotaExhausted {
+			if reason, _ := info["status_reason"].(string); IsAutoRecoverableReason(reason) {
 				delete(info, "status_reason")
 				delete(info, "status_time")
 				otherInfoJSON, marshalErr := json.Marshal(info)
@@ -503,7 +503,7 @@ func ResetChannelUsedCallCount(channelId int) error {
 	channel, cacheErr := CacheGetChannel(channelId)
 	if cacheErr == nil && channel != nil && channel.Status == common.ChannelStatusAutoDisabled {
 		info := channel.GetOtherInfo()
-		if reason, _ := info["status_reason"].(string); reason == ChannelStatusReasonQuotaExhausted {
+		if reason, _ := info["status_reason"].(string); IsAutoRecoverableReason(reason) {
 			CacheUpdateChannelStatus(channelId, common.ChannelStatusEnabled)
 		}
 	}
