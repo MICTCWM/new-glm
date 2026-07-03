@@ -289,6 +289,7 @@ const (
 	UserMessageRpmFailed         = "硬推理失败，请重试"
 	UserMessageRpmQueuedThinking = "检测到请求较复杂已自动路由到硬推理模型"
 	UserMessageRetryWaitThinking = "wait"
+	UserMessageSensitiveWords    = "有敏感词请切换模型或压缩上下文后再重试"
 )
 
 // RPM Queue configuration

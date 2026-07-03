@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/types"
 )
 
 func CheckSensitiveMessages(messages []dto.Message) ([]string, error) {
@@ -74,4 +75,32 @@ func SensitiveWordReplace(text string, returnImmediately bool) (bool, []string, 
 		return true, words, builder.String()
 	}
 	return false, nil, text
+}
+
+// SensitiveWordsMarker 是上游可能返回的错误文本片段
+const SensitiveWordsMarker = "sensitive_words_detected"
+
+// NormalizeSensitiveWordsError 检测错误信息中是否包含 sensitive_words_detected，
+// 若包含则转换为带 skipRetry 标记的 ErrorCodeSensitiveWordsDetected 错误。
+// 必须在 shouldRetry 调用前执行。
+func NormalizeSensitiveWordsError(err *types.NewAPIError) *types.NewAPIError {
+	if err == nil {
+		return nil
+	}
+	// 已经是该 errorCode，确保 skipRetry 已设置
+	if err.GetErrorCode() == types.ErrorCodeSensitiveWordsDetected {
+		if !types.IsSkipRetryError(err) {
+			oai := err.ToOpenAIError()
+			return types.WithOpenAIError(oai, err.StatusCode, types.ErrOptionWithSkipRetry())
+		}
+		return err
+	}
+	// 基于错误文本判断（兼容上游返回 message 含该子串的情况）
+	if strings.Contains(strings.ToLower(err.Error()), SensitiveWordsMarker) {
+		oai := err.ToOpenAIError()
+		oai.Type = string(types.ErrorCodeSensitiveWordsDetected)
+		oai.Code = string(types.ErrorCodeSensitiveWordsDetected)
+		return types.WithOpenAIError(oai, err.StatusCode, types.ErrOptionWithSkipRetry())
+	}
+	return err
 }

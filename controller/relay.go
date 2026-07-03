@@ -346,6 +346,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
+		newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
 		relayInfo.LastError = newAPIError
 
 		// 渠道已被上游实际调用但请求失败，扣减渠道配额（重试失败补偿，避免配额漏扣）

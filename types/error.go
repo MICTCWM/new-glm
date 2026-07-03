@@ -164,6 +164,9 @@ func (e *NewAPIError) GetUserFriendlyMessage() string {
 	if e.errorCode == ErrorCodeRpmHardInferFailed {
 		return common.UserMessageRpmFailed
 	}
+	if e.errorCode == ErrorCodeSensitiveWordsDetected {
+		return common.UserMessageSensitiveWords
+	}
 	if e.StatusCode == 429 {
 		return common.UserMessage429
 	}
