@@ -32,6 +32,7 @@ const defaultOperationsSettings: OperationsSettings = {
   DefaultCollapseSidebar: false,
   DemoSiteEnabled: false,
   SelfUseModeEnabled: false,
+  RegionBlockEnabled: false,
   ChannelDisableThreshold: '',
   QuotaRemindThreshold: '',
   AutomaticDisableChannelEnabled: false,
