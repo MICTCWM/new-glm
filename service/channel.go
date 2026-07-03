@@ -101,7 +101,8 @@ func ShouldDelayDisableChannel(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
-	return is429OrInvalidTokenError(err)
+	// 401/429/invalid token 都走延迟禁用复测
+	return err.StatusCode == 401 || is429OrInvalidTokenError(err)
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {

@@ -89,6 +89,7 @@ func StartRetryCheck(channelError types.ChannelError, reason string, testFn func
 		defer ReleaseRetrySlot(channelError.ChannelId)
 
 		delays := []time.Duration{5 * time.Second, 10 * time.Second, 10 * time.Second}
+		var lastErrResult *types.NewAPIError
 
 		for i, delay := range delays {
 			time.Sleep(delay)
@@ -108,17 +109,19 @@ func StartRetryCheck(channelError types.ChannelError, reason string, testFn func
 				common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测恢复正常，无需禁用", channelError.ChannelName, channelError.ChannelId, i+1))
 				return
 			}
-			if errResult.StatusCode != 429 && !strings.Contains(strings.ToLower(errResult.Error()), "invalid token") {
+			if errResult.StatusCode != 429 && errResult.StatusCode != 401 && !strings.Contains(strings.ToLower(errResult.Error()), "invalid token") {
 				common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测返回非禁用触发错误（StatusCode=%d），中断检测", channelError.ChannelName, channelError.ChannelId, i+1, errResult.StatusCode))
 				return
 			}
 			common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测仍命中禁用条件，继续等待下一轮", channelError.ChannelName, channelError.ChannelId, i+1))
+			lastErrResult = errResult
 		}
 
 		common.SysLog(fmt.Sprintf("通道「%s」（#%d）三轮检测全部命中禁用条件，即将禁用", channelError.ChannelName, channelError.ChannelId))
-		if reason == "" {
-			reason = "上游持续返回禁用触发错误（429 或 invalid token），三轮检测后仍未恢复"
+		if lastErrResult != nil {
+			HardDisableChannel(channelError, lastErrResult)
+		} else if reason != "" {
+			DisableChannel(channelError, reason)
 		}
-		DisableChannel(channelError, reason)
 	})
 }

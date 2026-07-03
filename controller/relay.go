@@ -889,18 +889,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 
-	// 401/429 硬禁用，不依赖总开关，立即执行
-	if service.ShouldHardDisableChannel(err) && channelError.AutoBan {
-		gopool.Go(func() {
-			service.HardDisableChannel(channelError, err)
-		})
-		return
-	}
-
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	if channelError.AutoBan {
+		// 401/429/invalid token 错误先经过 3 轮复测确认，全部失败才禁用
 		if service.ShouldDelayDisableChannel(err) {
 			service.StartRetryCheck(channelError, err.ErrorWithStatusCode(), nil)
-		} else {
+		} else if service.ShouldDisableChannel(err) {
 			gopool.Go(func() {
 				service.DisableChannel(channelError, err.ErrorWithStatusCode())
 			})
