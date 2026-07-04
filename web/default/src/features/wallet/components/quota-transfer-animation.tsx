@@ -17,6 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useRef } from 'react'
+import { getAnimationConfig, PerformanceLevel, AnimationConfig } from '../lib/animation-config'
+import { getPerformanceLevel } from '../lib/performance-detector'
+import { TrajectoryStrategyFactory, TrajectoryType } from '../lib/trajectory-strategies'
 
 // ============================================================================
 // Types
@@ -57,16 +60,6 @@ interface QuotaTransferAnimationProps {
 }
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-const PARTICLE_COUNT = 24
-const BASE_ANIMATION_DURATION = 1000 // 基础时长 1 秒
-const MAX_ANIMATION_DURATION = 20000 // 最大时长 20 秒
-const DURATION_SCALE_FACTOR = 1000 // 额度缩放因子，用于对数计算
-const DURATION_LOG_SCALE = 2000 // 对数增长的时间缩放因子（毫秒）
-
-// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -74,16 +67,17 @@ const DURATION_LOG_SCALE = 2000 // 对数增长的时间缩放因子（毫秒）
  * 根据额度差值动态计算动画时长
  * 使用对数增长，额度越多动画时间越长，最高封顶 20 秒
  * @param delta - 额度差值（绝对值）
+ * @param config - 动画配置
  * @returns 动画时长（毫秒）
  */
-function calculateAnimationDuration(delta: number): number {
+export function calculateAnimationDuration(delta: number, config: AnimationConfig): number {
   const absDelta = Math.abs(delta)
   // 使用对数函数平滑增长：base + scale * log(1 + delta / factor)
   // 这样小额时长接近基础时长，大额时长逐渐增长但不会过快
-  const logFactor = Math.log1p(absDelta / DURATION_SCALE_FACTOR)
-  const calculatedDuration = BASE_ANIMATION_DURATION + logFactor * DURATION_LOG_SCALE
+  const logFactor = Math.log1p(absDelta / 1000)
+  const calculatedDuration = config.duration.base + logFactor * config.duration.logScale
   // 封顶到最大时长
-  return Math.min(calculatedDuration, MAX_ANIMATION_DURATION)
+  return Math.min(calculatedDuration, config.duration.max)
 }
 
 function colorVar(color: TransferColor): string {
@@ -134,90 +128,160 @@ function animateValueSpring(
 }
 
 /**
- * Spawn spiral particles flowing from one card to another using quadratic
- * Bézier curves with a decaying spiral offset (matching demo v3).
+ * Spawn parabolic particles flowing from one card to another.
+ * Supports dual-source (top/bottom) with automatic fallback for small cards.
  */
 function spawnParticles(
   fromEl: HTMLElement,
   toEl: HTMLElement,
   isToGpt: boolean,
   created: Set<HTMLElement>,
-  cancelled: { current: boolean }
+  cancelled: { current: boolean },
+  config: AnimationConfig
 ): void {
-  const fr = fromEl.getBoundingClientRect()
-  const tr = toEl.getBoundingClientRect()
-  const fx = fr.left + fr.width / 2
-  const fy = fr.top + fr.height / 2
-  const tx = tr.left + tr.width / 2
-  const ty = tr.top + tr.height / 2
-  const color = isToGpt ? 'var(--primary)' : 'var(--accent)'
-
-  for (let i = 0; i < PARTICLE_COUNT; i++) {
-    setTimeout(() => {
-      if (cancelled.current) return
-      const p = document.createElement('div')
-      const size = 3 + Math.random() * 7
-      p.style.cssText = `position:fixed;width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 ${size * 3}px ${color},0 0 ${size * 6}px ${color};pointer-events:none;z-index:999;`
-      document.body.appendChild(p)
-      created.add(p)
-
-      const dur = 800 + Math.random() * 600
-      const arcHeight = 40 + Math.random() * 80
-      const swirl = (Math.random() - 0.5) * 100
-      const startAngle = Math.random() * Math.PI * 2
-      const midX = (fx + tx) / 2 + swirl
-      const midY = (fy + ty) / 2 - arcHeight
-      const startTime = performance.now()
-
-      const animateP = (now: number) => {
-        if (cancelled.current) {
-          p.remove()
-          created.delete(p)
-          return
-        }
-        const t = Math.min((now - startTime) / dur, 1)
-        const ease = 1 - Math.pow(1 - t, 2.5)
-
-        const x = (1 - ease) * (1 - ease) * fx + 2 * (1 - ease) * ease * midX + ease * ease * tx
-        const y = (1 - ease) * (1 - ease) * fy + 2 * (1 - ease) * ease * midY + ease * ease * ty
-
-        const spiralR = (1 - ease) * 15
-        const spiralA = startAngle + ease * Math.PI * 3
-        const sx = x + Math.cos(spiralA) * spiralR
-        const sy = y + Math.sin(spiralA) * spiralR
-
-        p.style.left = `${sx - size / 2}px`
-        p.style.top = `${sy - size / 2}px`
-        p.style.opacity = ease < 0.1 ? ease * 10 : (1 - ease) * 1.2
-        p.style.transform = `rotate(${ease * 720}deg) scale(${0.5 + ease * 0.8})`
-
-        if (t < 1) {
-          requestAnimationFrame(animateP)
-        } else {
-          p.remove()
-          created.delete(p)
-        }
-      }
-      requestAnimationFrame(animateP)
-    }, i * 35)
+  const rect = fromEl.getBoundingClientRect()
+  const cardHeight = rect.height
+  
+  // 检查卡片高度，决定使用单来源还是双来源
+  if (cardHeight < 60) {
+    // 降级为单来源
+    const fromCenter = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    }
+    spawnParticlesFromPoint(fromCenter, toEl, isToGpt, created, cancelled, config)
+  } else {
+    // 双来源
+    const safeOffset = Math.min(20, cardHeight / 4)
+    const fromTop = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + safeOffset,
+    }
+    const fromBottom = {
+      x: rect.left + rect.width / 2,
+      y: rect.bottom - safeOffset,
+    }
+    
+    const halfCount = Math.floor(config.particle.count / 2)
+    for (let i = 0; i < halfCount; i++) {
+      setTimeout(() => {
+        spawnSingleParticle(fromTop, toEl, isToGpt, created, cancelled, config)
+      }, i * config.particle.spawnInterval)
+      
+      setTimeout(() => {
+        spawnSingleParticle(fromBottom, toEl, isToGpt, created, cancelled, config)
+      }, i * config.particle.spawnInterval + 15)
+    }
   }
 }
 
+function spawnParticlesFromPoint(
+  from: { x: number; y: number },
+  toEl: HTMLElement,
+  isToGpt: boolean,
+  created: Set<HTMLElement>,
+  cancelled: { current: boolean },
+  config: AnimationConfig
+): void {
+  for (let i = 0; i < config.particle.count; i++) {
+    setTimeout(() => {
+      spawnSingleParticle(from, toEl, isToGpt, created, cancelled, config)
+    }, i * config.particle.spawnInterval)
+  }
+}
+
+function spawnSingleParticle(
+  from: { x: number; y: number },
+  toEl: HTMLElement,
+  isToGpt: boolean,
+  created: Set<HTMLElement>,
+  cancelled: { current: boolean },
+  config: AnimationConfig
+): void {
+  if (cancelled.current) return
+  
+  const toRect = toEl.getBoundingClientRect()
+  const to = {
+    x: toRect.left + toRect.width / 2,
+    y: toRect.top + toRect.height / 2,
+  }
+  
+  const trajectory = TrajectoryStrategyFactory.get(TrajectoryType.PARABOLA)
+  
+  const particle = document.createElement('div')
+  const size = config.particle.minSize + 
+               Math.random() * (config.particle.maxSize - config.particle.minSize)
+  const color = isToGpt ? 'var(--primary)' : 'var(--accent)'
+  
+  particle.style.cssText = `
+    position: fixed;
+    width: ${size}px;
+    height: ${size}px;
+    background: ${color};
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 999;
+    box-shadow: 0 0 ${size}px ${color};
+  `
+  
+  document.body.appendChild(particle)
+  created.add(particle)
+  
+  const duration = config.particle.minDuration + 
+                  Math.random() * (config.particle.maxDuration - config.particle.minDuration)
+  
+  const startTime = performance.now()
+  
+  const animate = (currentTime: number) => {
+    if (cancelled.current) {
+      particle.remove()
+      created.delete(particle)
+      return
+    }
+    
+    const elapsed = currentTime - startTime
+    const progress = Math.min(elapsed / duration, 1)
+    const easedProgress = 1 - Math.pow(1 - progress, 3)
+    
+    const position = trajectory.calculate(from, to, easedProgress, {
+      height: config.trajectory.parabola.minHeight + 
+              Math.random() * (config.trajectory.parabola.maxHeight - 
+                                config.trajectory.parabola.minHeight),
+      maxHeightRatio: config.trajectory.parabola.maxHeightRatio,
+      spreadRange: config.trajectory.parabola.spreadRange,
+    })
+    
+    particle.style.left = position.x + 'px'
+    particle.style.top = position.y + 'px'
+    particle.style.opacity = (1 - progress).toString()
+    
+    if (progress < 1) {
+      requestAnimationFrame(animate)
+    } else {
+      particle.remove()
+      created.delete(particle)
+    }
+  }
+  
+  requestAnimationFrame(animate)
+}
+
 /**
- * Expand concentric ripples on the target card (matching demo v3).
+ * Expand concentric ripples on the target card.
  */
 function spawnRipples(
   el: HTMLElement,
   isToGpt: boolean,
   created: Set<HTMLElement>,
-  cancelled: { current: boolean }
+  cancelled: { current: boolean },
+  config: AnimationConfig
 ): void {
   const rect = el.getBoundingClientRect()
   const cx = rect.left + rect.width / 2
   const cy = rect.top + rect.height / 2
   const color = isToGpt ? 'var(--success)' : 'var(--primary)'
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < config.ripple.count; i++) {
     setTimeout(() => {
       if (cancelled.current) return
       const r = document.createElement('div')
@@ -228,14 +292,14 @@ function spawnRipples(
       r.animate(
         [
           { width: '0px', height: '0px', opacity: 0.7, borderWidth: '3px' },
-          { width: '160px', height: '160px', opacity: 0, borderWidth: '1px' },
+          { width: config.ripple.maxSize + 'px', height: config.ripple.maxSize + 'px', opacity: 0, borderWidth: '1px' },
         ],
-        { duration: 900, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'forwards' }
+        { duration: config.ripple.duration, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'forwards' }
       ).onfinish = () => {
         r.remove()
         created.delete(r)
       }
-    }, i * 180)
+    }, i * config.ripple.interval)
   }
 }
 
@@ -317,6 +381,9 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
   const fromGlowRef = useRef<HTMLDivElement>(null)
   const toGlowRef = useRef<HTMLDivElement>(null)
 
+  // Animation configuration based on device performance
+  const config = getAnimationConfig(getPerformanceLevel())
+
   // Track the last values seen while idle (used as animation start points)
   const lastIdleFromRef = useRef(props.startFrom ?? props.fromValue)
   const lastIdleToRef = useRef(props.startTo ?? props.toValue)
@@ -375,7 +442,7 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
     const deltaFrom = endFrom - startFrom
     const deltaTo = endTo - startTo
     const maxDelta = Math.max(Math.abs(deltaFrom), Math.abs(deltaTo))
-    const animationDuration = calculateAnimationDuration(maxDelta)
+    const animationDuration = calculateAnimationDuration(maxDelta, config)
     
     animateValueSpring(fromEl, startFrom, endFrom, animationDuration, props.formatFromValue, fromRising, cancelled)
     animateValueSpring(toEl, startTo, endTo, animationDuration, props.formatToValue, toRising, cancelled)
@@ -430,13 +497,13 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
       }, 800)
     }, 300)
 
-    spawnParticles(sourceCard, targetCard, isToGpt, createdElementsRef.current, cancelled)
+    spawnParticles(sourceCard, targetCard, isToGpt, createdElementsRef.current, cancelled, config)
 
     setTimeout(() => {
       if (cancelled.current) return
       targetCard.style.borderColor = 'color-mix(in oklch, var(--success) 40%, transparent)'
       targetCard.style.boxShadow = '0 0 40px color-mix(in oklch, var(--success) 18%, transparent)'
-      spawnRipples(targetCard, isToGpt, createdElementsRef.current, cancelled)
+      spawnRipples(targetCard, isToGpt, createdElementsRef.current, cancelled, config)
     }, 350)
 
     const totalDuration = animationDuration + 400
