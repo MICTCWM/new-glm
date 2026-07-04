@@ -9,6 +9,7 @@ type ChannelSettings struct {
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
 	SpecialUserEnabled     bool   `json:"special_user_enabled,omitempty"`
 	SpecialUserIds         []int  `json:"special_user_ids,omitempty"`
+	GptModeRequired        bool   `json:"gpt_mode_required,omitempty"`
 }
 
 type VertexKeyType string

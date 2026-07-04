@@ -814,6 +814,12 @@ type ChannelBatch struct {
 	Tag *string `json:"tag"`
 }
 
+// GptChannelBatch 用于批量设置/取消渠道的 GPT 模式标记
+type GptChannelBatch struct {
+	ChannelIds      []int `json:"channel_ids"`
+	GptModeRequired bool  `json:"gpt_mode_required"`
+}
+
 func DeleteChannelBatch(c *gin.Context) {
 	channelBatch := ChannelBatch{}
 	err := c.ShouldBindJSON(&channelBatch)
@@ -1115,6 +1121,86 @@ func BatchSetChannelTag(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data":    len(channelBatch.Ids),
+	})
+	return
+}
+
+// BatchSetGptChannels 批量设置/取消渠道的 GPT 模式标记
+// PUT /api/channel/gpt
+// 请求体: { "channel_ids": [1,2,3], "gpt_mode_required": true }
+func BatchSetGptChannels(c *gin.Context) {
+	gptBatch := GptChannelBatch{}
+	if err := c.ShouldBindJSON(&gptBatch); err != nil || len(gptBatch.ChannelIds) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "参数错误",
+		})
+		return
+	}
+
+	channels, err := model.GetChannelsByIds(gptBatch.ChannelIds)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	updated := 0
+	for _, channel := range channels {
+		setting := channel.GetSetting()
+		setting.GptModeRequired = gptBatch.GptModeRequired
+		channel.SetSetting(setting)
+		if err := channel.Update(); err != nil {
+			common.SysError(fmt.Sprintf("failed to update channel gpt_mode_required: channel_id=%d, error=%v", channel.Id, err))
+			continue
+		}
+		updated++
+	}
+
+	// 刷新内存缓存，使 GPT 限制立即生效
+	model.InitChannelCache()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    updated,
+	})
+	return
+}
+
+// GetGptChannels 获取所有标记为 GPT 模式的渠道列表
+// GET /api/channel/gpt
+func GetGptChannels(c *gin.Context) {
+	channels, err := model.GetAllChannelList()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	type gptChannelInfo struct {
+		Id     int     `json:"id"`
+		Name   string  `json:"name"`
+		Type   int     `json:"type"`
+		Status int     `json:"status"`
+		Tag    *string `json:"tag"`
+	}
+
+	data := make([]gptChannelInfo, 0)
+	for _, channel := range channels {
+		if channel.GetSetting().GptModeRequired {
+			data = append(data, gptChannelInfo{
+				Id:     channel.Id,
+				Name:   channel.Name,
+				Type:   channel.Type,
+				Status: channel.Status,
+				Tag:    channel.Tag,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    data,
 	})
 	return
 }

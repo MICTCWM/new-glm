@@ -121,6 +121,9 @@ func Distribute() func(c *gin.Context) {
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, resolvedModelName, usingGroup); found {
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil {
+						// 从 context 读取用户 setting，获取 GPT 模式状态
+						userSettingVal, _ := common.GetContextKey(c, constant.ContextKeyUserSetting)
+						userSetting, _ := userSettingVal.(dto.UserSetting)
 						if preferred.Status != common.ChannelStatusEnabled {
 							if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 								abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
@@ -130,7 +133,7 @@ func Distribute() func(c *gin.Context) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
 							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && !isChannelRpmFull(preferred) {
+								if model.IsChannelEnabledForGroupModel(g, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && preferred.AllowsGptMode(userSetting.GptMode) && !isChannelRpmFull(preferred) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
@@ -138,7 +141,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && !isChannelRpmFull(preferred) {
+						} else if model.IsChannelEnabledForGroupModel(usingGroup, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && preferred.AllowsGptMode(userSetting.GptMode) && !isChannelRpmFull(preferred) {
 							channel = preferred
 							selectGroup = usingGroup
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)

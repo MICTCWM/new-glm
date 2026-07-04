@@ -152,6 +152,13 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 	anySpecialUserAllowed := false
 	anyCallCountLimited := false
 	requestUserId := firstUserId(userId...)
+	// 在循环外获取用户缓存，读取 GPT 模式状态；获取失败时保守视为 false
+	userGptMode := false
+	if requestUserId > 0 {
+		if userCache, cacheErr := GetUserCache(requestUserId); cacheErr == nil && userCache != nil {
+			userGptMode = userCache.GetSetting().GptMode
+		}
+	}
 	for _, ability_ := range abilities {
 		if len(usedChannelIds) > 0 && isAbilityChannelUsed(ability_.ChannelId, usedChannelIds) {
 			continue
@@ -165,6 +172,9 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 			continue
 		}
 		anySpecialUserAllowed = true
+		if !candidateChannel.AllowsGptMode(userGptMode) {
+			continue
+		}
 		// 检查调用次数配额：max_call_count > 0 且 used_call_count >= max_call_count 时不可选
 		if candidateChannel.MaxCallCount > 0 && candidateChannel.UsedCallCount >= candidateChannel.MaxCallCount {
 			anyCallCountLimited = true

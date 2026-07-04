@@ -24,11 +24,13 @@ import {
   Settings,
   Shield,
   ShieldAlert,
+  Sparkles,
   Wrench,
 } from 'lucide-react'
 import { getAuthSectionNavItems } from '@/features/system-settings/auth/section-registry.tsx'
 import { getBillingSectionNavItems } from '@/features/system-settings/billing/section-registry.tsx'
 import { getContentSectionNavItems } from '@/features/system-settings/content/section-registry.tsx'
+import { getGptSectionNavItems } from '@/features/system-settings/gpt/section-registry.tsx'
 import { getModelsSectionNavItems } from '@/features/system-settings/models/section-registry.tsx'
 import { getOperationsSectionNavItems } from '@/features/system-settings/operations/section-registry.tsx'
 import { getSecuritySectionNavItems } from '@/features/system-settings/security/section-registry.tsx'
@@ -81,6 +83,11 @@ export function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
           title: t('Operations'),
           icon: Wrench,
           items: getOperationsSectionNavItems(t),
+        },
+        {
+          title: t('GPT Settings'),
+          icon: Sparkles,
+          items: getGptSectionNavItems(t),
         },
       ],
     },

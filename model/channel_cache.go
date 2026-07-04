@@ -167,6 +167,13 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 	var anySpecialUserAllowed bool
 	var anyCallCountLimited bool
 	requestUserId := firstUserId(userId...)
+	// 在循环外获取用户缓存，读取 GPT 模式状态；获取失败时保守视为 false
+	userGptMode := false
+	if requestUserId > 0 {
+		if userCache, cacheErr := GetUserCache(requestUserId); cacheErr == nil && userCache != nil {
+			userGptMode = userCache.GetSetting().GptMode
+		}
+	}
 	for _, channelId := range availableChannels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			if !channel.AllowsSpecialUser(requestUserId) {
@@ -174,6 +181,9 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 				continue
 			}
 			anySpecialUserAllowed = true
+			if !channel.AllowsGptMode(userGptMode) {
+				continue
+			}
 			// 检查调用次数配额：max_call_count > 0 且 used_call_count >= max_call_count 时不可选
 			if channel.MaxCallCount > 0 && channel.UsedCallCount >= channel.MaxCallCount {
 				anyCallCountLimited = true

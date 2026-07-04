@@ -1033,6 +1033,17 @@ func (channel *Channel) AllowsSpecialUser(userId int) bool {
 	return false
 }
 
+// AllowsGptMode 判断渠道是否允许指定 GPT 模式状态的用户使用。
+// 当渠道未标记 GptModeRequired 时，所有用户均可使用；
+// 标记后，仅 gpt_mode=true 的用户可用。
+func (channel *Channel) AllowsGptMode(userGptMode bool) bool {
+	setting := channel.GetSetting()
+	if !setting.GptModeRequired {
+		return true
+	}
+	return userGptMode
+}
+
 func (channel *Channel) SetSetting(setting dto.ChannelSettings) {
 	settingBytes, err := common.Marshal(setting)
 	if err != nil {
@@ -1089,6 +1100,13 @@ func (channel *Channel) GetHeaderOverride() map[string]interface{} {
 func GetChannelsByIds(ids []int) ([]*Channel, error) {
 	var channels []*Channel
 	err := DB.Where("id in (?)", ids).Find(&channels).Error
+	return channels, err
+}
+
+// GetAllChannelList 返回所有渠道列表（不含 key 字段），用于在不分页场景下遍历过滤。
+func GetAllChannelList() ([]*Channel, error) {
+	var channels []*Channel
+	err := DB.Omit("key").Find(&channels).Error
 	return channels, err
 }
 
