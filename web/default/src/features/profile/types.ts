@@ -118,6 +118,8 @@ export interface UserSettings {
   upstream_model_update_notify_enabled?: boolean
   /** Preferred interface/API response language */
   language?: string
+  /** Whether GPT mode is enabled */
+  gpt_mode?: boolean
 }
 
 /**
@@ -145,6 +147,7 @@ export interface UpdateUserSettingsRequest {
   accept_unset_model_ratio_model?: boolean
   record_ip_log?: boolean
   upstream_model_update_notify_enabled?: boolean
+  gpt_mode?: boolean
 }
 
 /**

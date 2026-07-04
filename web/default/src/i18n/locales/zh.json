@@ -4542,6 +4542,15 @@
     "{{count}} rule(s)": "共 {{count}} 条规则",
     "Not In Service Area": "不在服务区",
     "Sorry, this service is not available in your region.": "抱歉，本服务在您所在的地区不可用。",
-    "If you believe this is a mistake, please contact the administrator.": "如果您认为这是一个错误，请联系管理员。"
+    "If you believe this is a mistake, please contact the administrator.": "如果您认为这是一个错误，请联系管理员。",
+    "GPT Mode": "GPT 模式",
+    "Enable to use GPT series models": "启用后可使用 GPT 系列模型",
+    "Enable GPT Mode": "开启 GPT 模式",
+    "Exit": "退出",
+    "Disclaimer": "免责声明",
+    "I have read and understood": "已阅读并知晓",
+    "Confirm Enable": "确认开启",
+    "Confirm Exit": "确认退出",
+    "Are you sure you want to exit GPT mode?": "确定要退出 GPT 模式吗？"
   }
 }

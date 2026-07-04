@@ -68,6 +68,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
     accept_unset_model_ratio_model: false,
     record_ip_log: false,
     upstream_model_update_notify_enabled: false,
+    gpt_mode: false,
   })
 
   // Update form field helper
@@ -97,6 +98,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
         record_ip_log: parsed.record_ip_log || false,
         upstream_model_update_notify_enabled:
           parsed.upstream_model_update_notify_enabled || false,
+        gpt_mode: parsed.gpt_mode || false,
       })
     }
   }, [profile])

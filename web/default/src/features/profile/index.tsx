@@ -24,6 +24,7 @@ import {
   CardStaggerItem,
 } from '@/components/page-transition'
 import { CheckinCalendarCard } from './components/checkin-calendar-card'
+import { GptModeCard } from './components/gpt-mode-card'
 import { LanguagePreferencesCard } from './components/language-preferences-card'
 import { PasskeyCard } from './components/passkey-card'
 import { ProfileHeader } from './components/profile-header'
@@ -79,6 +80,7 @@ export function Profile() {
                 {canConfigureSidebar && <SidebarModulesCard />}
                 <PasskeyCard loading={loading} />
                 <TwoFACard loading={loading} />
+                <GptModeCard loading={loading} />
               </div>
             </div>
           </CardStaggerItem>

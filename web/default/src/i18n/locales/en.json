@@ -4536,6 +4536,15 @@
     "{{count}} rule(s)": "{{count}} rule(s)",
     "Not In Service Area": "Not In Service Area",
     "Sorry, this service is not available in your region.": "Sorry, this service is not available in your region.",
-    "If you believe this is a mistake, please contact the administrator.": "If you believe this is a mistake, please contact the administrator."
+    "If you believe this is a mistake, please contact the administrator.": "If you believe this is a mistake, please contact the administrator.",
+    "GPT Mode": "GPT Mode",
+    "Enable to use GPT series models": "Enable to use GPT series models",
+    "Enable GPT Mode": "Enable GPT Mode",
+    "Exit": "Exit",
+    "Disclaimer": "Disclaimer",
+    "I have read and understood": "I have read and understood",
+    "Confirm Enable": "Confirm Enable",
+    "Confirm Exit": "Confirm Exit",
+    "Are you sure you want to exit GPT mode?": "Are you sure you want to exit GPT mode?"
   }
 }

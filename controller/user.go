@@ -1133,6 +1133,7 @@ type UpdateUserSettingRequest struct {
 	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
 	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
 	RecordIpLog                      bool    `json:"record_ip_log"`
+	GptMode                          bool    `json:"gpt_mode"`
 }
 
 func UpdateUserSetting(c *gin.Context) {
@@ -1235,6 +1236,7 @@ func UpdateUserSetting(c *gin.Context) {
 		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
 		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
 		RecordIpLog:                      req.RecordIpLog,
+		GptMode:                          req.GptMode,
 	}
 
 	// 如果是webhook类型,添加webhook相关设置
