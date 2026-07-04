@@ -44,7 +44,7 @@ import {
   BASE_TO_GPT_RATIO,
   GPT_TO_BASE_RATIO,
 } from '../../constants'
-import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+import { formatQuota, parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 
 interface GptRechargeDialogProps {
   open: boolean
@@ -136,6 +136,40 @@ export function GptRechargeDialog({
     }
   }
 
+  const handleTransferAll = () => {
+    // 边界检查：如果对应余额为0或负数，直接返回
+    if (isToGpt && availableBaseQuota <= 0) {
+      return
+    }
+    if (!isToGpt && availableGptQuota <= 0) {
+      return
+    }
+
+    if (isToGpt) {
+      // 基础转GPT：将所有基础余额转换为GPT
+      if (mode === 'gpt') {
+        // gpt模式：计算对应的GPT数量
+        const gptAmount = availableBaseQuota / GPT_TO_BASE_RATIO
+        setGptInput(gptAmount.toFixed(4))
+      } else {
+        // base模式：将基础余额转换为USD
+        const usdAmount = quotaUnitsToDollars(availableBaseQuota)
+        setBaseInput(usdAmount.toFixed(2))
+      }
+    } else {
+      // GPT转基础：将所有GPT余额转换为基础余额
+      if (mode === 'gpt') {
+        // gpt模式：直接使用所有GPT余额
+        setGptInput(availableGptQuota.toFixed(4))
+      } else {
+        // base模式：计算对应的基础余额USD
+        const baseQuota = availableGptQuota * GPT_TO_BASE_RATIO
+        const usdAmount = quotaUnitsToDollars(baseQuota)
+        setBaseInput(usdAmount.toFixed(2))
+      }
+    }
+  }
+
   const title = isToGpt
     ? t('Recharge GPT Quota')
     : t('Convert GPT to Base')
@@ -197,12 +231,24 @@ export function GptRechargeDialog({
                     className='mt-0.5'
                   />
                   <div className='flex-1 space-y-2'>
-                    <Label
-                      htmlFor='recharge-mode-gpt'
-                      className='cursor-pointer text-sm font-medium'
-                    >
-                      {t('Recharge by GPT Amount')}
-                    </Label>
+                    <div className='flex items-center justify-between'>
+                      <Label
+                        htmlFor='recharge-mode-gpt'
+                        className='cursor-pointer text-sm font-medium'
+                      >
+                        {t('Recharge by GPT Amount')}
+                      </Label>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        className='h-auto px-2 py-1 text-xs'
+                        onClick={handleTransferAll}
+                        disabled={mode !== 'gpt' || submitting || (isToGpt ? availableBaseQuota <= 0 : availableGptQuota <= 0)}
+                      >
+                        {t('Transfer All')}
+                      </Button>
+                    </div>
                     <Input
                       type='number'
                       min={0}
@@ -223,12 +269,24 @@ export function GptRechargeDialog({
                     className='mt-0.5'
                   />
                   <div className='flex-1 space-y-2'>
-                    <Label
-                      htmlFor='recharge-mode-base'
-                      className='cursor-pointer text-sm font-medium'
-                    >
-                      {t('Recharge by Base Balance')}
-                    </Label>
+                    <div className='flex items-center justify-between'>
+                      <Label
+                        htmlFor='recharge-mode-base'
+                        className='cursor-pointer text-sm font-medium'
+                      >
+                        {t('Recharge by Base Balance')}
+                      </Label>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        className='h-auto px-2 py-1 text-xs'
+                        onClick={handleTransferAll}
+                        disabled={mode !== 'base' || submitting || (isToGpt ? availableBaseQuota <= 0 : availableGptQuota <= 0)}
+                      >
+                        {t('Transfer All')}
+                      </Button>
+                    </div>
                     <Input
                       type='number'
                       min={0}

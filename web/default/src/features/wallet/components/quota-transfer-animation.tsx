@@ -60,12 +60,31 @@ interface QuotaTransferAnimationProps {
 // Constants
 // ============================================================================
 
-const ANIMATION_DURATION = 1100
 const PARTICLE_COUNT = 24
+const BASE_ANIMATION_DURATION = 1000 // 基础时长 1 秒
+const MAX_ANIMATION_DURATION = 20000 // 最大时长 20 秒
+const DURATION_SCALE_FACTOR = 1000 // 额度缩放因子，用于对数计算
+const DURATION_LOG_SCALE = 2000 // 对数增长的时间缩放因子（毫秒）
 
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * 根据额度差值动态计算动画时长
+ * 使用对数增长，额度越多动画时间越长，最高封顶 20 秒
+ * @param delta - 额度差值（绝对值）
+ * @returns 动画时长（毫秒）
+ */
+function calculateAnimationDuration(delta: number): number {
+  const absDelta = Math.abs(delta)
+  // 使用对数函数平滑增长：base + scale * log(1 + delta / factor)
+  // 这样小额时长接近基础时长，大额时长逐渐增长但不会过快
+  const logFactor = Math.log1p(absDelta / DURATION_SCALE_FACTOR)
+  const calculatedDuration = BASE_ANIMATION_DURATION + logFactor * DURATION_LOG_SCALE
+  // 封顶到最大时长
+  return Math.min(calculatedDuration, MAX_ANIMATION_DURATION)
+}
 
 function colorVar(color: TransferColor): string {
   return color === 'primary' ? 'var(--primary)' : 'var(--accent)'
@@ -352,13 +371,16 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
 
     const fromRising = endFrom > startFrom
     const toRising = endTo > startTo
-    animateValueSpring(fromEl, startFrom, endFrom, ANIMATION_DURATION, props.formatFromValue, fromRising, cancelled)
-    animateValueSpring(toEl, startTo, endTo, ANIMATION_DURATION, props.formatToValue, toRising, cancelled)
-
-    flowPipe(pipe, isToGpt, createdElementsRef.current, cancelled)
-
+    // 根据额度差值动态计算动画时长
     const deltaFrom = endFrom - startFrom
     const deltaTo = endTo - startTo
+    const maxDelta = Math.max(Math.abs(deltaFrom), Math.abs(deltaTo))
+    const animationDuration = calculateAnimationDuration(maxDelta)
+    
+    animateValueSpring(fromEl, startFrom, endFrom, animationDuration, props.formatFromValue, fromRising, cancelled)
+    animateValueSpring(toEl, startTo, endTo, animationDuration, props.formatToValue, toRising, cancelled)
+
+    flowPipe(pipe, isToGpt, createdElementsRef.current, cancelled)
     if (fromDeltaRef.current && deltaFrom !== 0) {
       showDelta(fromDeltaRef.current, `${deltaFrom >= 0 ? '+' : ''}${props.formatFromValue(deltaFrom)}`, deltaFrom < 0)
     }
@@ -417,7 +439,7 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
       spawnRipples(targetCard, isToGpt, createdElementsRef.current, cancelled)
     }, 350)
 
-    const totalDuration = ANIMATION_DURATION + 400
+    const totalDuration = animationDuration + 400
     const cleanupTimer = setTimeout(() => {
       if (cancelled.current) return
       sourceCard.style.borderColor = ''
