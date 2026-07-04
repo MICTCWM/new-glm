@@ -4550,6 +4550,24 @@
     "I have read and understood": "I have read and understood",
     "Confirm Enable": "Confirm Enable",
     "Confirm Exit": "Confirm Exit",
-    "Are you sure you want to exit GPT mode?": "Are you sure you want to exit GPT mode?"
+    "Are you sure you want to exit GPT mode?": "Are you sure you want to exit GPT mode?",
+    "GPT Quota": "GPT Quota",
+    "Exclusive balance for GPT models": "Exclusive balance for GPT models",
+    "Recharge GPT Quota": "Recharge GPT Quota",
+    "Convert base balance to GPT-exclusive balance": "Convert base balance to GPT-exclusive balance",
+    "Subscription Recharge": "Subscription Recharge",
+    "Quota Recharge": "Quota Recharge",
+    "Coming soon": "Coming soon",
+    "Available Base Balance": "Available Base Balance",
+    "Recharge by GPT Amount": "Recharge by GPT Amount",
+    "GPT Amount": "GPT Amount",
+    "Recharge by Base Balance": "Recharge by Base Balance",
+    "Base Balance": "Base Balance",
+    "Will deduct base balance": "Will deduct base balance",
+    "Will gain GPT quota": "Will gain GPT quota",
+    "Insufficient base balance": "Insufficient base balance",
+    "Confirm Recharge": "Confirm Recharge",
+    "Recharge successful": "Recharge successful",
+    "Recharge failed": "Recharge failed"
   }
 }

@@ -38,6 +38,7 @@ import type {
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
+  GptQuotaTransferResponse,
 } from './types'
 
 // ============================================================================
@@ -245,5 +246,19 @@ export async function completeOrder(
   request: CompleteOrderRequest
 ): Promise<ApiResponse> {
   const res = await api.post('/api/user/topup/complete', request)
+  return res.data
+}
+
+/**
+ * Transfer base quota to GPT quota (recharge GPT-specific balance)
+ */
+export async function transferGptQuota(
+  baseQuota: number
+): Promise<GptQuotaTransferResponse> {
+  const res = await api.post(
+    '/api/user/transfer_gpt_quota',
+    { base_quota: baseQuota },
+    { skipBusinessError: true } as Record<string, unknown>
+  )
   return res.data
 }

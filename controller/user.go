@@ -351,6 +351,45 @@ func TransferAffQuota(c *gin.Context) {
 	common.ApiSuccessI18n(c, i18n.MsgUserTransferSuccess, nil)
 }
 
+// TransferToGptQuotaRequest 将基础余额转换为 GPT 专属额度的请求体
+type TransferToGptQuotaRequest struct {
+	BaseQuota int `json:"base_quota" binding:"required"`
+}
+
+// TransferToGptQuota 将用户基础余额转换为 GPT 专属额度
+// 请求体: { "base_quota": 500 }
+// 汇率: 500 基础余额 = 1.5 GPT 余额
+func TransferToGptQuota(c *gin.Context) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
+
+	id := c.GetInt("id")
+	req := TransferToGptQuotaRequest{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.BaseQuota <= 0 {
+		common.ApiError(c, errors.New("转换额度必须大于 0"))
+		return
+	}
+
+	gptQuota, err := model.TransferQuotaToGptQuota(id, req.BaseQuota)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"gpt_quota_gained": gptQuota,
+		},
+	})
+}
+
 func GetAffCode(c *gin.Context) {
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, true)
@@ -408,6 +447,7 @@ func GetSelf(c *gin.Context) {
 		"telegram_id":       user.TelegramId,
 		"group":             user.Group,
 		"quota":             user.Quota,
+		"gpt_quota":         user.GptQuota,
 		"used_quota":        user.UsedQuota,
 		"request_count":     user.RequestCount,
 		"aff_code":          user.AffCode,

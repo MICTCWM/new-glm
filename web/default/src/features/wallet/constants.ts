@@ -69,3 +69,15 @@ export const DEFAULT_DISCOUNT_RATE = 1.0
  * Default minimum topup amount
  */
 export const DEFAULT_MIN_TOPUP = 1
+
+/**
+ * GPT quota exchange rate: 500 base balance = 1.5 GPT balance
+ * base = gpt * (500 / 1.5)
+ */
+export const GPT_TO_BASE_RATIO = 500 / 1.5
+
+/**
+ * GPT quota exchange rate: 500 base balance = 1.5 GPT balance
+ * gpt = base * (1.5 / 500)
+ */
+export const BASE_TO_GPT_RATIO = 1.5 / 500

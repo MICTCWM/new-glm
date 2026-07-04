@@ -22,11 +22,14 @@ import { getSelf } from '@/lib/api'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { SectionPageLayout } from '@/components/layout'
+import { parseUserSettings } from '@/features/profile/lib/format'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
+import { GptRechargeDialog } from './components/dialogs/gpt-recharge-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
+import { GptQuotaCard } from './components/gpt-quota-card'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
@@ -73,6 +76,7 @@ export function Wallet(props: WalletProps) {
   const [selectedCreemProduct, setSelectedCreemProduct] =
     useState<CreemProduct | null>(null)
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
+  const [gptRechargeOpen, setGptRechargeOpen] = useState(false)
 
   const { status } = useStatus()
   const { currency } = useSystemConfig()
@@ -122,6 +126,12 @@ export function Wallet(props: WalletProps) {
   useEffect(() => {
     fetchUser()
   }, [fetchUser])
+
+  // Determine if GPT mode is enabled from user settings
+  const gptModeEnabled = useMemo(() => {
+    const settings = parseUserSettings(user?.setting)
+    return settings.gpt_mode === true
+  }, [user?.setting])
 
   useEffect(() => {
     if (props.initialShowHistory) {
@@ -268,6 +278,13 @@ export function Wallet(props: WalletProps) {
           <div className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
             <WalletStatsCard user={user} loading={userLoading} />
 
+            {gptModeEnabled && (
+              <GptQuotaCard
+                user={user}
+                onRecharge={() => setGptRechargeOpen(true)}
+              />
+            )}
+
             <div
               className={
                 showSubscriptionPanel
@@ -360,6 +377,13 @@ export function Wallet(props: WalletProps) {
         onConfirm={handleCreemConfirm}
         product={selectedCreemProduct}
         processing={creemProcessing}
+      />
+
+      <GptRechargeDialog
+        open={gptRechargeOpen}
+        onOpenChange={setGptRechargeOpen}
+        onSuccess={fetchUser}
+        availableBaseQuota={user?.quota ?? 0}
       />
     </>
   )

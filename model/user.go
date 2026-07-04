@@ -38,6 +38,7 @@ type User struct {
 	VerificationCode string         `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
 	AccessToken      *string        `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int            `json:"quota" gorm:"type:int;default:0"`
+	GptQuota         float64        `json:"gpt_quota" gorm:"type:decimal(20,4);default:0"` // GPT 专属额度（用户开启 GPT 模式后将基础余额转换得到）
 	UsedQuota        int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount     int            `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string         `json:"group" gorm:"type:varchar(64);default:'default'"`
@@ -951,6 +952,79 @@ func DeltaUpdateUserQuota(id int, delta int) (err error) {
 	} else {
 		return DecreaseUserQuota(id, -delta, false)
 	}
+}
+
+// GetUserGptQuota 从数据库读取用户的 GPT 专属额度
+// GPT 额度充值是低频操作，暂不引入 Redis 缓存，直接操作 DB
+func GetUserGptQuota(id int, fromDB bool) (gptQuota float64, err error) {
+	err = DB.Model(&User{}).Where("id = ?", id).Select("gpt_quota").Find(&gptQuota).Error
+	if err != nil {
+		return 0, err
+	}
+	return gptQuota, nil
+}
+
+// IncreaseUserGptQuota 增加用户的 GPT 专属额度
+func IncreaseUserGptQuota(id int, quota float64) error {
+	if quota < 0 {
+		return errors.New("gpt_quota 不能为负数！")
+	}
+	return DB.Model(&User{}).Where("id = ?", id).Update("gpt_quota", gorm.Expr("gpt_quota + ?", quota)).Error
+}
+
+// DecreaseUserGptQuota 扣减用户的 GPT 专属额度
+func DecreaseUserGptQuota(id int, quota float64) error {
+	if quota < 0 {
+		return errors.New("gpt_quota 不能为负数！")
+	}
+	return DB.Model(&User{}).Where("id = ?", id).Update("gpt_quota", gorm.Expr("gpt_quota - ?", quota)).Error
+}
+
+// TransferQuotaToGptQuota 将基础余额转换为 GPT 专属额度
+// 汇率：500 基础余额 = 1.5 GPT 余额（转换系数 common.GptQuotaExchangeRate）
+// 事务内 FOR UPDATE 锁定用户行，保证扣减与增加的原子性
+func TransferQuotaToGptQuota(userId int, baseQuota int) (float64, error) {
+	if baseQuota <= 0 {
+		return 0, errors.New("转换额度必须大于 0！")
+	}
+
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	defer tx.Rollback() // 确保在函数退出时事务能回滚
+
+	// 加锁查询用户以确保数据一致性
+	user := &User{}
+	err := tx.Set("gorm:query_option", "FOR UPDATE").First(user, userId).Error
+	if err != nil {
+		return 0, err
+	}
+
+	// 检查用户的基础余额是否充足
+	if user.Quota < baseQuota {
+		return 0, errors.New("基础余额不足！")
+	}
+
+	// 计算可获得的 GPT 额度
+	gptQuota := float64(baseQuota) * common.GptQuotaExchangeRate
+
+	// 更新用户额度
+	user.Quota -= baseQuota
+	user.GptQuota += gptQuota
+
+	if err := tx.Save(user).Error; err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return 0, err
+	}
+
+	// 记录转换日志
+	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %d 基础额度为 %.4f GPT 额度", baseQuota, gptQuota))
+
+	return gptQuota, nil
 }
 
 //func GetRootUserEmail() (email string) {

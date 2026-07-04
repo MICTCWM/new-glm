@@ -294,3 +294,6 @@ const (
 
 // RPM Queue configuration
 var RpmQueueTimeout = 60 * time.Second // 排队等待超时时间
+
+// GPT 额度转换汇率：500 基础余额 = 1.5 GPT 余额
+const GptQuotaExchangeRate = 1.5 / 500.0 // 基础余额 -> GPT 余额的转换系数

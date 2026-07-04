@@ -4556,6 +4556,24 @@
     "I have read and understood": "已阅读并知晓",
     "Confirm Enable": "确认开启",
     "Confirm Exit": "确认退出",
-    "Are you sure you want to exit GPT mode?": "确定要退出 GPT 模式吗？"
+    "Are you sure you want to exit GPT mode?": "确定要退出 GPT 模式吗？",
+    "GPT Quota": "GPT 专属额度",
+    "Exclusive balance for GPT models": "GPT 模型专属余额",
+    "Recharge GPT Quota": "GPT 额度充值",
+    "Convert base balance to GPT-exclusive balance": "将基础余额转换为 GPT 专属余额",
+    "Subscription Recharge": "订阅充值",
+    "Quota Recharge": "额度充值",
+    "Coming soon": "即将推出",
+    "Available Base Balance": "可用基础余额",
+    "Recharge by GPT Amount": "按 GPT 金额充值",
+    "GPT Amount": "GPT 金额",
+    "Recharge by Base Balance": "按基础余额充值",
+    "Base Balance": "基础余额",
+    "Will deduct base balance": "将扣除基础余额",
+    "Will gain GPT quota": "将获得 GPT 额度",
+    "Insufficient base balance": "基础余额不足",
+    "Confirm Recharge": "确认充值",
+    "Recharge successful": "充值成功",
+    "Recharge failed": "充值失败"
   }
 }

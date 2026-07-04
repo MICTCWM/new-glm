@@ -238,7 +238,24 @@ export interface UserWalletData {
   aff_count: number
   /** User group */
   group: string
+  /** GPT-specific quota balance */
+  gpt_quota?: number
+  /** User settings (JSON string) */
+  setting?: string
 }
+
+/**
+ * GPT quota transfer response data
+ */
+export interface GptQuotaTransferData {
+  /** GPT quota gained from the transfer */
+  gpt_quota_gained: number
+}
+
+/**
+ * GPT quota transfer response
+ */
+export type GptQuotaTransferResponse = ApiResponse<GptQuotaTransferData>
 
 /**
  * Topup record status
