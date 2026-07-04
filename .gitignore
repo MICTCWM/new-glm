@@ -11,6 +11,7 @@
 .windsurf/
 .aider/
 .kilo/
+.devin/
 *.swp
 *.swo
 *~
