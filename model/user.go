@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -1025,6 +1026,53 @@ func TransferQuotaToGptQuota(userId int, baseQuota int) (float64, error) {
 	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %d 基础额度为 %.4f GPT 额度", baseQuota, gptQuota))
 
 	return gptQuota, nil
+}
+
+// TransferGptQuotaToQuota 将 GPT 专属额度转换回基础余额
+// 汇率：1.5 GPT 余额 = 250000000 内部额度 = 500 美金（反向使用 1/common.GptQuotaExchangeRate）
+// 事务内 FOR UPDATE 锁定用户行，保证扣减与增加的原子性
+func TransferGptQuotaToQuota(userId int, gptQuota float64) (int, error) {
+	if gptQuota <= 0 {
+		return 0, errors.New("转换额度必须大于 0！")
+	}
+
+	tx := DB.Begin()
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	defer tx.Rollback()
+
+	user := &User{}
+	err := tx.Set("gorm:query_option", "FOR UPDATE").First(user, userId).Error
+	if err != nil {
+		return 0, err
+	}
+
+	// 检查用户的 GPT 额度是否充足
+	if user.GptQuota < gptQuota {
+		return 0, errors.New("GPT 额度不足！")
+	}
+
+	// 反向计算可获得的内部额度（四舍五入取整）
+	baseQuota := int(math.Round(gptQuota / common.GptQuotaExchangeRate))
+	if baseQuota <= 0 {
+		return 0, errors.New("转换金额过小，无法转换为有效基础额度！")
+	}
+
+	user.GptQuota -= gptQuota
+	user.Quota += baseQuota
+
+	if err := tx.Save(user).Error; err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return 0, err
+	}
+
+	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %.4f GPT 额度为 %d 基础额度", gptQuota, baseQuota))
+
+	return baseQuota, nil
 }
 
 //func GetRootUserEmail() (email string) {

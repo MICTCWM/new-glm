@@ -4575,6 +4575,10 @@
     "Insufficient base balance": "基础余额不足",
     "Confirm Recharge": "确认充值",
     "Recharge successful": "充值成功",
-    "Recharge failed": "充值失败"
+    "Recharge failed": "充值失败",
+    "Base → GPT": "基础转 GPT",
+    "GPT → Base": "GPT 转基础",
+    "Transferring...": "转移中...",
+    "Insufficient GPT quota": "GPT 额度不足"
   }
 }

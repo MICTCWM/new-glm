@@ -16,11 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import i18next from 'i18next'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { getSelf } from '@/lib/api'
+import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { SectionPageLayout } from '@/components/layout'
 import { parseUserSettings } from '@/features/profile/lib/format'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
@@ -30,9 +35,12 @@ import { GptRechargeDialog } from './components/dialogs/gpt-recharge-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { GptQuotaCard } from './components/gpt-quota-card'
+import { QuotaTransferAnimation } from './components/quota-transfer-animation'
+import type { TransferDirection } from './components/quota-transfer-animation'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
+import { transferGptQuota, transferGptQuotaBack } from './api'
 import { DEFAULT_DISCOUNT_RATE } from './constants'
 import {
   useTopupInfo,
@@ -54,6 +62,10 @@ import type {
   PresetAmount,
   CreemProduct,
 } from './types'
+
+function formatGptQuota(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+}
 
 interface WalletProps {
   initialShowHistory?: boolean
@@ -77,6 +89,14 @@ export function Wallet(props: WalletProps) {
     useState<CreemProduct | null>(null)
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
   const [gptRechargeOpen, setGptRechargeOpen] = useState(false)
+  const [isTransferring, setIsTransferring] = useState(false)
+  const [transferLoading, setTransferLoading] = useState(false)
+  const [transferDirection, setTransferDirection] =
+    useState<TransferDirection>('toGpt')
+  const [transferAmount, setTransferAmount] = useState('')
+
+  const baseCardRef = useRef<HTMLDivElement>(null)
+  const gptCardRef = useRef<HTMLDivElement>(null)
 
   const { status } = useStatus()
   const { currency } = useSystemConfig()
@@ -267,6 +287,76 @@ export function Wallet(props: WalletProps) {
     []
   )
 
+  // Transfer base quota to GPT quota (uses USD input → internal quota)
+  const handleTransferToGpt = async () => {
+    const amountUsd = Number(transferAmount)
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) return
+
+    const baseQuota = parseQuotaFromDollars(amountUsd)
+    const availableQuota = user?.quota ?? 0
+    if (baseQuota > availableQuota) {
+      toast.error(i18next.t('Insufficient base balance'))
+      return
+    }
+
+    try {
+      setTransferLoading(true)
+      setTransferDirection('toGpt')
+      const response = await transferGptQuota(Math.round(baseQuota))
+      if (!response.success) {
+        toast.error(response.message || i18next.t('Transfer failed'))
+        return
+      }
+      await fetchUser()
+      toast.success(i18next.t('Transfer successful'))
+      setTransferAmount('')
+      setIsTransferring(true)
+      setTimeout(() => setIsTransferring(false), 1600)
+    } catch (_error) {
+      toast.error(i18next.t('Transfer failed'))
+    } finally {
+      setTransferLoading(false)
+    }
+  }
+
+  // Transfer GPT quota back to base quota (uses GPT quota input directly)
+  const handleTransferToBase = async () => {
+    const gptQuotaAmount = Number(transferAmount)
+    if (!Number.isFinite(gptQuotaAmount) || gptQuotaAmount <= 0) return
+
+    const availableGpt = user?.gpt_quota ?? 0
+    if (gptQuotaAmount > availableGpt) {
+      toast.error(i18next.t('Insufficient GPT quota'))
+      return
+    }
+
+    try {
+      setTransferLoading(true)
+      setTransferDirection('toBase')
+      const response = await transferGptQuotaBack(gptQuotaAmount)
+      if (!response.success) {
+        toast.error(response.message || i18next.t('Transfer failed'))
+        return
+      }
+      await fetchUser()
+      toast.success(i18next.t('Transfer successful'))
+      setTransferAmount('')
+      setIsTransferring(true)
+      setTimeout(() => setIsTransferring(false), 1600)
+    } catch (_error) {
+      toast.error(i18next.t('Transfer failed'))
+    } finally {
+      setTransferLoading(false)
+    }
+  }
+
+  const transferBusy = transferLoading || isTransferring
+  const transferAmountNum = Number(transferAmount)
+  const canTransfer =
+    !transferBusy &&
+    Number.isFinite(transferAmountNum) &&
+    transferAmountNum > 0
+
   return (
     <>
       <SectionPageLayout>
@@ -276,13 +366,67 @@ export function Wallet(props: WalletProps) {
         </SectionPageLayout.Description>
         <SectionPageLayout.Content>
           <div className='mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5'>
-            <WalletStatsCard user={user} loading={userLoading} />
+            <WalletStatsCard ref={baseCardRef} user={user} loading={userLoading} />
 
             {gptModeEnabled && (
-              <GptQuotaCard
-                user={user}
-                onRecharge={() => setGptRechargeOpen(true)}
-              />
+              <>
+                <QuotaTransferAnimation
+                  fromValue={user?.quota ?? 0}
+                  toValue={user?.gpt_quota ?? 0}
+                  fromLabel={t('Base Balance')}
+                  toLabel={t('GPT Quota')}
+                  fromColor='primary'
+                  toColor='accent'
+                  isTransferring={isTransferring}
+                  transferDirection={transferDirection}
+                  fromRef={baseCardRef}
+                  toRef={gptCardRef}
+                  formatFromValue={formatQuota}
+                  formatToValue={formatGptQuota}
+                />
+
+                <div className='flex flex-col gap-2 rounded-lg border bg-muted/10 p-2 sm:flex-row sm:items-center sm:gap-2 sm:p-3'>
+                  <Input
+                    type='number'
+                    min={0}
+                    step={0.01}
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    placeholder={t('Amount')}
+                    disabled={transferBusy}
+                    className='font-mono sm:flex-1'
+                  />
+                  <div className='flex gap-2'>
+                    <Button
+                      onClick={handleTransferToGpt}
+                      disabled={!canTransfer}
+                      size='sm'
+                      className='flex-1 sm:flex-none'
+                    >
+                      {transferBusy && transferDirection === 'toGpt'
+                        ? t('Transferring...')
+                        : t('Base → GPT')}
+                    </Button>
+                    <Button
+                      onClick={handleTransferToBase}
+                      disabled={!canTransfer}
+                      size='sm'
+                      variant='secondary'
+                      className='flex-1 sm:flex-none'
+                    >
+                      {transferBusy && transferDirection === 'toBase'
+                        ? t('Transferring...')
+                        : t('GPT → Base')}
+                    </Button>
+                  </div>
+                </div>
+
+                <GptQuotaCard
+                  ref={gptCardRef}
+                  user={user}
+                  onRecharge={() => setGptRechargeOpen(true)}
+                />
+              </>
             )}
 
             <div

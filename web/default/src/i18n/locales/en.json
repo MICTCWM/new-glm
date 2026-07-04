@@ -4569,6 +4569,10 @@
     "Insufficient base balance": "Insufficient base balance",
     "Confirm Recharge": "Confirm Recharge",
     "Recharge successful": "Recharge successful",
-    "Recharge failed": "Recharge failed"
+    "Recharge failed": "Recharge failed",
+    "Base → GPT": "Base → GPT",
+    "GPT → Base": "GPT → Base",
+    "Transferring...": "Transferring...",
+    "Insufficient GPT quota": "Insufficient GPT quota"
   }
 }

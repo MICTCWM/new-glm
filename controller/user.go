@@ -390,6 +390,45 @@ func TransferToGptQuota(c *gin.Context) {
 	})
 }
 
+// TransferGptQuotaToQuotaRequest 将 GPT 专属额度转换回基础余额的请求体
+type TransferGptQuotaToQuotaRequest struct {
+	GptQuota float64 `json:"gpt_quota" binding:"required"`
+}
+
+// TransferGptQuotaToQuota 将用户 GPT 专属额度转换回基础余额
+// 请求体: { "gpt_quota": 1.5 }
+// 汇率: 1.5 GPT 余额 = 500 美金（250000000 内部额度）
+func TransferGptQuotaToQuota(c *gin.Context) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
+
+	id := c.GetInt("id")
+	req := TransferGptQuotaToQuotaRequest{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.GptQuota <= 0 {
+		common.ApiError(c, errors.New("转换额度必须大于 0"))
+		return
+	}
+
+	baseQuota, err := model.TransferGptQuotaToQuota(id, req.GptQuota)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"base_quota_gained": baseQuota,
+		},
+	})
+}
+
 func GetAffCode(c *gin.Context) {
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, true)

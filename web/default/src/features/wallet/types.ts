@@ -258,6 +258,19 @@ export interface GptQuotaTransferData {
 export type GptQuotaTransferResponse = ApiResponse<GptQuotaTransferData>
 
 /**
+ * GPT quota reverse transfer (back to base) response data
+ */
+export interface GptQuotaTransferBackData {
+  /** Base quota gained from the reverse transfer */
+  base_quota_gained: number
+}
+
+/**
+ * GPT quota reverse transfer response
+ */
+export type GptQuotaTransferBackResponse = ApiResponse<GptQuotaTransferBackData>
+
+/**
  * Topup record status
  */
 export type TopupStatus = 'success' | 'pending' | 'expired'
