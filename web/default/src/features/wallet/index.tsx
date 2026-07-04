@@ -17,15 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import i18next from 'i18next'
+import { ArrowLeftRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 import { getSelf } from '@/lib/api'
-import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+import { formatQuota } from '@/lib/format'
 import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { SectionPageLayout } from '@/components/layout'
 import { parseUserSettings } from '@/features/profile/lib/format'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
@@ -34,13 +32,15 @@ import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { GptRechargeDialog } from './components/dialogs/gpt-recharge-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
+import { TransferModeDialog } from './components/dialogs/transfer-mode-dialog'
 import { GptQuotaCard } from './components/gpt-quota-card'
-import { QuotaTransferAnimation } from './components/quota-transfer-animation'
-import type { TransferDirection } from './components/quota-transfer-animation'
+import {
+  QuotaTransferAnimation,
+  type TransferDirection,
+} from './components/quota-transfer-animation'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
-import { transferGptQuota, transferGptQuotaBack } from './api'
 import { DEFAULT_DISCOUNT_RATE } from './constants'
 import {
   useTopupInfo,
@@ -89,11 +89,13 @@ export function Wallet(props: WalletProps) {
     useState<CreemProduct | null>(null)
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
   const [gptRechargeOpen, setGptRechargeOpen] = useState(false)
+  const [transferModeOpen, setTransferModeOpen] = useState(false)
   const [isTransferring, setIsTransferring] = useState(false)
-  const [transferLoading, setTransferLoading] = useState(false)
   const [transferDirection, setTransferDirection] =
     useState<TransferDirection>('toGpt')
-  const [transferAmount, setTransferAmount] = useState('')
+  // 记录转换前的值，用作 QuotaTransferAnimation 的动画起点
+  const [preTransferQuota, setPreTransferQuota] = useState(0)
+  const [preTransferGptQuota, setPreTransferGptQuota] = useState(0)
 
   const baseCardRef = useRef<HTMLDivElement>(null)
   const gptCardRef = useRef<HTMLDivElement>(null)
@@ -287,76 +289,6 @@ export function Wallet(props: WalletProps) {
     []
   )
 
-  // Transfer base quota to GPT quota (uses USD input → internal quota)
-  const handleTransferToGpt = async () => {
-    const amountUsd = Number(transferAmount)
-    if (!Number.isFinite(amountUsd) || amountUsd <= 0) return
-
-    const baseQuota = parseQuotaFromDollars(amountUsd)
-    const availableQuota = user?.quota ?? 0
-    if (baseQuota > availableQuota) {
-      toast.error(i18next.t('Insufficient base balance'))
-      return
-    }
-
-    try {
-      setTransferLoading(true)
-      setTransferDirection('toGpt')
-      const response = await transferGptQuota(Math.round(baseQuota))
-      if (!response.success) {
-        toast.error(response.message || i18next.t('Transfer failed'))
-        return
-      }
-      await fetchUser()
-      toast.success(i18next.t('Transfer successful'))
-      setTransferAmount('')
-      setIsTransferring(true)
-      setTimeout(() => setIsTransferring(false), 1600)
-    } catch (_error) {
-      toast.error(i18next.t('Transfer failed'))
-    } finally {
-      setTransferLoading(false)
-    }
-  }
-
-  // Transfer GPT quota back to base quota (uses GPT quota input directly)
-  const handleTransferToBase = async () => {
-    const gptQuotaAmount = Number(transferAmount)
-    if (!Number.isFinite(gptQuotaAmount) || gptQuotaAmount <= 0) return
-
-    const availableGpt = user?.gpt_quota ?? 0
-    if (gptQuotaAmount > availableGpt) {
-      toast.error(i18next.t('Insufficient GPT quota'))
-      return
-    }
-
-    try {
-      setTransferLoading(true)
-      setTransferDirection('toBase')
-      const response = await transferGptQuotaBack(gptQuotaAmount)
-      if (!response.success) {
-        toast.error(response.message || i18next.t('Transfer failed'))
-        return
-      }
-      await fetchUser()
-      toast.success(i18next.t('Transfer successful'))
-      setTransferAmount('')
-      setIsTransferring(true)
-      setTimeout(() => setIsTransferring(false), 1600)
-    } catch (_error) {
-      toast.error(i18next.t('Transfer failed'))
-    } finally {
-      setTransferLoading(false)
-    }
-  }
-
-  const transferBusy = transferLoading || isTransferring
-  const transferAmountNum = Number(transferAmount)
-  const canTransfer =
-    !transferBusy &&
-    Number.isFinite(transferAmountNum) &&
-    transferAmountNum > 0
-
   return (
     <>
       <SectionPageLayout>
@@ -383,48 +315,27 @@ export function Wallet(props: WalletProps) {
                   toRef={gptCardRef}
                   formatFromValue={formatQuota}
                   formatToValue={formatGptQuota}
+                  startFrom={preTransferQuota}
+                  startTo={preTransferGptQuota}
                 />
 
-                <div className='flex flex-col gap-2 rounded-lg border bg-muted/10 p-2 sm:flex-row sm:items-center sm:gap-2 sm:p-3'>
-                  <Input
-                    type='number'
-                    min={0}
-                    step={0.01}
-                    value={transferAmount}
-                    onChange={(e) => setTransferAmount(e.target.value)}
-                    placeholder={t('Amount')}
-                    disabled={transferBusy}
-                    className='font-mono sm:flex-1'
-                  />
-                  <div className='flex gap-2'>
-                    <Button
-                      onClick={handleTransferToGpt}
-                      disabled={!canTransfer}
-                      size='sm'
-                      className='flex-1 sm:flex-none'
-                    >
-                      {transferBusy && transferDirection === 'toGpt'
-                        ? t('Transferring...')
-                        : t('Base → GPT')}
-                    </Button>
-                    <Button
-                      onClick={handleTransferToBase}
-                      disabled={!canTransfer}
-                      size='sm'
-                      variant='secondary'
-                      className='flex-1 sm:flex-none'
-                    >
-                      {transferBusy && transferDirection === 'toBase'
-                        ? t('Transferring...')
-                        : t('GPT → Base')}
-                    </Button>
-                  </div>
-                </div>
+                <Button
+                  onClick={() => setTransferModeOpen(true)}
+                  size='lg'
+                  className='w-full'
+                  disabled={isTransferring}
+                >
+                  <ArrowLeftRight className='mr-2 size-4' />
+                  {t('Transfer')}
+                </Button>
 
                 <GptQuotaCard
                   ref={gptCardRef}
                   user={user}
-                  onRecharge={() => setGptRechargeOpen(true)}
+                  onRecharge={() => {
+                    setTransferDirection('toGpt')
+                    setGptRechargeOpen(true)
+                  }}
                 />
               </>
             )}
@@ -523,11 +434,32 @@ export function Wallet(props: WalletProps) {
         processing={creemProcessing}
       />
 
+      <TransferModeDialog
+        open={transferModeOpen}
+        onOpenChange={setTransferModeOpen}
+        onSelect={(direction) => {
+          setTransferModeOpen(false)
+          setTransferDirection(direction)
+          setGptRechargeOpen(true)
+        }}
+      />
+
       <GptRechargeDialog
         open={gptRechargeOpen}
         onOpenChange={setGptRechargeOpen}
-        onSuccess={fetchUser}
+        onSuccess={async () => {
+          // 先记录转换前的值作为动画起点
+          setPreTransferQuota(user?.quota ?? 0)
+          setPreTransferGptQuota(user?.gpt_quota ?? 0)
+          // 先刷新用户数据，拿到转换后的新值作为动画终点
+          await fetchUser()
+          // 此时 props.fromValue/toValue 已是新值，触发动画
+          setIsTransferring(true)
+          setTimeout(() => setIsTransferring(false), 1600)
+        }}
         availableBaseQuota={user?.quota ?? 0}
+        availableGptQuota={user?.gpt_quota ?? 0}
+        direction={transferDirection}
       />
     </>
   )

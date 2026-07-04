@@ -4573,6 +4573,13 @@
     "Base → GPT": "Base → GPT",
     "GPT → Base": "GPT → Base",
     "Transferring...": "Transferring...",
-    "Insufficient GPT quota": "Insufficient GPT quota"
+    "Insufficient GPT quota": "Insufficient GPT quota",
+    "Transfer Direction": "Transfer Direction",
+    "Choose a transfer direction": "Choose a transfer direction",
+    "Convert GPT-exclusive balance to base balance": "Convert GPT-exclusive balance to base balance",
+    "Convert GPT to Base": "Convert GPT to Base",
+    "Available GPT Balance": "Available GPT Balance",
+    "Will deduct GPT quota": "Will deduct GPT quota",
+    "Will gain base balance": "Will gain base balance"
   }
 }

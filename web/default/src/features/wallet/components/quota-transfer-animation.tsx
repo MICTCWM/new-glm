@@ -50,6 +50,10 @@ interface QuotaTransferAnimationProps {
   formatFromValue: (value: number) => string
   /** Formatter for the target value display */
   formatToValue: (value: number) => string
+  /** 转换前的源值（用作动画起点，不传则用 fromValue） */
+  startFrom?: number
+  /** 转换前的目标值（用作动画起点，不传则用 toValue） */
+  startTo?: number
 }
 
 // ============================================================================
@@ -295,8 +299,8 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
   const toGlowRef = useRef<HTMLDivElement>(null)
 
   // Track the last values seen while idle (used as animation start points)
-  const lastIdleFromRef = useRef(props.fromValue)
-  const lastIdleToRef = useRef(props.toValue)
+  const lastIdleFromRef = useRef(props.startFrom ?? props.fromValue)
+  const lastIdleToRef = useRef(props.startTo ?? props.toValue)
   const wasTransferringRef = useRef(false)
 
   // Track created DOM elements for cleanup
@@ -328,8 +332,13 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
     cancelled.current = false
 
     const isToGpt = props.transferDirection === 'toGpt'
-    const startFrom = lastIdleFromRef.current
-    const startTo = lastIdleToRef.current
+    // 优先使用外部传入的 startFrom/startTo 作为动画起点（转换前的值）
+    // 否则回退到 idle 期间记录的最后一个值
+    const startFrom = props.startFrom ?? lastIdleFromRef.current
+    const startTo = props.startTo ?? lastIdleToRef.current
+    // 同步内部 ref，避免后续逻辑混乱
+    if (props.startFrom !== undefined) lastIdleFromRef.current = props.startFrom
+    if (props.startTo !== undefined) lastIdleToRef.current = props.startTo
     const endFrom = props.fromValue
     const endTo = props.toValue
 

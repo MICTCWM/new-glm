@@ -39,18 +39,20 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs'
-import { transferGptQuota } from '../../api'
+import { transferGptQuota, transferGptQuotaBack } from '../../api'
 import {
   BASE_TO_GPT_RATIO,
   GPT_TO_BASE_RATIO,
 } from '../../constants'
-import { formatQuota, parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
+import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
 
 interface GptRechargeDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess: () => void | Promise<void>
   availableBaseQuota: number
+  availableGptQuota: number
+  direction: 'toGpt' | 'toBase'
 }
 
 type RechargeMode = 'gpt' | 'base'
@@ -64,6 +66,8 @@ export function GptRechargeDialog({
   onOpenChange,
   onSuccess,
   availableBaseQuota,
+  availableGptQuota,
+  direction,
 }: GptRechargeDialogProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<RechargeMode>('gpt')
@@ -71,10 +75,11 @@ export function GptRechargeDialog({
   const [baseInput, setBaseInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  const isToGpt = direction === 'toGpt'
+
   // Reset state when dialog opens
   useEffect(() => {
     if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMode('gpt')
       setGptInput('')
       setBaseInput('')
@@ -86,22 +91,37 @@ export function GptRechargeDialog({
   const baseAmountUsd = Number(baseInput) || 0 // 用户输入的美金金额
   const baseAmountInput = parseQuotaFromDollars(baseAmountUsd) // 转成内部额度
 
-  // 计算转换后的内部额度和 GPT 额度
+  // 计算换算后的内部额度与 GPT 额度（两个方向的换算公式一致，区别在于扣除/获得的语义）：
+  // gpt 模式 → 输入 GPT 数量：base = gpt * GPT_TO_BASE_RATIO，gpt = gptAmount
+  // base 模式 → 输入 USD：base = baseAmountInput，gpt = baseAmountInput * BASE_TO_GPT_RATIO
+  // toGpt:  effectiveBaseQuota 为要扣除的基础余额，effectiveGptQuota 为获得的 GPT 额度
+  // toBase: effectiveGptQuota 为要扣除的 GPT 额度，effectiveBaseQuota 为获得的基础余额
   const effectiveBaseQuota =
     mode === 'gpt' ? gptAmount * GPT_TO_BASE_RATIO : baseAmountInput
   const effectiveGptQuota =
     mode === 'gpt' ? gptAmount : baseAmountInput * BASE_TO_GPT_RATIO
 
-  const insufficientBalance = effectiveBaseQuota > availableBaseQuota
-  const invalidAmount = effectiveBaseQuota <= 0
+  // 余额不足判断：toGpt 检查 base 余额；toBase 检查 GPT 余额
+  const insufficientBalance = isToGpt
+    ? effectiveBaseQuota > availableBaseQuota
+    : effectiveGptQuota > availableGptQuota
+  const invalidAmount = isToGpt
+    ? effectiveBaseQuota <= 0
+    : effectiveGptQuota <= 0
   const canSubmit =
-    !invalidAmount && !insufficientBalance && !submitting && Number.isFinite(effectiveBaseQuota)
+    !invalidAmount &&
+    !insufficientBalance &&
+    !submitting &&
+    Number.isFinite(effectiveBaseQuota) &&
+    Number.isFinite(effectiveGptQuota)
 
   const handleSubmit = async () => {
     if (!canSubmit) return
     try {
       setSubmitting(true)
-      const response = await transferGptQuota(Math.round(effectiveBaseQuota))
+      const response = isToGpt
+        ? await transferGptQuota(Math.round(effectiveBaseQuota))
+        : await transferGptQuotaBack(effectiveGptQuota)
       if (response.success) {
         toast.success(response.message || i18next.t('Recharge successful'))
         onOpenChange(false)
@@ -116,15 +136,22 @@ export function GptRechargeDialog({
     }
   }
 
+  const title = isToGpt
+    ? t('Recharge GPT Quota')
+    : t('Convert GPT to Base')
+  const description = isToGpt
+    ? t('Convert base balance to GPT-exclusive balance')
+    : t('Convert GPT-exclusive balance to base balance')
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='max-sm:w-[calc(100vw-1.5rem)] sm:max-w-md'>
         <DialogHeader>
           <DialogTitle className='text-xl font-semibold'>
-            {t('Recharge GPT Quota')}
+            {title}
           </DialogTitle>
           <DialogDescription>
-            {t('Convert base balance to GPT-exclusive balance')}
+            {description}
           </DialogDescription>
         </DialogHeader>
 
@@ -147,10 +174,14 @@ export function GptRechargeDialog({
             <div className='space-y-4'>
               <div className='bg-muted/40 flex items-center justify-between rounded-lg px-3 py-2'>
                 <span className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
-                  {t('Available Base Balance')}
+                  {isToGpt
+                    ? t('Available Base Balance')
+                    : t('Available GPT Balance')}
                 </span>
                 <span className='font-mono text-sm font-semibold tabular-nums'>
-                  {formatQuota(availableBaseQuota)}
+                  {isToGpt
+                    ? formatQuota(availableBaseQuota)
+                    : formatGptQuota(availableGptQuota)}
                 </span>
               </div>
 
@@ -213,30 +244,62 @@ export function GptRechargeDialog({
               </RadioGroup>
 
               <div className='space-y-2 rounded-lg border p-3'>
-                <div className='flex items-center justify-between text-sm'>
-                  <span className='text-muted-foreground'>
-                    {t('Will deduct base balance')}
-                  </span>
-                  <span
-                    className={`font-mono font-semibold tabular-nums ${
-                      insufficientBalance ? 'text-destructive' : ''
-                    }`}
-                  >
-                    {formatQuota(effectiveBaseQuota)}
-                  </span>
-                </div>
-                <div className='flex items-center justify-between text-sm'>
-                  <span className='text-muted-foreground'>
-                    {t('Will gain GPT quota')}
-                  </span>
-                  <span className='font-mono font-semibold text-green-600 tabular-nums'>
-                    {formatGptQuota(effectiveGptQuota)}
-                  </span>
-                </div>
-                {insufficientBalance && !invalidAmount && (
-                  <p className='text-destructive text-xs font-medium'>
-                    {t('Insufficient base balance')}
-                  </p>
+                {isToGpt ? (
+                  <>
+                    <div className='flex items-center justify-between text-sm'>
+                      <span className='text-muted-foreground'>
+                        {t('Will deduct base balance')}
+                      </span>
+                      <span
+                        className={`font-mono font-semibold tabular-nums ${
+                          insufficientBalance ? 'text-destructive' : ''
+                        }`}
+                      >
+                        {formatQuota(effectiveBaseQuota)}
+                      </span>
+                    </div>
+                    <div className='flex items-center justify-between text-sm'>
+                      <span className='text-muted-foreground'>
+                        {t('Will gain GPT quota')}
+                      </span>
+                      <span className='font-mono font-semibold text-green-600 tabular-nums'>
+                        {formatGptQuota(effectiveGptQuota)}
+                      </span>
+                    </div>
+                    {insufficientBalance && !invalidAmount && (
+                      <p className='text-destructive text-xs font-medium'>
+                        {t('Insufficient base balance')}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className='flex items-center justify-between text-sm'>
+                      <span className='text-muted-foreground'>
+                        {t('Will deduct GPT quota')}
+                      </span>
+                      <span
+                        className={`font-mono font-semibold tabular-nums ${
+                          insufficientBalance ? 'text-destructive' : ''
+                        }`}
+                      >
+                        {formatGptQuota(effectiveGptQuota)}
+                      </span>
+                    </div>
+                    <div className='flex items-center justify-between text-sm'>
+                      <span className='text-muted-foreground'>
+                        {t('Will gain base balance')}
+                      </span>
+                      <span className='font-mono font-semibold text-green-600 tabular-nums'>
+                        {formatQuota(effectiveBaseQuota)}
+                      </span>
+                    </div>
+                    {insufficientBalance && !invalidAmount && (
+                      <p className='text-destructive text-xs font-medium'>
+                        {t('Insufficient GPT quota')}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </div>

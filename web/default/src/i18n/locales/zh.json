@@ -4579,6 +4579,13 @@
     "Base → GPT": "基础转 GPT",
     "GPT → Base": "GPT 转基础",
     "Transferring...": "转移中...",
-    "Insufficient GPT quota": "GPT 额度不足"
+    "Insufficient GPT quota": "GPT 额度不足",
+    "Transfer Direction": "转换方向",
+    "Choose a transfer direction": "选择转换方向",
+    "Convert GPT-exclusive balance to base balance": "将 GPT 专属余额转换为基础余额",
+    "Convert GPT to Base": "GPT 转基础额度",
+    "Available GPT Balance": "可用 GPT 余额",
+    "Will deduct GPT quota": "将扣除 GPT 额度",
+    "Will gain base balance": "将获得基础余额"
   }
 }
