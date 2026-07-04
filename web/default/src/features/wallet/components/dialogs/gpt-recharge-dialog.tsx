@@ -101,7 +101,7 @@ export function GptRechargeDialog({
     if (!canSubmit) return
     try {
       setSubmitting(true)
-      const response = await transferGptQuota(effectiveBaseQuota)
+      const response = await transferGptQuota(Math.round(effectiveBaseQuota))
       if (response.success) {
         toast.success(response.message || i18next.t('Recharge successful'))
         onOpenChange(false)
