@@ -26,6 +26,8 @@ export interface AnimationConfig {
     maxSize: number
     minDuration: number
     maxDuration: number
+    /** 根据额度差动态调整：额度大时密度更高 */
+    densityMultiplier: number
   }
   trajectory: {
     type: TrajectoryType
@@ -41,6 +43,22 @@ export interface AnimationConfig {
     maxSize: number
     duration: number
     interval: number
+    /** 增强水波：粒子到达后触发层层叠叠的水波 */
+    enhanced: {
+      enabled: boolean
+      /** 每波水波数量（会连续发射多波） */
+      waveCount: number
+      /** 波与波之间的间隔(ms) */
+      waveInterval: number
+      /** 每波中的 ripple 数量 */
+      ripplesPerWave: number
+      /** 最大扩散半径 */
+      maxSize: number
+      /** 单个水波动画时长 */
+      duration: number
+      /** 水波扩散间隔 */
+      interval: number
+    }
   }
   duration: {
     base: number
@@ -52,37 +70,6 @@ export interface AnimationConfig {
 /**
  * 根据性能等级获取动画配置
  */
-export function getAnimationConfig(level: PerformanceLevel): AnimationConfig {
-  particle: {
-    count: number
-    spawnInterval: number
-    minSize: number
-    maxSize: number
-    minDuration: number
-    maxDuration: number
-  }
-  trajectory: {
-    type: TrajectoryType
-    parabola: {
-      minHeight: number
-      maxHeight: number
-      maxHeightRatio: number
-      spreadRange: number
-    }
-  }
-  ripple: {
-    count: number
-    maxSize: number
-    duration: number
-    interval: number
-  }
-  duration: {
-    base: number
-    max: number
-    logScale: number
-  }
-}
-
 /**
  * 根据性能等级获取动画配置
  */
@@ -96,6 +83,7 @@ export function getAnimationConfig(level: PerformanceLevel): AnimationConfig {
         maxSize: 6,
         minDuration: 600,
         maxDuration: 1000,
+        densityMultiplier: 1,
       },
       trajectory: {
         type: TrajectoryType.PARABOLA,
@@ -111,6 +99,15 @@ export function getAnimationConfig(level: PerformanceLevel): AnimationConfig {
         maxSize: 160,
         duration: 500,
         interval: 200,
+        enhanced: {
+          enabled: true,
+          waveCount: 3,
+          waveInterval: 200,
+          ripplesPerWave: 2,
+          maxSize: 120,
+          duration: 400,
+          interval: 150,
+        },
       },
       duration: {
         base: 800,
@@ -126,6 +123,7 @@ export function getAnimationConfig(level: PerformanceLevel): AnimationConfig {
         maxSize: 7,
         minDuration: 700,
         maxDuration: 1200,
+        densityMultiplier: 1.5,
       },
       trajectory: {
         type: TrajectoryType.PARABOLA,
@@ -141,6 +139,15 @@ export function getAnimationConfig(level: PerformanceLevel): AnimationConfig {
         maxSize: 180,
         duration: 600,
         interval: 180,
+        enhanced: {
+          enabled: true,
+          waveCount: 4,
+          waveInterval: 180,
+          ripplesPerWave: 3,
+          maxSize: 160,
+          duration: 500,
+          interval: 130,
+        },
       },
       duration: {
         base: 1000,
@@ -156,6 +163,7 @@ export function getAnimationConfig(level: PerformanceLevel): AnimationConfig {
         maxSize: 8,
         minDuration: 800,
         maxDuration: 1400,
+        densityMultiplier: 2,
       },
       trajectory: {
         type: TrajectoryType.PARABOLA,
@@ -171,6 +179,15 @@ export function getAnimationConfig(level: PerformanceLevel): AnimationConfig {
         maxSize: 200,
         duration: 600,
         interval: 160,
+        enhanced: {
+          enabled: true,
+          waveCount: 5,
+          waveInterval: 160,
+          ripplesPerWave: 4,
+          maxSize: 200,
+          duration: 600,
+          interval: 120,
+        },
       },
       duration: {
         base: 1000,

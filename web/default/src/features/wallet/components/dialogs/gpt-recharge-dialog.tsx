@@ -170,6 +170,48 @@ export function GptRechargeDialog({
     }
   }
 
+  /**
+   * 全部转换：直接将所有余额一次性转换并提交
+   * 绕过手动输入，自动计算全部金额后立即调用提交
+   */
+  const handleTransferAllAndSubmit = async () => {
+    if (submitting) return
+    
+    // 边界检查
+    if (isToGpt && availableBaseQuota <= 0) return
+    if (!isToGpt && availableGptQuota <= 0) return
+
+    try {
+      setSubmitting(true)
+      
+      if (isToGpt) {
+        // 基础转GPT：将所有基础余额转换为GPT
+        const response = await transferGptQuota(Math.round(availableBaseQuota))
+        if (response.success) {
+          toast.success(response.message || i18next.t('Recharge successful'))
+          onOpenChange(false)
+          await onSuccess()
+        } else {
+          toast.error(response.message || i18next.t('Recharge failed'))
+        }
+      } else {
+        // GPT转基础：将所有GPT余额转换为基础余额
+        const response = await transferGptQuotaBack(availableGptQuota)
+        if (response.success) {
+          toast.success(response.message || i18next.t('Recharge successful'))
+          onOpenChange(false)
+          await onSuccess()
+        } else {
+          toast.error(response.message || i18next.t('Recharge failed'))
+        }
+      }
+    } catch (_error) {
+      toast.error(i18next.t('Recharge failed'))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const title = isToGpt
     ? t('Recharge GPT Quota')
     : t('Convert GPT to Base')
@@ -300,6 +342,19 @@ export function GptRechargeDialog({
                   </div>
                 </div>
               </RadioGroup>
+
+              {/* 全部转换按钮：将所有余额一次性全部转换并提交 */}
+              <Button
+                type='button'
+                variant='default'
+                size='lg'
+                className='w-full'
+                onClick={handleTransferAllAndSubmit}
+                disabled={submitting || (isToGpt ? availableBaseQuota <= 0 : availableGptQuota <= 0)}
+              >
+                {submitting && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+                {isToGpt ? t('Convert All to GPT') : t('Convert All to Base')}
+              </Button>
 
               <div className='space-y-2 rounded-lg border p-3'>
                 {isToGpt ? (

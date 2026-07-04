@@ -17,9 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useRef } from 'react'
-import { getAnimationConfig, PerformanceLevel, AnimationConfig } from '../lib/animation-config'
+import { getAnimationConfig, AnimationConfig, TrajectoryType } from '../lib/animation-config'
 import { getPerformanceLevel } from '../lib/performance-detector'
-import { TrajectoryStrategyFactory, TrajectoryType } from '../lib/trajectory-strategies'
+import { TrajectoryStrategyFactory } from '../lib/trajectory-strategies'
 
 // ============================================================================
 // Types
@@ -130,6 +130,7 @@ function animateValueSpring(
 /**
  * Spawn parabolic particles flowing from one card to another.
  * Supports dual-source (top/bottom) with automatic fallback for small cards.
+ * 增强版：粒子到达目标时产生水波效果，形成两条持续流动的粒子线
  */
 function spawnParticles(
   fromEl: HTMLElement,
@@ -137,10 +138,19 @@ function spawnParticles(
   isToGpt: boolean,
   created: Set<HTMLElement>,
   cancelled: { current: boolean },
-  config: AnimationConfig
+  config: AnimationConfig,
+  /** 额度差值用于动态调整粒子密度 */
+  maxDelta: number = 0
 ): void {
   const rect = fromEl.getBoundingClientRect()
   const cardHeight = rect.height
+
+  // 根据额度差值动态调整粒子数量
+  const densityMultiplier = maxDelta > 0
+    ? Math.min(3, 1 + Math.log1p(maxDelta / 10000) * 0.3)
+    : 1
+  const adjustedCount = Math.round(config.particle.count * densityMultiplier * config.particle.densityMultiplier)
+  const adjustedInterval = Math.max(15, config.particle.spawnInterval / (densityMultiplier * 0.7))
   
   // 检查卡片高度，决定使用单来源还是双来源
   if (cardHeight < 60) {
@@ -149,9 +159,9 @@ function spawnParticles(
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2,
     }
-    spawnParticlesFromPoint(fromCenter, toEl, isToGpt, created, cancelled, config)
+    spawnParticlesFromPoint(fromCenter, toEl, isToGpt, created, cancelled, config, adjustedCount, adjustedInterval)
   } else {
-    // 双来源
+    // 双来源：上方抛物线轨迹高一些，下方抛物线轨迹低一些
     const safeOffset = Math.min(20, cardHeight / 4)
     const fromTop = {
       x: rect.left + rect.width / 2,
@@ -162,15 +172,18 @@ function spawnParticles(
       y: rect.bottom - safeOffset,
     }
     
-    const halfCount = Math.floor(config.particle.count / 2)
+    const halfCount = Math.floor(adjustedCount / 2)
+    // 上方粒子：高抛物线，带有余波到达效果
     for (let i = 0; i < halfCount; i++) {
       setTimeout(() => {
-        spawnSingleParticle(fromTop, toEl, isToGpt, created, cancelled, config)
-      }, i * config.particle.spawnInterval)
-      
+        spawnSingleParticle(fromTop, toEl, isToGpt, created, cancelled, config, true)
+      }, i * adjustedInterval)
+    }
+    // 下方粒子：低抛物线轨迹
+    for (let i = 0; i < halfCount; i++) {
       setTimeout(() => {
-        spawnSingleParticle(fromBottom, toEl, isToGpt, created, cancelled, config)
-      }, i * config.particle.spawnInterval + 15)
+        spawnSingleParticle(fromBottom, toEl, isToGpt, created, cancelled, config, false)
+      }, i * adjustedInterval + 12)
     }
   }
 }
@@ -181,12 +194,14 @@ function spawnParticlesFromPoint(
   isToGpt: boolean,
   created: Set<HTMLElement>,
   cancelled: { current: boolean },
-  config: AnimationConfig
+  config: AnimationConfig,
+  count: number,
+  interval: number
 ): void {
-  for (let i = 0; i < config.particle.count; i++) {
+  for (let i = 0; i < count; i++) {
     setTimeout(() => {
-      spawnSingleParticle(from, toEl, isToGpt, created, cancelled, config)
-    }, i * config.particle.spawnInterval)
+      spawnSingleParticle(from, toEl, isToGpt, created, cancelled, config, true)
+    }, i * interval)
   }
 }
 
@@ -196,7 +211,8 @@ function spawnSingleParticle(
   isToGpt: boolean,
   created: Set<HTMLElement>,
   cancelled: { current: boolean },
-  config: AnimationConfig
+  config: AnimationConfig,
+  isHighTrajectory: boolean = true
 ): void {
   if (cancelled.current) return
   
@@ -213,6 +229,9 @@ function spawnSingleParticle(
                Math.random() * (config.particle.maxSize - config.particle.minSize)
   const color = isToGpt ? 'var(--primary)' : 'var(--accent)'
   
+  // 高轨迹粒子发光更强，低轨迹粒子略小
+  const glowIntensity = isHighTrajectory ? size * 1.5 : size
+  
   particle.style.cssText = `
     position: fixed;
     width: ${size}px;
@@ -221,16 +240,19 @@ function spawnSingleParticle(
     border-radius: 50%;
     pointer-events: none;
     z-index: 999;
-    box-shadow: 0 0 ${size}px ${color};
+    box-shadow: 0 0 ${glowIntensity}px ${color};
   `
   
   document.body.appendChild(particle)
   created.add(particle)
   
-  const duration = config.particle.minDuration + 
-                  Math.random() * (config.particle.maxDuration - config.particle.minDuration)
+  // 高轨迹粒子飞行时间略长
+  const durationMultiplier = isHighTrajectory ? 1 : 0.85
+  const duration = (config.particle.minDuration + 
+                  Math.random() * (config.particle.maxDuration - config.particle.minDuration)) * durationMultiplier
   
   const startTime = performance.now()
+  let rippleTriggered = false
   
   const animate = (currentTime: number) => {
     if (cancelled.current) {
@@ -243,17 +265,29 @@ function spawnSingleParticle(
     const progress = Math.min(elapsed / duration, 1)
     const easedProgress = 1 - Math.pow(1 - progress, 3)
     
+    // 高轨迹和低轨迹使用不同的抛物线高度
+    const baseHeight = isHighTrajectory
+      ? config.trajectory.parabola.minHeight + Math.random() * (config.trajectory.parabola.maxHeight - config.trajectory.parabola.minHeight)
+      : config.trajectory.parabola.minHeight * 0.5 + Math.random() * (config.trajectory.parabola.maxHeight * 0.5 - config.trajectory.parabola.minHeight * 0.4)
+    
     const position = trajectory.calculate(from, to, easedProgress, {
-      height: config.trajectory.parabola.minHeight + 
-              Math.random() * (config.trajectory.parabola.maxHeight - 
-                                config.trajectory.parabola.minHeight),
+      height: baseHeight,
       maxHeightRatio: config.trajectory.parabola.maxHeightRatio,
-      spreadRange: config.trajectory.parabola.spreadRange,
+      spreadRange: isHighTrajectory ? config.trajectory.parabola.spreadRange : config.trajectory.parabola.spreadRange * 0.5,
     })
     
     particle.style.left = position.x + 'px'
     particle.style.top = position.y + 'px'
-    particle.style.opacity = (1 - progress).toString()
+    particle.style.opacity = (1 - progress * 0.3).toString()
+    // 到达时粒子稍微放大再消失
+    const arrivalScale = progress > 0.85 ? 1 + (progress - 0.85) * 3 : 1
+    particle.style.transform = `scale(${arrivalScale})`
+    
+    // 粒子到达目标时触发水波
+    if (progress >= 0.95 && !rippleTriggered && !cancelled.current) {
+      rippleTriggered = true
+      spawnMiniRipple(toEl, isToGpt, created, cancelled, config)
+    }
     
     if (progress < 1) {
       requestAnimationFrame(animate)
@@ -267,7 +301,54 @@ function spawnSingleParticle(
 }
 
 /**
+ * 单个粒子到达时触发的微水波
+ */
+function spawnMiniRipple(
+  el: HTMLElement,
+  isToGpt: boolean,
+  created: Set<HTMLElement>,
+  cancelled: { current: boolean },
+  config: AnimationConfig
+): void {
+  if (cancelled.current || !config.ripple.enhanced.enabled) return
+  
+  const rect = el.getBoundingClientRect()
+  // 水波位置在目标卡片中心略微随机偏移，更自然
+  const cx = rect.left + rect.width * (0.3 + Math.random() * 0.4)
+  const cy = rect.top + rect.height * (0.3 + Math.random() * 0.4)
+  const color = isToGpt ? 'var(--success)' : 'var(--primary)'
+  
+  const r = document.createElement('div')
+  const size = config.ripple.enhanced.maxSize * (0.3 + Math.random() * 0.5)
+  r.style.cssText = `
+    position:fixed;
+    left:${cx}px;
+    top:${cy}px;
+    border:2px solid ${color};
+    border-radius:50%;
+    transform:translate(-50%,-50%);
+    pointer-events:none;
+    z-index:998;
+    opacity:0;
+  `
+  document.body.appendChild(r)
+  created.add(r)
+  
+  r.animate(
+    [
+      { width: '2px', height: '2px', opacity: 0.6, borderWidth: '2px' },
+      { width: `${size}px`, height: `${size}px`, opacity: 0, borderWidth: '0.5px' },
+    ],
+    { duration: config.ripple.enhanced.duration, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'forwards' }
+  ).onfinish = () => {
+    r.remove()
+    created.delete(r)
+  }
+}
+
+/**
  * Expand concentric ripples on the target card.
+ * 增强版：层层叠叠的水波效果
  */
 function spawnRipples(
   el: HTMLElement,
@@ -281,6 +362,7 @@ function spawnRipples(
   const cy = rect.top + rect.height / 2
   const color = isToGpt ? 'var(--success)' : 'var(--primary)'
 
+  // 普通水波
   for (let i = 0; i < config.ripple.count; i++) {
     setTimeout(() => {
       if (cancelled.current) return
@@ -300,6 +382,49 @@ function spawnRipples(
         created.delete(r)
       }
     }, i * config.ripple.interval)
+  }
+
+  // 增强水波：层层叠叠连续发射
+  if (config.ripple.enhanced.enabled) {
+    for (let wave = 0; wave < config.ripple.enhanced.waveCount; wave++) {
+      setTimeout(() => {
+        if (cancelled.current) return
+        for (let j = 0; j < config.ripple.enhanced.ripplesPerWave; j++) {
+          setTimeout(() => {
+            if (cancelled.current) return
+            const r = document.createElement('div')
+            // 水波位置略微偏移，形成扩散感
+            const offsetX = (Math.random() - 0.5) * 20
+            const offsetY = (Math.random() - 0.5) * 20
+            const size = config.ripple.enhanced.maxSize * (0.6 + Math.random() * 0.4)
+            r.style.cssText = `
+              position:fixed;
+              left:${cx + offsetX}px;
+              top:${cy + offsetY}px;
+              border:2px solid ${color};
+              border-radius:50%;
+              transform:translate(-50%,-50%);
+              pointer-events:none;
+              z-index:998;
+              opacity:0;
+            `
+            document.body.appendChild(r)
+            created.add(r)
+
+            r.animate(
+              [
+                { width: '0px', height: '0px', opacity: 0.8, borderWidth: '3px' },
+                { width: `${size}px`, height: `${size}px`, opacity: 0, borderWidth: '1px' },
+              ],
+              { duration: config.ripple.enhanced.duration, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'forwards' }
+            ).onfinish = () => {
+              r.remove()
+              created.delete(r)
+            }
+          }, j * config.ripple.enhanced.interval)
+        }
+      }, wave * config.ripple.enhanced.waveInterval)
+    }
   }
 }
 
@@ -497,7 +622,7 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
       }, 800)
     }, 300)
 
-    spawnParticles(sourceCard, targetCard, isToGpt, createdElementsRef.current, cancelled, config)
+    spawnParticles(sourceCard, targetCard, isToGpt, createdElementsRef.current, cancelled, config, maxDelta)
 
     setTimeout(() => {
       if (cancelled.current) return

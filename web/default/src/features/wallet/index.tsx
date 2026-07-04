@@ -42,6 +42,7 @@ import {
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
+import { GptQuotaCard } from './components/gpt-quota-card'
 import { DEFAULT_DISCOUNT_RATE } from './constants'
 import {
   useTopupInfo,
@@ -99,6 +100,7 @@ export function Wallet(props: WalletProps) {
   const [preTransferGptQuota, setPreTransferGptQuota] = useState(0)
 
   const baseCardRef = useRef<HTMLDivElement>(null)
+  const gptCardRef = useRef<HTMLDivElement>(null)
 
   const { status } = useStatus()
   const { currency } = useSystemConfig()
@@ -312,10 +314,17 @@ export function Wallet(props: WalletProps) {
                   isTransferring={isTransferring}
                   transferDirection={transferDirection}
                   fromRef={baseCardRef}
+                  toRef={gptCardRef}
                   formatFromValue={formatQuota}
                   formatToValue={formatGptQuota}
                   startFrom={preTransferQuota}
                   startTo={preTransferGptQuota}
+                />
+
+                <GptQuotaCard
+                  ref={gptCardRef}
+                  user={user}
+                  onRecharge={() => setTransferModeOpen(true)}
                 />
 
                 <Button
