@@ -981,7 +981,7 @@ func DecreaseUserGptQuota(id int, quota float64) error {
 }
 
 // TransferQuotaToGptQuota 将基础余额转换为 GPT 专属额度
-// 汇率：500 基础余额 = 1.5 GPT 余额（转换系数 common.GptQuotaExchangeRate）
+// 汇率：500 美金 = 250000000 内部额度 = 1.5 GPT 余额（转换系数 common.GptQuotaExchangeRate）
 // 事务内 FOR UPDATE 锁定用户行，保证扣减与增加的原子性
 func TransferQuotaToGptQuota(userId int, baseQuota int) (float64, error) {
 	if baseQuota <= 0 {

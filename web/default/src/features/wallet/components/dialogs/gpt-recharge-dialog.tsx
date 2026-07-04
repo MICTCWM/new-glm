@@ -44,6 +44,7 @@ import {
   BASE_TO_GPT_RATIO,
   GPT_TO_BASE_RATIO,
 } from '../../constants'
+import { formatQuota, parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 
 interface GptRechargeDialogProps {
   open: boolean
@@ -56,10 +57,6 @@ type RechargeMode = 'gpt' | 'base'
 
 function formatGptQuota(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
-}
-
-function formatBaseQuota(value: number): string {
-  return Math.round(value).toLocaleString()
 }
 
 export function GptRechargeDialog({
@@ -84,10 +81,12 @@ export function GptRechargeDialog({
     }
   }, [open])
 
+  // 用户输入的是美金，需要转成内部额度
   const gptAmount = Number(gptInput) || 0
-  const baseAmountInput = Number(baseInput) || 0
+  const baseAmountUsd = Number(baseInput) || 0 // 用户输入的美金金额
+  const baseAmountInput = parseQuotaFromDollars(baseAmountUsd) // 转成内部额度
 
-  // Calculate derived values based on mode
+  // 计算转换后的内部额度和 GPT 额度
   const effectiveBaseQuota =
     mode === 'gpt' ? gptAmount * GPT_TO_BASE_RATIO : baseAmountInput
   const effectiveGptQuota =
@@ -151,7 +150,7 @@ export function GptRechargeDialog({
                   {t('Available Base Balance')}
                 </span>
                 <span className='font-mono text-sm font-semibold tabular-nums'>
-                  {formatBaseQuota(availableBaseQuota)}
+                  {formatQuota(availableBaseQuota)}
                 </span>
               </div>
 
@@ -202,10 +201,10 @@ export function GptRechargeDialog({
                     <Input
                       type='number'
                       min={0}
-                      step={1}
+                      step={0.01}
                       value={baseInput}
                       onChange={(e) => setBaseInput(e.target.value)}
-                      placeholder={t('Base Balance')}
+                      placeholder={t('Base Balance (USD)')}
                       disabled={mode !== 'base'}
                       className='font-mono'
                     />
@@ -223,7 +222,7 @@ export function GptRechargeDialog({
                       insufficientBalance ? 'text-destructive' : ''
                     }`}
                   >
-                    {formatBaseQuota(effectiveBaseQuota)}
+                    {formatQuota(effectiveBaseQuota)}
                   </span>
                 </div>
                 <div className='flex items-center justify-between text-sm'>

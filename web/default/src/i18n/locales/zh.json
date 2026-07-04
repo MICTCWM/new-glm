@@ -4569,6 +4569,7 @@
     "GPT Amount": "GPT 金额",
     "Recharge by Base Balance": "按基础余额充值",
     "Base Balance": "基础余额",
+    "Base Balance (USD)": "基础余额（美金）",
     "Will deduct base balance": "将扣除基础余额",
     "Will gain GPT quota": "将获得 GPT 额度",
     "Insufficient base balance": "基础余额不足",

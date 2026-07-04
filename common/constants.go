@@ -296,4 +296,4 @@ const (
 var RpmQueueTimeout = 60 * time.Second // 排队等待超时时间
 
 // GPT 额度转换汇率：500 基础余额 = 1.5 GPT 余额
-const GptQuotaExchangeRate = 1.5 / 500.0 // 基础余额 -> GPT 余额的转换系数
+const GptQuotaExchangeRate = 0.003 / 500000.0 // 基础余额(内部单位) -> GPT 余额的转换系数，500美金=250000000内部单位=1.5 GPT额度
