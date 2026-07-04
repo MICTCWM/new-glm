@@ -33,7 +33,7 @@ import { GptRechargeDialog } from './components/dialogs/gpt-recharge-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { TransferModeDialog } from './components/dialogs/transfer-mode-dialog'
-import { GptQuotaCard } from './components/gpt-quota-card'
+
 import {
   QuotaTransferAnimation,
   type TransferDirection,
@@ -98,7 +98,6 @@ export function Wallet(props: WalletProps) {
   const [preTransferGptQuota, setPreTransferGptQuota] = useState(0)
 
   const baseCardRef = useRef<HTMLDivElement>(null)
-  const gptCardRef = useRef<HTMLDivElement>(null)
 
   const { status } = useStatus()
   const { currency } = useSystemConfig()
@@ -312,7 +311,6 @@ export function Wallet(props: WalletProps) {
                   isTransferring={isTransferring}
                   transferDirection={transferDirection}
                   fromRef={baseCardRef}
-                  toRef={gptCardRef}
                   formatFromValue={formatQuota}
                   formatToValue={formatGptQuota}
                   startFrom={preTransferQuota}
@@ -328,15 +326,6 @@ export function Wallet(props: WalletProps) {
                   <ArrowLeftRight className='mr-2 size-4' />
                   {t('Transfer')}
                 </Button>
-
-                <GptQuotaCard
-                  ref={gptCardRef}
-                  user={user}
-                  onRecharge={() => {
-                    setTransferDirection('toGpt')
-                    setGptRechargeOpen(true)
-                  }}
-                />
               </>
             )}
 

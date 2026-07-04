@@ -45,7 +45,7 @@ interface QuotaTransferAnimationProps {
   /** Ref to the source card DOM element (for particle targeting) */
   fromRef: React.RefObject<HTMLDivElement | null>
   /** Ref to the target card DOM element (for particle targeting) */
-  toRef: React.RefObject<HTMLDivElement | null>
+  toRef?: React.RefObject<HTMLDivElement | null>
   /** Formatter for the source value display */
   formatFromValue: (value: number) => string
   /** Formatter for the target value display */
@@ -343,24 +343,39 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
     const endTo = props.toValue
 
     const fromCard = props.fromRef.current
-    const toCard = props.toRef.current
+    const toCard = props.toRef?.current
     const fromEl = fromValueRef.current
     const toEl = toValueRef.current
     const pipe = pipeRef.current
+
+    if (!fromEl || !toEl || !fromCard || !pipe) return
+
+    const fromRising = endFrom > startFrom
+    const toRising = endTo > startTo
+    animateValueSpring(fromEl, startFrom, endFrom, ANIMATION_DURATION, props.formatFromValue, fromRising, cancelled)
+    animateValueSpring(toEl, startTo, endTo, ANIMATION_DURATION, props.formatToValue, toRising, cancelled)
+
+    flowPipe(pipe, isToGpt, createdElementsRef.current, cancelled)
+
+    const deltaFrom = endFrom - startFrom
+    const deltaTo = endTo - startTo
+    if (fromDeltaRef.current && deltaFrom !== 0) {
+      showDelta(fromDeltaRef.current, `${deltaFrom >= 0 ? '+' : ''}${props.formatFromValue(deltaFrom)}`, deltaFrom < 0)
+    }
+    if (toDeltaRef.current && deltaTo !== 0) {
+      showDelta(toDeltaRef.current, `${deltaTo >= 0 ? '+' : ''}${props.formatToValue(deltaTo)}`, deltaTo < 0)
+    }
+
+    if (!toCard) return
+
+    const sourceCard = isToGpt ? fromCard : toCard
+    const targetCard = isToGpt ? toCard : fromCard
     const fromGlow = fromGlowRef.current
     const toGlow = toGlowRef.current
 
-    if (!fromEl || !toEl || !fromCard || !toCard || !pipe) return
-
-    // Determine source/target based on direction
-    const sourceCard = isToGpt ? fromCard : toCard
-    const targetCard = isToGpt ? toCard : fromCard
-
-    // Glow on source (outgoing) and target (incoming)
     sourceCard.style.borderColor = 'color-mix(in oklch, var(--destructive) 40%, transparent)'
     sourceCard.style.boxShadow = '0 0 40px color-mix(in oklch, var(--destructive) 15%, transparent)'
 
-    // Background glow: light up source, then move to target
     const sourceGlow = isToGpt ? fromGlow : toGlow
     const targetGlow = isToGpt ? toGlow : fromGlow
     const sourceRect = sourceCard.getBoundingClientRect()
@@ -393,26 +408,8 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
       }, 800)
     }, 300)
 
-    // Start particle flow, energy pipe, and value springs simultaneously
     spawnParticles(sourceCard, targetCard, isToGpt, createdElementsRef.current, cancelled)
-    flowPipe(pipe, isToGpt, createdElementsRef.current, cancelled)
 
-    const fromRising = endFrom > startFrom
-    const toRising = endTo > startTo
-    animateValueSpring(fromEl, startFrom, endFrom, ANIMATION_DURATION, props.formatFromValue, fromRising, cancelled)
-    animateValueSpring(toEl, startTo, endTo, ANIMATION_DURATION, props.formatToValue, toRising, cancelled)
-
-    // Delta badges
-    const deltaFrom = endFrom - startFrom
-    const deltaTo = endTo - startTo
-    if (fromDeltaRef.current && deltaFrom !== 0) {
-      showDelta(fromDeltaRef.current, `${deltaFrom >= 0 ? '+' : ''}${props.formatFromValue(deltaFrom)}`, deltaFrom < 0)
-    }
-    if (toDeltaRef.current && deltaTo !== 0) {
-      showDelta(toDeltaRef.current, `${deltaTo >= 0 ? '+' : ''}${props.formatToValue(deltaTo)}`, deltaTo < 0)
-    }
-
-    // After 350ms, glow target card and ripple
     setTimeout(() => {
       if (cancelled.current) return
       targetCard.style.borderColor = 'color-mix(in oklch, var(--success) 40%, transparent)'
@@ -420,7 +417,6 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
       spawnRipples(targetCard, isToGpt, createdElementsRef.current, cancelled)
     }, 350)
 
-    // Cleanup after the full sequence
     const totalDuration = ANIMATION_DURATION + 400
     const cleanupTimer = setTimeout(() => {
       if (cancelled.current) return
@@ -433,12 +429,10 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
     return () => {
       cancelled.current = true
       clearTimeout(cleanupTimer)
-      // Remove any lingering dynamically-created elements
       createdElementsRef.current.forEach((el) => {
         if (el.parentNode) el.parentNode.removeChild(el)
       })
       createdElementsRef.current.clear()
-      // Reset card styles
       sourceCard.style.borderColor = ''
       sourceCard.style.boxShadow = ''
       targetCard.style.borderColor = ''
