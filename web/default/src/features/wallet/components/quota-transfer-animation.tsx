@@ -70,13 +70,14 @@ interface QuotaTransferAnimationProps {
  * @param config - 动画配置
  * @returns 动画时长（毫秒）
  */
-export function calculateAnimationDuration(delta: number, config: AnimationConfig): number {
+export function calculateAnimationDuration(
+  delta: number,
+  config: AnimationConfig
+): number {
   const absDelta = Math.abs(delta)
-  // 使用对数函数平滑增长：base + scale * log(1 + delta / factor)
-  // 这样小额时长接近基础时长，大额时长逐渐增长但不会过快
   const logFactor = Math.log1p(absDelta / 1000)
-  const calculatedDuration = config.duration.base + logFactor * config.duration.logScale
-  // 封顶到最大时长
+  const calculatedDuration =
+    config.duration.base + logFactor * config.duration.logScale
   return Math.min(calculatedDuration, config.duration.max)
 }
 
@@ -146,22 +147,35 @@ function spawnParticles(
   const cardHeight = rect.height
 
   // 根据额度差值动态调整粒子数量
-  const densityMultiplier = maxDelta > 0
-    ? Math.min(3, 1 + Math.log1p(maxDelta / 10000) * 0.3)
-    : 1
-  const adjustedCount = Math.round(config.particle.count * densityMultiplier * config.particle.densityMultiplier)
-  const adjustedInterval = Math.max(15, config.particle.spawnInterval / (densityMultiplier * 0.7))
-  
+  const densityMultiplier =
+    maxDelta > 0
+      ? Math.min(3, 1 + Math.log1p(maxDelta / 10000) * 0.3)
+      : 1
+  const adjustedCount = Math.round(
+    config.particle.count * densityMultiplier * config.particle.densityMultiplier
+  )
+  const adjustedInterval = Math.max(
+    15,
+    config.particle.spawnInterval / (densityMultiplier * 0.7)
+  )
+
   // 检查卡片高度，决定使用单来源还是双来源
   if (cardHeight < 60) {
-    // 降级为单来源
     const fromCenter = {
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2,
     }
-    spawnParticlesFromPoint(fromCenter, toEl, isToGpt, created, cancelled, config, adjustedCount, adjustedInterval)
+    spawnParticlesFromPoint(
+      fromCenter,
+      toEl,
+      isToGpt,
+      created,
+      cancelled,
+      config,
+      adjustedCount,
+      adjustedInterval
+    )
   } else {
-    // 双来源：上方抛物线轨迹高一些，下方抛物线轨迹低一些
     const safeOffset = Math.min(20, cardHeight / 4)
     const fromTop = {
       x: rect.left + rect.width / 2,
@@ -171,18 +185,32 @@ function spawnParticles(
       x: rect.left + rect.width / 2,
       y: rect.bottom - safeOffset,
     }
-    
+
     const halfCount = Math.floor(adjustedCount / 2)
-    // 上方粒子：高抛物线，带有余波到达效果
     for (let i = 0; i < halfCount; i++) {
       setTimeout(() => {
-        spawnSingleParticle(fromTop, toEl, isToGpt, created, cancelled, config, true)
+        spawnSingleParticle(
+          fromTop,
+          toEl,
+          isToGpt,
+          created,
+          cancelled,
+          config,
+          true
+        )
       }, i * adjustedInterval)
     }
-    // 下方粒子：低抛物线轨迹
     for (let i = 0; i < halfCount; i++) {
       setTimeout(() => {
-        spawnSingleParticle(fromBottom, toEl, isToGpt, created, cancelled, config, false)
+        spawnSingleParticle(
+          fromBottom,
+          toEl,
+          isToGpt,
+          created,
+          cancelled,
+          config,
+          false
+        )
       }, i * adjustedInterval + 12)
     }
   }
@@ -200,7 +228,15 @@ function spawnParticlesFromPoint(
 ): void {
   for (let i = 0; i < count; i++) {
     setTimeout(() => {
-      spawnSingleParticle(from, toEl, isToGpt, created, cancelled, config, true)
+      spawnSingleParticle(
+        from,
+        toEl,
+        isToGpt,
+        created,
+        cancelled,
+        config,
+        true
+      )
     }, i * interval)
   }
 }
@@ -215,23 +251,22 @@ function spawnSingleParticle(
   isHighTrajectory: boolean = true
 ): void {
   if (cancelled.current) return
-  
+
   const toRect = toEl.getBoundingClientRect()
   const to = {
     x: toRect.left + toRect.width / 2,
     y: toRect.top + toRect.height / 2,
   }
-  
+
   const trajectory = TrajectoryStrategyFactory.get(TrajectoryType.PARABOLA)
-  
+
   const particle = document.createElement('div')
-  const size = config.particle.minSize + 
-               Math.random() * (config.particle.maxSize - config.particle.minSize)
+  const size =
+    config.particle.minSize +
+    Math.random() * (config.particle.maxSize - config.particle.minSize)
   const color = isToGpt ? 'var(--primary)' : 'var(--accent)'
-  
-  // 高轨迹粒子发光更强，低轨迹粒子略小
   const glowIntensity = isHighTrajectory ? size * 1.5 : size
-  
+
   particle.style.cssText = `
     position: fixed;
     width: ${size}px;
@@ -242,53 +277,60 @@ function spawnSingleParticle(
     z-index: 999;
     box-shadow: 0 0 ${glowIntensity}px ${color};
   `
-  
+
   document.body.appendChild(particle)
   created.add(particle)
-  
-  // 高轨迹粒子飞行时间略长
+
   const durationMultiplier = isHighTrajectory ? 1 : 0.85
-  const duration = (config.particle.minDuration + 
-                  Math.random() * (config.particle.maxDuration - config.particle.minDuration)) * durationMultiplier
-  
+  const duration =
+    (config.particle.minDuration +
+      Math.random() *
+        (config.particle.maxDuration - config.particle.minDuration)) *
+    durationMultiplier
+
   const startTime = performance.now()
   let rippleTriggered = false
-  
+
   const animate = (currentTime: number) => {
     if (cancelled.current) {
       particle.remove()
       created.delete(particle)
       return
     }
-    
+
     const elapsed = currentTime - startTime
     const progress = Math.min(elapsed / duration, 1)
     const easedProgress = 1 - Math.pow(1 - progress, 3)
-    
-    // 高轨迹和低轨迹使用不同的抛物线高度
+
     const baseHeight = isHighTrajectory
-      ? config.trajectory.parabola.minHeight + Math.random() * (config.trajectory.parabola.maxHeight - config.trajectory.parabola.minHeight)
-      : config.trajectory.parabola.minHeight * 0.5 + Math.random() * (config.trajectory.parabola.maxHeight * 0.5 - config.trajectory.parabola.minHeight * 0.4)
-    
+      ? config.trajectory.parabola.minHeight +
+        Math.random() *
+          (config.trajectory.parabola.maxHeight -
+            config.trajectory.parabola.minHeight)
+      : config.trajectory.parabola.minHeight * 0.5 +
+        Math.random() *
+          (config.trajectory.parabola.maxHeight * 0.5 -
+            config.trajectory.parabola.minHeight * 0.4)
+
     const position = trajectory.calculate(from, to, easedProgress, {
       height: baseHeight,
       maxHeightRatio: config.trajectory.parabola.maxHeightRatio,
-      spreadRange: isHighTrajectory ? config.trajectory.parabola.spreadRange : config.trajectory.parabola.spreadRange * 0.5,
+      spreadRange: isHighTrajectory
+        ? config.trajectory.parabola.spreadRange
+        : config.trajectory.parabola.spreadRange * 0.5,
     })
-    
+
     particle.style.left = position.x + 'px'
     particle.style.top = position.y + 'px'
     particle.style.opacity = (1 - progress * 0.3).toString()
-    // 到达时粒子稍微放大再消失
     const arrivalScale = progress > 0.85 ? 1 + (progress - 0.85) * 3 : 1
     particle.style.transform = `scale(${arrivalScale})`
-    
-    // 粒子到达目标时触发水波
+
     if (progress >= 0.95 && !rippleTriggered && !cancelled.current) {
       rippleTriggered = true
       spawnMiniRipple(toEl, isToGpt, created, cancelled, config)
     }
-    
+
     if (progress < 1) {
       requestAnimationFrame(animate)
     } else {
@@ -296,7 +338,7 @@ function spawnSingleParticle(
       created.delete(particle)
     }
   }
-  
+
   requestAnimationFrame(animate)
 }
 
@@ -311,13 +353,12 @@ function spawnMiniRipple(
   config: AnimationConfig
 ): void {
   if (cancelled.current || !config.ripple.enhanced.enabled) return
-  
+
   const rect = el.getBoundingClientRect()
-  // 水波位置在目标卡片中心略微随机偏移，更自然
   const cx = rect.left + rect.width * (0.3 + Math.random() * 0.4)
   const cy = rect.top + rect.height * (0.3 + Math.random() * 0.4)
   const color = isToGpt ? 'var(--success)' : 'var(--primary)'
-  
+
   const r = document.createElement('div')
   const size = config.ripple.enhanced.maxSize * (0.3 + Math.random() * 0.5)
   r.style.cssText = `
@@ -333,13 +374,22 @@ function spawnMiniRipple(
   `
   document.body.appendChild(r)
   created.add(r)
-  
+
   r.animate(
     [
       { width: '2px', height: '2px', opacity: 0.6, borderWidth: '2px' },
-      { width: `${size}px`, height: `${size}px`, opacity: 0, borderWidth: '0.5px' },
+      {
+        width: `${size}px`,
+        height: `${size}px`,
+        opacity: 0,
+        borderWidth: '0.5px',
+      },
     ],
-    { duration: config.ripple.enhanced.duration, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'forwards' }
+    {
+      duration: config.ripple.enhanced.duration,
+      easing: 'cubic-bezier(0.33, 1, 0.68, 1)',
+      fill: 'forwards',
+    }
   ).onfinish = () => {
     r.remove()
     created.delete(r)
@@ -374,9 +424,18 @@ function spawnRipples(
       r.animate(
         [
           { width: '0px', height: '0px', opacity: 0.7, borderWidth: '3px' },
-          { width: config.ripple.maxSize + 'px', height: config.ripple.maxSize + 'px', opacity: 0, borderWidth: '1px' },
+          {
+            width: config.ripple.maxSize + 'px',
+            height: config.ripple.maxSize + 'px',
+            opacity: 0,
+            borderWidth: '1px',
+          },
         ],
-        { duration: config.ripple.duration, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'forwards' }
+        {
+          duration: config.ripple.duration,
+          easing: 'cubic-bezier(0.33, 1, 0.68, 1)',
+          fill: 'forwards',
+        }
       ).onfinish = () => {
         r.remove()
         created.delete(r)
@@ -393,10 +452,10 @@ function spawnRipples(
           setTimeout(() => {
             if (cancelled.current) return
             const r = document.createElement('div')
-            // 水波位置略微偏移，形成扩散感
             const offsetX = (Math.random() - 0.5) * 20
             const offsetY = (Math.random() - 0.5) * 20
-            const size = config.ripple.enhanced.maxSize * (0.6 + Math.random() * 0.4)
+            const size =
+              config.ripple.enhanced.maxSize * (0.6 + Math.random() * 0.4)
             r.style.cssText = `
               position:fixed;
               left:${cx + offsetX}px;
@@ -413,10 +472,24 @@ function spawnRipples(
 
             r.animate(
               [
-                { width: '0px', height: '0px', opacity: 0.8, borderWidth: '3px' },
-                { width: `${size}px`, height: `${size}px`, opacity: 0, borderWidth: '1px' },
+                {
+                  width: '0px',
+                  height: '0px',
+                  opacity: 0.8,
+                  borderWidth: '3px',
+                },
+                {
+                  width: `${size}px`,
+                  height: `${size}px`,
+                  opacity: 0,
+                  borderWidth: '1px',
+                },
               ],
-              { duration: config.ripple.enhanced.duration, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'forwards' }
+              {
+                duration: config.ripple.enhanced.duration,
+                easing: 'cubic-bezier(0.33, 1, 0.68, 1)',
+                fill: 'forwards',
+              }
             ).onfinish = () => {
               r.remove()
               created.delete(r)
@@ -429,7 +502,8 @@ function spawnRipples(
 }
 
 /**
- * Animate a continuous flow of light blobs through the energy pipe.
+ * Animate a continuous horizontal flow of light blobs through the energy pipe.
+ * 横向流动：toGpt 时从左边流向右边（to right），toBase 时从右边流向左边（to left）
  */
 function flowPipe(
   pipe: HTMLElement,
@@ -439,7 +513,7 @@ function flowPipe(
 ): void {
   const color = isToGpt ? 'var(--primary)' : 'var(--accent)'
   const pipeRect = pipe.getBoundingClientRect()
-  const pipeH = pipeRect.height
+  const pipeW = pipeRect.width
   let flowCount = 0
 
   const interval = setInterval(() => {
@@ -449,17 +523,27 @@ function flowPipe(
     }
 
     const flow = document.createElement('div')
-    flow.style.cssText = `position:absolute;width:100%;height:30px;border-radius:2px;background:linear-gradient(${isToGpt ? 'to bottom' : 'to top'},transparent,${color},transparent);box-shadow:0 0 16px ${color};opacity:0;pointer-events:none;`
-    flow.style.top = isToGpt ? '-30px' : `${pipeH}px`
+    flow.style.cssText = `
+      position:absolute;
+      top:0;
+      height:100%;
+      width:30px;
+      border-radius:2px;
+      background:linear-gradient(${isToGpt ? 'to right' : 'to left'},transparent,${color},transparent);
+      box-shadow:0 0 16px ${color};
+      opacity:0;
+      pointer-events:none;
+    `
+    flow.style.left = isToGpt ? '-30px' : `${pipeW}px`
     pipe.appendChild(flow)
     created.add(flow)
 
     flow.animate(
       [
-        { opacity: 0, top: isToGpt ? '-30px' : `${pipeH}px` },
+        { opacity: 0, left: isToGpt ? '-30px' : `${pipeW}px` },
         { opacity: 1, offset: 0.2 },
         { opacity: 1, offset: 0.8 },
-        { opacity: 0, top: isToGpt ? `${pipeH}px` : '-30px' },
+        { opacity: 0, left: isToGpt ? `${pipeW}px` : '-30px' },
       ],
       { duration: 600, easing: 'linear', fill: 'forwards' }
     ).onfinish = () => {
@@ -474,11 +558,7 @@ function flowPipe(
 /**
  * Float a delta badge (e.g. +$10.00) near a value display.
  */
-function showDelta(
-  badge: HTMLElement,
-  text: string,
-  isNeg: boolean
-): void {
+function showDelta(badge: HTMLElement, text: string, isNeg: boolean): void {
   badge.textContent = text
   badge.style.color = isNeg ? 'var(--destructive)' : 'var(--success)'
   badge.animate(
@@ -488,7 +568,11 @@ function showDelta(
       { opacity: 1, transform: 'translateY(-16px) scale(1)', offset: 0.6 },
       { opacity: 0, transform: 'translateY(-32px) scale(0.9)' },
     ],
-    { duration: 1500, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'forwards' }
+    {
+      duration: 1500,
+      easing: 'cubic-bezier(0.33, 1, 0.68, 1)',
+      fill: 'forwards',
+    }
   )
 }
 
@@ -506,15 +590,12 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
   const fromGlowRef = useRef<HTMLDivElement>(null)
   const toGlowRef = useRef<HTMLDivElement>(null)
 
-  // Animation configuration based on device performance
   const config = getAnimationConfig(getPerformanceLevel())
 
-  // Track the last values seen while idle (used as animation start points)
   const lastIdleFromRef = useRef(props.startFrom ?? props.fromValue)
   const lastIdleToRef = useRef(props.startTo ?? props.toValue)
   const wasTransferringRef = useRef(false)
 
-  // Track created DOM elements for cleanup
   const createdElementsRef = useRef<Set<HTMLElement>>(new Set())
   const cancelledRef = useRef({ current: false })
 
@@ -529,7 +610,13 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
     }
     lastIdleFromRef.current = props.fromValue
     lastIdleToRef.current = props.toValue
-  }, [props.fromValue, props.toValue, props.isTransferring, props.formatFromValue, props.formatToValue])
+  }, [
+    props.fromValue,
+    props.toValue,
+    props.isTransferring,
+    props.formatFromValue,
+    props.formatToValue,
+  ])
 
   // Trigger the full animation sequence when isTransferring turns true
   useEffect(() => {
@@ -543,12 +630,10 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
     cancelled.current = false
 
     const isToGpt = props.transferDirection === 'toGpt'
-    // 优先使用外部传入的 startFrom/startTo 作为动画起点（转换前的值）
-    // 否则回退到 idle 期间记录的最后一个值
     const startFrom = props.startFrom ?? lastIdleFromRef.current
     const startTo = props.startTo ?? lastIdleToRef.current
-    // 同步内部 ref，避免后续逻辑混乱
-    if (props.startFrom !== undefined) lastIdleFromRef.current = props.startFrom
+    if (props.startFrom !== undefined)
+      lastIdleFromRef.current = props.startFrom
     if (props.startTo !== undefined) lastIdleToRef.current = props.startTo
     const endFrom = props.fromValue
     const endTo = props.toValue
@@ -563,21 +648,44 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
 
     const fromRising = endFrom > startFrom
     const toRising = endTo > startTo
-    // 根据额度差值动态计算动画时长
     const deltaFrom = endFrom - startFrom
     const deltaTo = endTo - startTo
     const maxDelta = Math.max(Math.abs(deltaFrom), Math.abs(deltaTo))
     const animationDuration = calculateAnimationDuration(maxDelta, config)
-    
-    animateValueSpring(fromEl, startFrom, endFrom, animationDuration, props.formatFromValue, fromRising, cancelled)
-    animateValueSpring(toEl, startTo, endTo, animationDuration, props.formatToValue, toRising, cancelled)
+
+    animateValueSpring(
+      fromEl,
+      startFrom,
+      endFrom,
+      animationDuration,
+      props.formatFromValue,
+      fromRising,
+      cancelled
+    )
+    animateValueSpring(
+      toEl,
+      startTo,
+      endTo,
+      animationDuration,
+      props.formatToValue,
+      toRising,
+      cancelled
+    )
 
     flowPipe(pipe, isToGpt, createdElementsRef.current, cancelled)
     if (fromDeltaRef.current && deltaFrom !== 0) {
-      showDelta(fromDeltaRef.current, `${deltaFrom >= 0 ? '+' : ''}${props.formatFromValue(deltaFrom)}`, deltaFrom < 0)
+      showDelta(
+        fromDeltaRef.current,
+        `${deltaFrom >= 0 ? '+' : ''}${props.formatFromValue(deltaFrom)}`,
+        deltaFrom < 0
+      )
     }
     if (toDeltaRef.current && deltaTo !== 0) {
-      showDelta(toDeltaRef.current, `${deltaTo >= 0 ? '+' : ''}${props.formatToValue(deltaTo)}`, deltaTo < 0)
+      showDelta(
+        toDeltaRef.current,
+        `${deltaTo >= 0 ? '+' : ''}${props.formatToValue(deltaTo)}`,
+        deltaTo < 0
+      )
     }
 
     if (!toCard) return
@@ -587,8 +695,10 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
     const fromGlow = fromGlowRef.current
     const toGlow = toGlowRef.current
 
-    sourceCard.style.borderColor = 'color-mix(in oklch, var(--destructive) 40%, transparent)'
-    sourceCard.style.boxShadow = '0 0 40px color-mix(in oklch, var(--destructive) 15%, transparent)'
+    sourceCard.style.borderColor =
+      'color-mix(in oklch, var(--destructive) 40%, transparent)'
+    sourceCard.style.boxShadow =
+      '0 0 40px color-mix(in oklch, var(--destructive) 15%, transparent)'
 
     const sourceGlow = isToGpt ? fromGlow : toGlow
     const targetGlow = isToGpt ? toGlow : fromGlow
@@ -597,8 +707,12 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
 
     if (sourceGlow) {
       sourceGlow.style.background = colorVar(props.fromColor)
-      sourceGlow.style.left = `${sourceRect.left + sourceRect.width / 2 - 150}px`
-      sourceGlow.style.top = `${sourceRect.top + sourceRect.height / 2 - 150}px`
+      sourceGlow.style.left = `${
+        sourceRect.left + sourceRect.width / 2 - 150
+      }px`
+      sourceGlow.style.top = `${
+        sourceRect.top + sourceRect.height / 2 - 150
+      }px`
       sourceGlow.style.opacity = '0.25'
       sourceGlow.style.transform = 'scale(1)'
     }
@@ -608,8 +722,12 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
       if (sourceGlow) sourceGlow.style.opacity = '0'
       if (targetGlow) {
         targetGlow.style.background = colorVar(props.toColor)
-        targetGlow.style.left = `${targetRect.left + targetRect.width / 2 - 150}px`
-        targetGlow.style.top = `${targetRect.top + targetRect.height / 2 - 150}px`
+        targetGlow.style.left = `${
+          targetRect.left + targetRect.width / 2 - 150
+        }px`
+        targetGlow.style.top = `${
+          targetRect.top + targetRect.height / 2 - 150
+        }px`
         targetGlow.style.opacity = '0.3'
         targetGlow.style.transform = 'scale(1.2)'
       }
@@ -622,13 +740,29 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
       }, 800)
     }, 300)
 
-    spawnParticles(sourceCard, targetCard, isToGpt, createdElementsRef.current, cancelled, config, maxDelta)
+    spawnParticles(
+      sourceCard,
+      targetCard,
+      isToGpt,
+      createdElementsRef.current,
+      cancelled,
+      config,
+      maxDelta
+    )
 
     setTimeout(() => {
       if (cancelled.current) return
-      targetCard.style.borderColor = 'color-mix(in oklch, var(--success) 40%, transparent)'
-      targetCard.style.boxShadow = '0 0 40px color-mix(in oklch, var(--success) 18%, transparent)'
-      spawnRipples(targetCard, isToGpt, createdElementsRef.current, cancelled, config)
+      targetCard.style.borderColor =
+        'color-mix(in oklch, var(--success) 40%, transparent)'
+      targetCard.style.boxShadow =
+        '0 0 40px color-mix(in oklch, var(--success) 18%, transparent)'
+      spawnRipples(
+        targetCard,
+        isToGpt,
+        createdElementsRef.current,
+        cancelled,
+        config
+      )
     }, 350)
 
     const totalDuration = animationDuration + 400
@@ -670,62 +804,85 @@ export function QuotaTransferAnimation(props: QuotaTransferAnimationProps) {
   const toColorVar = colorVar(props.toColor)
 
   return (
-    <div ref={containerRef} className='relative overflow-visible rounded-lg border bg-muted/10'>
+    <div
+      ref={containerRef}
+      className='relative overflow-visible rounded-lg border bg-muted/10'
+    >
       {/* Background glow elements */}
       <div
         ref={fromGlowRef}
         className='pointer-events-none fixed z-0 size-[300px] rounded-full opacity-0'
-        style={{ filter: 'blur(80px)', transition: 'opacity 0.6s, transform 0.8s cubic-bezier(0.33, 1, 0.68, 1)' }}
+        style={{
+          filter: 'blur(80px)',
+          transition:
+            'opacity 0.6s, transform 0.8s cubic-bezier(0.33, 1, 0.68, 1)',
+        }}
       />
       <div
         ref={toGlowRef}
         className='pointer-events-none fixed z-0 size-[300px] rounded-full opacity-0'
-        style={{ filter: 'blur(80px)', transition: 'opacity 0.6s, transform 0.8s cubic-bezier(0.33, 1, 0.68, 1)' }}
+        style={{
+          filter: 'blur(80px)',
+          transition:
+            'opacity 0.6s, transform 0.8s cubic-bezier(0.33, 1, 0.68, 1)',
+        }}
       />
 
-      <div className='relative z-10 flex items-stretch gap-3 p-3 sm:gap-4 sm:p-4'>
-        {/* From side */}
-        <div className='flex flex-1 flex-col gap-1.5'>
-          <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase sm:text-xs'>
-            {props.fromLabel}
+      <div className='relative z-10 flex flex-col gap-2 p-3 sm:gap-3 sm:p-4'>
+        {/* Top row: Base Balance (left) + GPT Quota (right) */}
+        <div className='flex items-center justify-between gap-4'>
+          {/* From side (left) */}
+          <div className='flex flex-col gap-1'>
+            <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase sm:text-xs'>
+              {props.fromLabel}
+            </div>
+            <div className='relative'>
+              <span
+                ref={fromValueRef}
+                className='inline-block font-mono text-base font-bold tabular-nums sm:text-xl'
+                style={{
+                  color: fromColorVar,
+                  transition: 'text-shadow 0.3s',
+                }}
+              />
+              <div
+                ref={fromDeltaRef}
+                className='pointer-events-none absolute -top-1 right-0 font-mono text-xs font-bold tabular-nums opacity-0'
+              />
+            </div>
           </div>
-          <div className='relative'>
-            <span
-              ref={fromValueRef}
-              className='inline-block font-mono text-base font-bold tabular-nums sm:text-xl'
-              style={{ color: fromColorVar, transition: 'text-shadow 0.3s' }}
-            />
-            <div
-              ref={fromDeltaRef}
-              className='pointer-events-none absolute -top-1 right-0 font-mono text-xs font-bold tabular-nums opacity-0'
-            />
+
+          {/* To side (right) */}
+          <div className='flex flex-col items-end gap-1'>
+            <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase sm:text-xs'>
+              {props.toLabel}
+            </div>
+            <div className='relative'>
+              <span
+                ref={toValueRef}
+                className='inline-block font-mono text-base font-bold tabular-nums sm:text-xl'
+                style={{
+                  color: toColorVar,
+                  transition: 'text-shadow 0.3s',
+                }}
+              />
+              <div
+                ref={toDeltaRef}
+                className='pointer-events-none absolute -top-1 right-0 font-mono text-xs font-bold tabular-nums opacity-0'
+              />
+            </div>
           </div>
         </div>
 
-        {/* Energy pipe */}
+        {/* Horizontal energy pipe divider */}
         <div
           ref={pipeRef}
-          className='relative my-2 w-1.5 shrink-0 overflow-hidden rounded-full'
-          style={{ background: 'color-mix(in oklch, var(--muted-foreground) 8%, transparent)' }}
+          className='relative h-0.5 w-full shrink-0 overflow-hidden rounded-full'
+          style={{
+            background:
+              'color-mix(in oklch, var(--muted-foreground) 8%, transparent)',
+          }}
         />
-
-        {/* To side */}
-        <div className='flex flex-1 flex-col items-end gap-1.5'>
-          <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase sm:text-xs'>
-            {props.toLabel}
-          </div>
-          <div className='relative'>
-            <span
-              ref={toValueRef}
-              className='inline-block font-mono text-base font-bold tabular-nums sm:text-xl'
-              style={{ color: toColorVar, transition: 'text-shadow 0.3s' }}
-            />
-            <div
-              ref={toDeltaRef}
-              className='pointer-events-none absolute -top-1 right-0 font-mono text-xs font-bold tabular-nums opacity-0'
-            />
-          </div>
-        </div>
       </div>
     </div>
   )
