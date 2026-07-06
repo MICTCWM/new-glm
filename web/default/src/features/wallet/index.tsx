@@ -39,10 +39,11 @@ import {
   calculateAnimationDuration,
   type TransferDirection,
 } from './components/quota-transfer-animation'
+import { getAnimationConfig } from './lib/animation-config'
+import { getPerformanceLevel } from './lib/performance-detector'
 import { RechargeFormCard } from './components/recharge-form-card'
 import { SubscriptionPlansCard } from './components/subscription-plans-card'
 import { WalletStatsCard } from './components/wallet-stats-card'
-import { GptQuotaCard } from './components/gpt-quota-card'
 import { DEFAULT_DISCOUNT_RATE } from './constants'
 import {
   useTopupInfo,
@@ -100,7 +101,6 @@ export function Wallet(props: WalletProps) {
   const [preTransferGptQuota, setPreTransferGptQuota] = useState(0)
 
   const baseCardRef = useRef<HTMLDivElement>(null)
-  const gptCardRef = useRef<HTMLDivElement>(null)
 
   const { status } = useStatus()
   const { currency } = useSystemConfig()
@@ -132,12 +132,14 @@ export function Wallet(props: WalletProps) {
     useWaffoPancakePayment()
 
   // Fetch and refresh user data
-  const fetchUser = useCallback(async () => {
+  const fetchUser = useCallback(async (): Promise<UserWalletData | null> => {
     try {
       setUserLoading(true)
       const response = await getSelf()
       if (response.success && response.data) {
-        setUser(response.data as UserWalletData)
+        const newUser = response.data as UserWalletData
+        setUser(newUser)
+        return newUser
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -145,6 +147,7 @@ export function Wallet(props: WalletProps) {
     } finally {
       setUserLoading(false)
     }
+    return null
   }, [])
 
   useEffect(() => {
@@ -314,17 +317,10 @@ export function Wallet(props: WalletProps) {
                   isTransferring={isTransferring}
                   transferDirection={transferDirection}
                   fromRef={baseCardRef}
-                  toRef={gptCardRef}
                   formatFromValue={formatQuota}
                   formatToValue={formatGptQuota}
                   startFrom={preTransferQuota}
                   startTo={preTransferGptQuota}
-                />
-
-                <GptQuotaCard
-                  ref={gptCardRef}
-                  user={user}
-                  onRecharge={() => setTransferModeOpen(true)}
                 />
 
                 <Button
@@ -447,19 +443,15 @@ export function Wallet(props: WalletProps) {
         open={gptRechargeOpen}
         onOpenChange={setGptRechargeOpen}
         onSuccess={async () => {
-          // 先记录转换前的值作为动画起点
           const oldQuota = user?.quota ?? 0
           const oldGptQuota = user?.gpt_quota ?? 0
           setPreTransferQuota(oldQuota)
           setPreTransferGptQuota(oldGptQuota)
-          // 先刷新用户数据，拿到转换后的新值作为动画终点
-          await fetchUser()
-          // 此时 props.fromValue/toValue 已是新值，触发动画
+          const newUser = await fetchUser()
+          const newQuota = newUser?.quota ?? 0
+          const newGptQuota = newUser?.gpt_quota ?? 0
           setIsTransferring(true)
-          // 动态计算动画时长，避免硬编码
           const config = getAnimationConfig(getPerformanceLevel())
-          const newQuota = user?.quota ?? 0
-          const newGptQuota = user?.gpt_quota ?? 0
           const maxDelta = Math.max(
             Math.abs(newQuota - oldQuota),
             Math.abs(newGptQuota - oldGptQuota)
