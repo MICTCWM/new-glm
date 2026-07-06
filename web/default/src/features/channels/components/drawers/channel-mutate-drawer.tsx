@@ -2333,7 +2333,8 @@ export function ChannelMutateDrawer({
                               <Plus className='mr-2 h-4 w-4' />
                               {t('Fill All Models')}
                             </Button>
-                            {MODEL_FETCHABLE_TYPES.has(currentType) && (
+
+                    {MODEL_FETCHABLE_TYPES.has(currentType) && (
                               <Button
                                 type='button'
                                 variant='outline'
@@ -3330,6 +3331,30 @@ export function ChannelMutateDrawer({
                             <FormDescription>
                               {t(
                                 'Concatenate channel system prompt with user&apos;s prompt'
+                              )}
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* ── GPT Mode Required ── */}
+                    <FormField
+                      control={form.control}
+                      name='gpt_mode_required'
+                      render={({ field }) => (
+                        <FormItem className='flex items-center justify-between px-4 py-3'>
+                          <div className='space-y-0.5'>
+                            <FormLabel>{t('GPT Mode Required')}</FormLabel>
+                            <FormDescription>
+                              {t(
+                                'When enabled, only users with GPT mode turned on can use models from this channel'
                               )}
                             </FormDescription>
                           </div>

@@ -4581,6 +4581,8 @@
     "Convert GPT to Base": "Convert GPT to Base",
     "Available GPT Balance": "Available GPT Balance",
     "Will deduct GPT quota": "Will deduct GPT quota",
-    "Will gain base balance": "Will gain base balance"
+    "Will gain base balance": "Will gain base balance",
+    "GPT Mode Required": "GPT Mode Required",
+    "When enabled, only users with GPT mode turned on can use models from this channel": "When enabled, only users with GPT mode turned on can use models from this channel"
   }
 }

@@ -92,6 +92,7 @@ export interface ChannelSettings {
   system_prompt_override?: boolean
   special_user_enabled?: boolean
   special_user_ids?: number[]
+  gpt_mode_required?: boolean
 }
 
 export interface ChannelOtherSettings {

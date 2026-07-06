@@ -4587,6 +4587,8 @@
     "Convert GPT to Base": "GPT 转基础额度",
     "Available GPT Balance": "可用 GPT 余额",
     "Will deduct GPT quota": "将扣除 GPT 额度",
-    "Will gain base balance": "将获得基础余额"
+    "Will gain base balance": "将获得基础余额",
+    "GPT Mode Required": "GPT 模式专用渠道",
+    "When enabled, only users with GPT mode turned on can use models from this channel": "开启后，仅已启用 GPT 模式的用户可使用此渠道的模型"
   }
 }
