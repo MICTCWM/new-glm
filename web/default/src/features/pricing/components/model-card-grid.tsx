@@ -24,7 +24,6 @@ import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
 import { getAllModelMonitorSamples } from '../api'
-import { isGptGroupModel } from '../lib/filters'
 import type { ModelMonitorSample, PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
@@ -46,7 +45,6 @@ export function ModelCardGrid(props: ModelCardGridProps) {
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
   const totalPages = Math.max(1, Math.ceil(props.models.length / pageSize))
   const currentPage = Math.min(page, totalPages)
-  const gptGroups = props.gptGroups ?? []
 
   const perfQuery = useQuery({
     queryKey: ['perf-metrics-summary', 24],
@@ -67,21 +65,6 @@ export function ModelCardGrid(props: ModelCardGridProps) {
     const start = (currentPage - 1) * pageSize
     return props.models.slice(start, start + pageSize)
   }, [currentPage, pageSize, props.models])
-
-  // 把当前页的模型分成普通模型组与 GPT 分组模型组，
-  // 以便在两组之间渲染一条带文字的分隔线。
-  const { normalModels, gptModels } = useMemo(() => {
-    const normal: PricingModel[] = []
-    const gpt: PricingModel[] = []
-    for (const model of pagedModels) {
-      if (isGptGroupModel(model, gptGroups)) {
-        gpt.push(model)
-      } else {
-        normal.push(model)
-      }
-    }
-    return { normalModels: normal, gptModels: gpt }
-  }, [pagedModels, gptGroups])
 
   const perfMap = useMemo(() => {
     const map = new Map<string, ModelPerfBadgeData>()
@@ -122,17 +105,7 @@ export function ModelCardGrid(props: ModelCardGridProps) {
   return (
     <div className='space-y-4 sm:space-y-5'>
       <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3'>
-        {normalModels.map(renderCard)}
-        {normalModels.length > 0 && gptModels.length > 0 && (
-          <div className='col-span-full my-6 flex items-center gap-3'>
-            <div className='h-px flex-1 bg-border' />
-            <span className='text-muted-foreground text-sm font-medium whitespace-nowrap'>
-              {t('GPT Dedicated Groups')}
-            </span>
-            <div className='h-px flex-1 bg-border' />
-          </div>
-        )}
-        {gptModels.map(renderCard)}
+        {pagedModels.map(renderCard)}
       </div>
 
       {totalPages > 1 && (

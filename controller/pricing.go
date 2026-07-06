@@ -4,6 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -56,6 +57,23 @@ func GetPricing(c *gin.Context) {
 	}
 
 	usableGroup = service.GetUserUsableGroups(group)
+	// GPT 模式用户追加 GPT 专有分组，避免被 filterPricingByUsableGroups 过早过滤
+	// 与 controller/group.go 的 GetUserGroups 保持一致：以 GptGroupRatio 的 keys 为准
+	if userGptMode {
+		for groupName := range ratio_setting.GetGptGroupRatioCopy() {
+			if _, exists := usableGroup[groupName]; exists {
+				continue // 避免与普通分组重名覆盖
+			}
+			usableGroup[groupName] = setting.GetGptUsableGroupDescription(groupName)
+		}
+		// 同步把 GPT 专有分组倍率加入 groupRatio，避免前端按钮回退显示 "1x"
+		for g := range ratio_setting.GetGptGroupRatioCopy() {
+			if _, exists := groupRatio[g]; exists {
+				continue
+			}
+			groupRatio[g] = service.GetUserGroupRatio(group, g)
+		}
+	}
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	// 未开启 GPT 模式的用户不应看到仅由 GPT 专用渠道提供的模型
 	if !userGptMode {

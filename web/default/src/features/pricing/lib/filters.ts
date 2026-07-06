@@ -202,17 +202,3 @@ export function filterByTag(
     return modelTags.includes(tagLower)
   })
 }
-
-/**
- * 判断一个模型是否属于 GPT 专有分组。
- * 当 gptGroups 为空数组时，所有模型都视为普通模型。
- */
-export function isGptGroupModel(
-  model: PricingModel,
-  gptGroups: string[]
-): boolean {
-  return (
-    gptGroups.length > 0 &&
-    (model.enable_groups?.some((g) => gptGroups.includes(g)) ?? false)
-  )
-}

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Fragment, useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -36,7 +36,6 @@ import {
 import { TableSkeleton, TableEmpty } from '@/components/data-table'
 import { DataTablePagination } from '@/components/data-table/pagination'
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
-import { isGptGroupModel } from '../lib/filters'
 import type { PricingModel, TokenUnit } from '../types'
 import { usePricingColumns } from './pricing-columns'
 
@@ -130,40 +129,22 @@ export function PricingTable(props: PricingTableProps) {
                 description={t('No models match your current filters.')}
               />
             ) : (
-              rows.map((row, index) => {
-                const isGpt = isGptGroupModel(row.original, gptGroups)
-                const prevRow = rows[index - 1]
-                const prevIsGpt = prevRow
-                  ? isGptGroupModel(prevRow.original, gptGroups)
-                  : false
-                // 仅在 GPT 分组模型组的第一个模型前插入分隔行（首行除外）
-                const showDivider = index > 0 && isGpt && !prevIsGpt
+              rows.map((row) => {
                 return (
-                  <Fragment key={row.id}>
-                    {showDivider && (
-                      <TableRow className='bg-muted/40 hover:bg-muted/40'>
-                        <TableCell
-                          colSpan={columns.length}
-                          className='text-muted-foreground text-center text-sm font-medium'
-                        >
-                          {t('GPT Dedicated Groups')}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    <TableRow
-                      onClick={() => handleRowClick(row.original)}
-                      className='hover:bg-muted/30 cursor-pointer transition-colors'
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </Fragment>
+                  <TableRow
+                    key={row.id}
+                    onClick={() => handleRowClick(row.original)}
+                    className='hover:bg-muted/30 cursor-pointer transition-colors'
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
                 )
               })
             )}
