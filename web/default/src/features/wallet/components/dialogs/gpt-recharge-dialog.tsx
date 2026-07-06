@@ -181,9 +181,8 @@ export function GptRechargeDialog({
     const totalDays = totalMonths * 30
     const dailyPrice = plan.price_amount / totalDays
     const totalPrice = dailyPrice * daysAmount
-    // 将美元价格按汇率转为内部额度，再转为 GPT 额度
-    const internalQuota = totalPrice * 500000 // 1 USD = 500000 内部额度
-    return internalQuota * BASE_TO_GPT_RATIO
+    // 订阅 USD 价格直接等于 GPT 额度数值（1 USD 订阅 = 1 GPT 额度）
+    return totalPrice
   })()
 
   const canSubmitSubscription =

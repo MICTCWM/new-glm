@@ -479,7 +479,7 @@ func SubscriptionToGpt(c *gin.Context) {
 	}
 
 	totalPrice := dailyPrice * float64(req.Days)
-	gptQuota := totalPrice * common.GptQuotaExchangeRate
+	gptQuota := totalPrice
 
 	tx := model.DB.Begin()
 	if tx.Error != nil {
