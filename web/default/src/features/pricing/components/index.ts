@@ -29,3 +29,7 @@ export {
   ModelDetailsDrawer,
 } from './model-details'
 export { PricingTable } from './pricing-table'
+export {
+  ModelMonitorSparkline,
+  ModelMonitorBarChart,
+} from './model-monitor-chart'

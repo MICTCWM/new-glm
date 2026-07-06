@@ -110,3 +110,24 @@ export type PriceType =
   | 'audio_input'
   | 'audio_output'
 export type QuotaType = 0 | 1 // 0: token-based, 1: per-request
+
+// ----------------------------------------------------------------------------
+// Model Monitor Types
+// ----------------------------------------------------------------------------
+
+/**
+ * A single 60-second sample bucket for a model produced by the channel
+ * monitor. The backend polls each model once per minute and records the
+ * aggregated latency / success state for that window.
+ */
+export type ModelMonitorSample = {
+  model_name: string
+  /** Response time in milliseconds. May be 0 for sub-second requests. */
+  use_time_ms: number
+  /** true = the probe succeeded, false = it failed. */
+  success: boolean
+  /** Unix timestamp (seconds). */
+  created_at: number
+  /** false means there were no requests in this 60s window (paint a grey stub). */
+  has_data: boolean
+}

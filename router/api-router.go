@@ -342,6 +342,14 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)
 		dataRoute.GET("/self", middleware.UserAuth(), controller.GetUserQuotaDates)
 
+		// 模型渠道监控采样数据（需登录鉴权）
+		modelMonitorRoute := apiRouter.Group("/model-monitor")
+		modelMonitorRoute.Use(middleware.UserAuth())
+		{
+			modelMonitorRoute.GET("/samples", controller.GetModelMonitorSamples)
+			modelMonitorRoute.GET("/samples/all", controller.GetAllModelMonitorSamples)
+		}
+
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
 			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)

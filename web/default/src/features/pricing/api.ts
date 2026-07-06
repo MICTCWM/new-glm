@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
-import type { PricingData } from './types'
+import type { ModelMonitorSample, PricingData } from './types'
 
 // ----------------------------------------------------------------------------
 // Pricing APIs
@@ -27,4 +27,26 @@ import type { PricingData } from './types'
 export async function getPricing(): Promise<PricingData> {
   const res = await api.get('/api/pricing')
   return res.data
+}
+
+// ----------------------------------------------------------------------------
+// Model Monitor APIs
+// ----------------------------------------------------------------------------
+
+// Get monitor samples for a single model (last ~30 minutes, ascending by time)
+export async function getModelMonitorSamples(
+  modelName: string
+): Promise<ModelMonitorSample[]> {
+  const res = await api.get(
+    `/api/model-monitor/samples?model=${encodeURIComponent(modelName)}`
+  )
+  return res.data.data
+}
+
+// Get monitor samples for all models in one shot (used by the card grid)
+export async function getAllModelMonitorSamples(): Promise<
+  Record<string, ModelMonitorSample[]>
+> {
+  const res = await api.get('/api/model-monitor/samples/all')
+  return res.data.data
 }

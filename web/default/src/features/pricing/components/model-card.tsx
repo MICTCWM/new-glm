@@ -16,13 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { memo } from 'react'
-import { ChevronRight, Copy } from 'lucide-react'
+import { memo, useState } from 'react'
+import { Activity, ChevronRight, Copy } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { StatusBadge } from '@/components/status-badge'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
@@ -32,8 +39,12 @@ import {
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
-import type { PricingModel, TokenUnit } from '../types'
+import type { ModelMonitorSample, PricingModel, TokenUnit } from '../types'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
+import {
+  ModelMonitorBarChart,
+  ModelMonitorSparkline,
+} from './model-monitor-chart'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -43,6 +54,8 @@ export interface ModelCardProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   perf?: ModelPerfBadgeData
+  /** Recent monitor samples (last ~30 minutes) for the channel monitor row. */
+  monitorSamples?: ModelMonitorSample[]
 }
 
 export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
@@ -81,6 +94,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     Math.max(groups.length - 1, 0) +
     Math.max(endpoints.length - 2, 0) +
     Math.max(tags.length - 2, 0)
+
+  const [monitorOpen, setMonitorOpen] = useState(false)
+  const hasMonitor = (props.monitorSamples?.length ?? 0) > 0
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -350,6 +366,57 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           )}
         </div>
       </div>
+
+      {/* Channel monitor: sparkline reveals on hover, click to expand the
+          full bar chart inside a Sheet. */}
+      {hasMonitor && props.monitorSamples && (
+        <div className='mt-2 sm:mt-3'>
+          <button
+            type='button'
+            onClick={(e) => {
+              e.stopPropagation()
+              setMonitorOpen(true)
+            }}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-md border border-transparent px-1 py-1 text-left transition-all',
+              'opacity-60 group-hover:opacity-100 group-hover:border-border/60 group-hover:bg-muted/30',
+              'cursor-pointer hover:border-border/80'
+            )}
+            title={t('Channel Monitor')}
+          >
+            <Activity className='text-muted-foreground size-3.5 shrink-0' />
+            <span className='text-muted-foreground shrink-0 text-[11px] font-medium'>
+              {t('Channel Monitor')}
+            </span>
+            <ModelMonitorSparkline
+              samples={props.monitorSamples}
+              className='ml-auto w-[100px]'
+            />
+          </button>
+        </div>
+      )}
+
+      <Sheet open={monitorOpen} onOpenChange={setMonitorOpen}>
+        <SheetContent side='right' className='w-full sm:max-w-xl'>
+          <SheetHeader>
+            <SheetTitle className='font-mono'>
+              {props.model.model_name}
+            </SheetTitle>
+            <SheetDescription>
+              {t('Channel Monitor')} · {t('Last 30 minutes')}
+            </SheetDescription>
+          </SheetHeader>
+          <div className='p-4'>
+            {hasMonitor && props.monitorSamples ? (
+              <ModelMonitorBarChart samples={props.monitorSamples} />
+            ) : (
+              <div className='text-muted-foreground flex h-48 items-center justify-center text-xs'>
+                {t('No data')}
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 })

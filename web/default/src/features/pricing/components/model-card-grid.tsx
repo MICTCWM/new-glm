@@ -23,7 +23,8 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
-import type { PricingModel, TokenUnit } from '../types'
+import { getAllModelMonitorSamples } from '../api'
+import type { ModelMonitorSample, PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
 
@@ -51,6 +52,14 @@ export function ModelCardGrid(props: ModelCardGridProps) {
     retry: false,
   })
 
+  const monitorQuery = useQuery({
+    queryKey: ['model-monitor-samples-all'],
+    queryFn: getAllModelMonitorSamples,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: false,
+  })
+
   const pagedModels = useMemo(() => {
     const start = (currentPage - 1) * pageSize
     return props.models.slice(start, start + pageSize)
@@ -63,6 +72,16 @@ export function ModelCardGrid(props: ModelCardGridProps) {
     }
     return map
   }, [perfQuery.data])
+
+  const monitorMap = useMemo(() => {
+    const map = new Map<string, ModelMonitorSample[]>()
+    const raw = monitorQuery.data
+    if (!raw) return map
+    for (const [modelName, samples] of Object.entries(raw)) {
+      map.set(modelName, samples)
+    }
+    return map
+  }, [monitorQuery.data])
 
   if (props.models.length === 0) {
     return null
@@ -80,6 +99,7 @@ export function ModelCardGrid(props: ModelCardGridProps) {
             usdExchangeRate={props.usdExchangeRate}
             showRechargePrice={props.showRechargePrice}
             perf={perfMap.get(model.model_name || '')}
+            monitorSamples={monitorMap.get(model.model_name || '')}
             onClick={() => props.onModelClick(model.model_name || '')}
           />
         ))}
