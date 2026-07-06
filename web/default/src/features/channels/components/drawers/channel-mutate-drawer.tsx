@@ -3344,30 +3344,6 @@ export function ChannelMutateDrawer({
                       )}
                     />
 
-                    {/* ── GPT Mode Required ── */}
-                    <FormField
-                      control={form.control}
-                      name='gpt_mode_required'
-                      render={({ field }) => (
-                        <FormItem className='flex items-center justify-between px-4 py-3'>
-                          <div className='space-y-0.5'>
-                            <FormLabel>{t('GPT Mode Required')}</FormLabel>
-                            <FormDescription>
-                              {t(
-                                'When enabled, only users with GPT mode turned on can use models from this channel'
-                              )}
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-
                     {MODEL_FETCHABLE_TYPES.has(currentType) && (
                       <div className='space-y-3 rounded-lg border p-4'>
                         <SubHeading
@@ -3754,6 +3730,35 @@ export function ChannelMutateDrawer({
                     )}
                   />
                 )}
+              </div>
+
+              {/* ── GPT Mode Required ── */}
+              <div className='flex flex-col gap-4 border-b px-4 py-4'>
+                <FormField
+                  control={form.control}
+                  name='gpt_mode_required'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between gap-4'>
+                      <div className='flex items-start gap-2'>
+                        <KeyRound className='text-muted-foreground mt-0.5 size-4' />
+                        <div className='flex flex-col gap-1'>
+                          <FormLabel>{t('GPT Mode Required')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'When enabled, only users with GPT mode turned on can use models from this channel'
+                            )}
+                          </FormDescription>
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
               </div>
             </form>
           </Form>
