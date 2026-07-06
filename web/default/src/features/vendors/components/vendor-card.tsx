@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { memo } from 'react'
-import { Check, Pencil, Star, Trash2 } from 'lucide-react'
+import { memo, useState } from 'react'
+import { Activity, Check, Pencil, Star, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   Tooltip,
@@ -33,15 +33,28 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
-import { SUPPLY_TYPE, type Vendor } from '../types'
+import { SUPPLY_TYPE, type Vendor, type VendorMonitorSample } from '../types'
+import {
+  VendorMonitorBarChart,
+  VendorMonitorSparkline,
+} from './vendor-monitor-chart'
 
 interface VendorCardProps {
   vendor: Vendor
   onEdit?: (vendor: Vendor) => void
   onDelete?: (vendor: Vendor) => void
   canManage?: boolean
+  /** 最近的监控样本（最近 ~30 分钟） */
+  monitorSamples?: VendorMonitorSample[]
 }
 
 /**
@@ -88,6 +101,12 @@ function VendorCardBase(props: VendorCardProps) {
   const vendorIcon = vendor.icon ? getLobeIcon(vendor.icon, 28) : null
   const initial = vendor.name?.charAt(0).toUpperCase() || '?'
   const canManage = props.canManage ?? false
+
+  const [monitorOpen, setMonitorOpen] = useState(false)
+  const hasMonitor = (props.monitorSamples?.length ?? 0) > 0
+  // 仅在最新样本有数据时才显示毫秒数；无数据桶时显示 “—”，避免 0ms 与灰色“无数据”柱体语义冲突
+  const latestSample = props.monitorSamples?.[props.monitorSamples.length - 1]
+  const latestMs = latestSample?.has_data ? latestSample.use_time_ms : null
 
   return (
     <Card className='group/vendor h-full transition-shadow hover:shadow-md'>
@@ -139,7 +158,56 @@ function VendorCardBase(props: VendorCardProps) {
         >
           {vendor.description || t('No description')}
         </p>
+
+        {/* 供应商监控：悬停显示 Sparkline，点击展开 Sheet 大图 */}
+        {hasMonitor && props.monitorSamples && (
+          <button
+            type='button'
+            onClick={(e) => {
+              e.stopPropagation()
+              setMonitorOpen(true)
+            }}
+            className={cn(
+              'mt-3 flex w-full items-center gap-2 rounded-md border border-transparent px-1 py-1 text-left transition-all',
+              'opacity-60 group-hover/vendor:opacity-100 group-hover/vendor:border-border/60 group-hover/vendor:bg-muted/30',
+              'cursor-pointer hover:border-border/80'
+            )}
+            title={t('Vendor Monitor')}
+          >
+            <Activity className='text-muted-foreground size-3.5 shrink-0' />
+            <span className='text-muted-foreground shrink-0 text-[11px] font-medium'>
+              {t('Vendor Monitor')}
+            </span>
+            <VendorMonitorSparkline
+              samples={props.monitorSamples}
+              className='ml-auto w-[180px]'
+            />
+            <span className='text-muted-foreground shrink-0 text-[11px] font-mono'>
+              {latestMs !== null ? `${latestMs}ms` : '—'}
+            </span>
+          </button>
+        )}
       </CardContent>
+
+      <Sheet open={monitorOpen} onOpenChange={setMonitorOpen}>
+        <SheetContent side='right' className='w-full sm:max-w-xl'>
+          <SheetHeader>
+            <SheetTitle className='font-mono'>{vendor.name}</SheetTitle>
+            <SheetDescription>
+              {t('Vendor Monitor')} · {t('Last 30 minutes')}
+            </SheetDescription>
+          </SheetHeader>
+          <div className='p-4'>
+            {hasMonitor && props.monitorSamples ? (
+              <VendorMonitorBarChart samples={props.monitorSamples} />
+            ) : (
+              <div className='text-muted-foreground flex h-48 items-center justify-center text-xs'>
+                {t('No data')}
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </Card>
   )
 }

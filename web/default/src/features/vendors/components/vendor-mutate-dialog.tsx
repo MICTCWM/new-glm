@@ -53,11 +53,29 @@ import {
   type Vendor,
   type VendorFormValues,
 } from '../types'
+import { ChannelMultiSelect } from './channel-multi-select'
 
 type VendorMutateDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentVendor?: Vendor | null
+}
+
+/**
+ * 将后端存储的 channel_ids（JSON 数组字符串，如 "[1,2,3]"）解析为字符串数组。
+ * 解析失败时返回空数组。
+ */
+function parseChannelIds(channelIds?: string): string[] {
+  if (!channelIds) return []
+  try {
+    const parsed = JSON.parse(channelIds)
+    if (Array.isArray(parsed)) {
+      return parsed.map((n) => String(n))
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return []
 }
 
 export function VendorMutateDialog({
@@ -78,6 +96,7 @@ export function VendorMutateDialog({
       icon: '',
       status: 1,
       supply_type: SUPPLY_TYPE.SELF,
+      channel_ids: [],
     },
   })
 
@@ -94,6 +113,7 @@ export function VendorMutateDialog({
           currentVendor.supply_type === SUPPLY_TYPE.PARTNER
             ? SUPPLY_TYPE.PARTNER
             : SUPPLY_TYPE.SELF,
+        channel_ids: parseChannelIds(currentVendor.channel_ids),
       })
     } else if (open && !isEdit) {
       form.reset({
@@ -102,6 +122,7 @@ export function VendorMutateDialog({
         icon: '',
         status: 1,
         supply_type: SUPPLY_TYPE.SELF,
+        channel_ids: [],
       })
     }
   }, [open, isEdit, currentVendor, form])
@@ -109,9 +130,14 @@ export function VendorMutateDialog({
   const onSubmit = async (values: VendorFormValues) => {
     setIsSaving(true)
     try {
+      // 提交前将 channel_ids 数组序列化为 JSON 字符串，供后端存储
+      const payload = {
+        ...values,
+        channel_ids: JSON.stringify(values.channel_ids.map(Number)),
+      }
       const response = isEdit
-        ? await updateVendor({ ...values, id: currentVendor!.id })
-        : await createVendor(values)
+        ? await updateVendor({ ...payload, id: currentVendor!.id })
+        : await createVendor(payload)
 
       if (response.success) {
         toast.success(
@@ -261,6 +287,26 @@ export function VendorMutateDialog({
                       ))}
                     </RadioGroup>
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='channel_ids'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Bind Channels')}</FormLabel>
+                  <FormControl>
+                    <ChannelMultiSelect
+                      value={field.value ?? []}
+                      onChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t('Select channels used by this vendor for monitoring')}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

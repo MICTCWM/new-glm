@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
@@ -33,14 +33,18 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PublicLayout } from '@/components/layout'
-import { PageTransition } from '@/components/page-transition'
+import {
+  CardStaggerContainer,
+  CardStaggerItem,
+  PageTransition,
+} from '@/components/page-transition'
 import { useIsAdmin } from '@/hooks/use-admin'
-import { deleteVendor, getVendors } from './api'
+import { deleteVendor, getAllVendorMonitorSamples, getVendors } from './api'
 import { VendorCard } from './components/vendor-card'
 import { VendorMutateDialog } from './components/vendor-mutate-dialog'
 import { VendorsPrimaryButtons } from './components/vendors-primary-buttons'
 import { vendorsQueryKeys } from './lib/query-keys'
-import type { Vendor } from './types'
+import type { Vendor, VendorMonitorSample } from './types'
 
 export function Vendors() {
   const { t } = useTranslation()
@@ -57,7 +61,30 @@ export function Vendors() {
     queryFn: () => getVendors({ page_size: 1000 }),
   })
 
+  // 供应商监控样本：60 秒轮询一次，staleTime 同步为 60 秒
+  const monitorQuery = useQuery({
+    queryKey: ['vendor-monitor-samples-all'],
+    queryFn: getAllVendorMonitorSamples,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: false,
+  })
+
   const vendors = vendorsQuery.data?.data?.items ?? []
+
+  // 按 vendor_id 分发监控样本到各卡片
+  const monitorMap = useMemo(() => {
+    const map = new Map<number, VendorMonitorSample[]>()
+    const raw = monitorQuery.data
+    if (!raw) return map
+    for (const [vendorIdStr, samples] of Object.entries(raw)) {
+      const vendorId = Number(vendorIdStr)
+      if (!Number.isNaN(vendorId)) {
+        map.set(vendorId, samples)
+      }
+    }
+    return map
+  }, [monitorQuery.data])
 
   const handleEdit = (vendor: Vendor) => {
     setEditVendor(vendor)
@@ -117,17 +144,19 @@ export function Vendors() {
         ) : vendors.length === 0 ? (
           <VendorsEmpty />
         ) : (
-          <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
+          <CardStaggerContainer className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3'>
             {vendors.map((vendor) => (
-              <VendorCard
-                key={vendor.id}
-                vendor={vendor}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                canManage={isAdmin}
-              />
+              <CardStaggerItem key={vendor.id} className='h-full'>
+                <VendorCard
+                  vendor={vendor}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  canManage={isAdmin}
+                  monitorSamples={monitorMap.get(vendor.id)}
+                />
+              </CardStaggerItem>
             ))}
-          </div>
+          </CardStaggerContainer>
         )}
       </PageTransition>
 

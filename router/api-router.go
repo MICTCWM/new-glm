@@ -406,6 +406,9 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			vendorRoute.GET("/", controller.GetAllVendors)
 			vendorRoute.GET("/search", controller.SearchVendors)
+			// 监控采样数据查询（静态路径需在 /:id 通配符之前注册，避免被 :id 匹配）
+			vendorRoute.GET("/monitor/samples", controller.GetVendorMonitorSamples)
+			vendorRoute.GET("/monitor/samples/all", controller.GetAllVendorMonitorSamples)
 			vendorRoute.GET("/:id", controller.GetVendorMeta)
 			vendorRoute.POST("/", controller.CreateVendorMeta)
 			vendorRoute.PUT("/", controller.UpdateVendorMeta)

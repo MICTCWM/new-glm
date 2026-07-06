@@ -1,6 +1,8 @@
 package model
 
 import (
+	"encoding/json"
+
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
@@ -11,6 +13,7 @@ import (
 // Icon 采用 @lobehub/icons 的图标名，前端可直接渲染
 // Status 预留字段，1 表示启用
 // SupplyType 供应类型：0=自有供应, 1=合作供应
+// ChannelIDs 绑定的渠道 ID 列表（JSON 数组字符串，如 "[1,2,3]"），用于供应商监控采样
 // 本表同样遵循 3NF 设计范式
 
 type Vendor struct {
@@ -19,10 +22,32 @@ type Vendor struct {
 	Description string         `json:"description,omitempty" gorm:"type:text"`
 	Icon        string         `json:"icon,omitempty" gorm:"type:varchar(128)"`
 	Status      int            `json:"status" gorm:"default:1"`
-	SupplyType  int            `json:"supply_type" gorm:"default:0"` // 供应类型：0=自有供应, 1=合作供应
+	SupplyType  int            `json:"supply_type" gorm:"default:0"`                  // 供应类型：0=自有供应, 1=合作供应
+	ChannelIDs  string         `json:"channel_ids,omitempty" gorm:"type:text"`        // JSON 数组，如 "[1,2,3]"，绑定的渠道 ID 列表
 	CreatedTime int64          `json:"created_time" gorm:"bigint"`
 	UpdatedTime int64          `json:"updated_time" gorm:"bigint"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_vendor_name_delete_at,priority:2"`
+}
+
+// GetChannelIDList 返回渠道 ID 列表（解析 JSON 字符串）
+// 解析失败或为空时返回 nil
+func (v *Vendor) GetChannelIDList() []int {
+	if v.ChannelIDs == "" {
+		return nil
+	}
+	var ids []int
+	if err := json.Unmarshal([]byte(v.ChannelIDs), &ids); err != nil {
+		return nil
+	}
+	return ids
+}
+
+// GetAllVendorsWithChannels 获取所有绑定了渠道的供应商
+// 用于供应商监控采样任务遍历
+func GetAllVendorsWithChannels() ([]Vendor, error) {
+	var vendors []Vendor
+	err := DB.Where("channel_ids != '' AND channel_ids IS NOT NULL").Find(&vendors).Error
+	return vendors, err
 }
 
 // Insert 创建新的供应商记录

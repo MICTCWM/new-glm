@@ -41,6 +41,8 @@ export interface Vendor {
   status: number
   /** 0=自有供应, 1=合作供应 */
   supply_type: number
+  /** 绑定的渠道 ID 列表，JSON 数组字符串，如 "[1,2,3]" */
+  channel_ids?: string
   created_time?: number
   updated_time?: number
 }
@@ -80,6 +82,29 @@ export const vendorFormSchema = z.object({
   supply_type: z
     .union([z.literal(0), z.literal(1)])
     .default(SUPPLY_TYPE.SELF),
+  /** 绑定的渠道 ID 列表（字符串数组，提交时序列化为 JSON 字符串） */
+  channel_ids: z.array(z.string()).default([]),
 })
 
 export type VendorFormValues = z.infer<typeof vendorFormSchema>
+
+// ----------------------------------------------------------------------------
+// Vendor Monitor Types
+// ----------------------------------------------------------------------------
+
+/**
+ * 供应商监控的单个 60 秒采样桶。后端每分钟轮询一次每个供应商，
+ * 记录该窗口内的聚合响应延迟与成功状态。
+ */
+export interface VendorMonitorSample {
+  vendor_id: number
+  vendor_name: string
+  /** 响应时间（毫秒），可能为 0（亚秒级请求） */
+  use_time_ms: number
+  /** true=探测成功，false=探测失败 */
+  success: boolean
+  /** Unix 时间戳（秒） */
+  created_at: number
+  /** false 表示该 60s 窗口内无请求（绘制灰色占位柱） */
+  has_data: boolean
+}
