@@ -827,15 +827,16 @@ export function ModelMutateDrawer({
                       <FormLabel>{t('Vendor')}</FormLabel>
                       <Select
                         items={[
+                          { value: '__none__', label: t('No vendor') },
                           ...vendors.map((vendor) => ({
                             value: String(vendor.id),
                             label: vendor.name,
                           })),
                         ]}
                         onValueChange={(value) =>
-                          field.onChange(value ? parseInt(value) : undefined)
+                          field.onChange(value && value !== '__none__' ? parseInt(value) : undefined)
                         }
-                        value={field.value ? String(field.value) : undefined}
+                        value={field.value ? String(field.value) : '__none__'}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -844,6 +845,9 @@ export function ModelMutateDrawer({
                         </FormControl>
                         <SelectContent alignItemWithTrigger={false}>
                           <SelectGroup>
+                            <SelectItem value='__none__'>
+                              {t('No vendor')}
+                            </SelectItem>
                             {vendors.map((vendor) => (
                               <SelectItem
                                 key={vendor.id}

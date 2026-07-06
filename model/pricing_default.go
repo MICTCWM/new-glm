@@ -95,28 +95,27 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 	}
 }
 
-// 查找或创建供应商
+// getOrCreateVendor 查找或创建内存中的临时供应商（不持久化到数据库）
+// 仅用于定价计算的供应商映射，避免删除后被默认规则重建
 func getOrCreateVendor(vendorName string, vendorMap map[int]*Vendor) int {
-	// 查找现有供应商
+	// 查找现有供应商（包括数据库加载的和内存临时创建的）
 	for id, vendor := range vendorMap {
 		if vendor.Name == vendorName {
 			return id
 		}
 	}
 
-	// 创建新供应商
-	newVendor := &Vendor{
+	// 在内存中创建临时供应商（不持久化到数据库）
+	// 使用负数 ID 避免与数据库自增 ID 冲突
+	tempID := -(len(vendorMap) + 1)
+	tempVendor := &Vendor{
+		Id:     tempID,
 		Name:   vendorName,
 		Status: 1,
 		Icon:   getDefaultVendorIcon(vendorName),
 	}
-
-	if err := newVendor.Insert(); err != nil {
-		return 0
-	}
-
-	vendorMap[newVendor.Id] = newVendor
-	return newVendor.Id
+	vendorMap[tempID] = tempVendor
+	return tempID
 }
 
 // 获取供应商默认图标
