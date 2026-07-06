@@ -35,6 +35,12 @@ services:
       - BATCH_UPDATE_ENABLED=true  # 是否启用批量更新 (Whether to enable batch update)
       - NODE_NAME=new-api-node-1  # 节点名称，用于审计日志中标识节点身份；多节点/容器部署时建议设置 (Node name used in audit logs; recommended when running multiple instances or in containers)
       - SESSION_SECRET=change_me_to_a_random_string_!!!  # ⚠️ 生产环境必须修改为随机字符串！用于加密 session cookie，修改后所有用户需重新登录
+      # 限流配置（Rate Limit Settings）
+      # 页面浏览场景下默认阈值（180秒/60次 Web、180秒/180次 API）容易被前端轮询触发 429
+      # 关闭 Web 限流（静态资源/页面路由无需限流），调高 API 限流到 600次/180秒 以容纳管理后台轮询
+      - GLOBAL_WEB_RATE_LIMIT_ENABLE=false  # 关闭全局 Web 限流（静态资源/页面路由）
+      - GLOBAL_API_RATE_LIMIT=600  # 全局 API 限流阈值：180秒内最多 600 次（默认 180，页面轮询场景建议调高）
+      - GLOBAL_API_RATE_LIMIT_DURATION=180  # 全局 API 限流窗口（秒），默认 180
 #      - STREAMING_TIMEOUT=300  # 流模式无响应超时时间，单位秒，默认120秒，如果出现空补全可以尝试改为更大值 （Streaming timeout in seconds, default is 120s. Increase if experiencing empty completions）
 #      - SYNC_FREQUENCY=60  # Uncomment if regular database syncing is needed
 #      - GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX  # Google Analytics 的测量 ID (Google Analytics Measurement ID)
