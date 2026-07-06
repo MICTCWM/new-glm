@@ -26,7 +26,7 @@ type Ability struct {
 type AbilityWithChannel struct {
 	Ability
 	ChannelType    int     `json:"channel_type"`
-	ChannelSetting *string `json:"channel_setting" gorm:"column:setting"`
+	ChannelSetting *string `json:"channel_setting"`
 }
 
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {

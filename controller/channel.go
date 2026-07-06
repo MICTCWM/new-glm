@@ -1158,6 +1158,7 @@ func BatchSetGptChannels(c *gin.Context) {
 
 	// 刷新内存缓存，使 GPT 限制立即生效
 	model.InitChannelCache()
+	model.InvalidatePricingCache()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
