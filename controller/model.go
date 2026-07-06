@@ -112,9 +112,17 @@ func init() {
 func ListModels(c *gin.Context, modelType int) {
 	userOpenAiModels := make([]dto.OpenAIModels, 0)
 
+	// 获取用户 GPT 模式状态
+	userId := c.GetInt("id")
+	userGptMode := false
+	if userId > 0 {
+		if userCache, err := model.GetUserCache(userId); err == nil {
+			userGptMode = userCache.GetSetting().GptMode
+		}
+	}
+
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
-		userId := c.GetInt("id")
 		if userId > 0 {
 			userSettings, _ := model.GetUserSetting(userId, false)
 			if userSettings.AcceptUnsetRatioModel {
@@ -133,6 +141,9 @@ func ListModels(c *gin.Context, modelType int) {
 			tokenModelLimit = map[string]bool{}
 		}
 		for allowModel, _ := range tokenModelLimit {
+			if !userGptMode && isModelGptOnly(allowModel) {
+				continue
+			}
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(allowModel) {
 					continue
@@ -152,7 +163,6 @@ func ListModels(c *gin.Context, modelType int) {
 			}
 		}
 	} else {
-		userId := c.GetInt("id")
 		userGroup, err := model.GetUserGroup(userId, false)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
@@ -180,6 +190,9 @@ func ListModels(c *gin.Context, modelType int) {
 			models = model.GetGroupEnabledModels(group)
 		}
 		for _, modelName := range models {
+			if !userGptMode && isModelGptOnly(modelName) {
+				continue
+			}
 			if !acceptUnsetRatioModel {
 				if !helper.HasModelBillingConfig(modelName) {
 					continue
@@ -236,6 +249,11 @@ func ListModels(c *gin.Context, modelType int) {
 			"object":  "list",
 		})
 	}
+}
+
+// isModelGptOnly 检查模型是否仅由 GPT 专用渠道提供
+func isModelGptOnly(modelName string) bool {
+	return model.IsModelGptOnly(modelName)
 }
 
 func ChannelListModels(c *gin.Context) {

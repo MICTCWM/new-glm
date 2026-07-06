@@ -609,11 +609,16 @@ func GetUserModels(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	userGptMode := user.GetSetting().GptMode
 	groups := service.GetUserUsableGroups(user.Group)
 	var models []string
 	for group := range groups {
 		for _, g := range model.GetGroupEnabledModels(group) {
 			if !common.StringsContains(models, g) {
+				// 未开启 GPT 模式的用户不应看到仅由 GPT 专用渠道提供的模型
+				if !userGptMode && isModelGptOnly(g) {
+					continue
+				}
 				models = append(models, g)
 			}
 		}

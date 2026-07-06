@@ -37,6 +37,7 @@ type Pricing struct {
 	BillingMode            string                  `json:"billing_mode,omitempty"`
 	BillingExpr            string                  `json:"billing_expr,omitempty"`
 	PricingVersion         string                  `json:"pricing_version,omitempty"`
+	GptOnly                bool                    `json:"gpt_only,omitempty"` // 是否仅由 GPT 专用渠道提供
 }
 
 type PricingVendor struct {
@@ -53,11 +54,19 @@ var (
 	lastGetPricingTime   time.Time
 	updatePricingLock    sync.Mutex
 
-	// 缓存映射：模型名 -> 启用分组 / 计费类型
+	// 缓存映射：模型名 -> 启用分组 / 计费类型 / 是否仅 GPT 专用
 	modelEnableGroups     = make(map[string][]string)
 	modelQuotaTypeMap     = make(map[string]int)
+	modelGptOnlyMap       = make(map[string]bool)
 	modelEnableGroupsLock = sync.RWMutex{}
 )
+
+// IsModelGptOnly 检查模型是否仅由 GPT 专用渠道提供（O(1) 缓存查询）
+func IsModelGptOnly(modelName string) bool {
+	modelEnableGroupsLock.RLock()
+	defer modelEnableGroupsLock.RUnlock()
+	return modelGptOnlyMap[modelName]
+}
 
 var (
 	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
@@ -216,6 +225,10 @@ func updatePricing() {
 
 	modelGroupsMap := make(map[string]*types.Set[string])
 
+	// 追踪每个模型是否有非 GPT 专用渠道
+	modelHasNonGptChannel := make(map[string]bool)
+	modelHasGptChannel := make(map[string]bool)
+
 	for _, ability := range enableAbilities {
 		groups, ok := modelGroupsMap[ability.Model]
 		if !ok {
@@ -223,6 +236,26 @@ func updatePricing() {
 			modelGroupsMap[ability.Model] = groups
 		}
 		groups.Add(ability.Group)
+
+		// 解析渠道 setting 判断是否 GPT 专用
+		if ability.ChannelSetting != nil && *ability.ChannelSetting != "" {
+			var channelSetting struct {
+				GptModeRequired bool `json:"gpt_mode_required"`
+			}
+			if err := json.Unmarshal([]byte(*ability.ChannelSetting), &channelSetting); err == nil {
+				if channelSetting.GptModeRequired {
+					modelHasGptChannel[ability.Model] = true
+				} else {
+					modelHasNonGptChannel[ability.Model] = true
+				}
+			} else {
+				// 解析失败，视为普通渠道
+				modelHasNonGptChannel[ability.Model] = true
+			}
+		} else {
+			// 没有 setting，视为普通渠道
+			modelHasNonGptChannel[ability.Model] = true
+		}
 	}
 
 	//这里使用切片而不是Set，因为一个模型可能支持多个端点类型，并且第一个端点是优先使用端点
@@ -317,6 +350,7 @@ func updatePricing() {
 			ModelName:              model,
 			EnableGroup:            groups.Items(),
 			SupportedEndpointTypes: modelSupportEndpointTypes[model],
+			GptOnly:                modelHasGptChannel[model] && !modelHasNonGptChannel[model],
 		}
 
 		// 补充模型元数据（描述、标签、供应商、状态）
@@ -381,6 +415,8 @@ func updatePricing() {
 		groupSet := types.NewSet[string]()
 		quotaSet := types.NewSet[int]()
 		endpointSet := make(map[constant.EndpointType]struct{})
+		hasNonGpt := false
+		hasGpt := false
 		for _, routeModel := range meta.AutoRouteModels {
 			// Access local maps directly to avoid calling GetModelEnableGroups/
 			// GetModelQuotaTypes/GetModelSupportEndpointTypes which internally call
@@ -398,6 +434,12 @@ func updatePricing() {
 				for _, endpointType := range endpoints {
 					endpointSet[endpointType] = struct{}{}
 				}
+			}
+			if modelHasGptChannel[routeModel] {
+				hasGpt = true
+			}
+			if modelHasNonGptChannel[routeModel] {
+				hasNonGpt = true
 			}
 		}
 		if groupSet.Len() == 0 {
@@ -419,6 +461,7 @@ func updatePricing() {
 			ContextLength:          meta.ContextLength,
 			EnableGroup:            groupSet.Items(),
 			SupportedEndpointTypes: supportedEndpoints,
+			GptOnly:                hasGpt && !hasNonGpt,
 		}
 
 		modelPrice, findPrice := ratio_setting.GetModelPrice(meta.ModelName, false)
@@ -470,9 +513,11 @@ func updatePricing() {
 	modelEnableGroupsLock.Lock()
 	modelEnableGroups = make(map[string][]string)
 	modelQuotaTypeMap = make(map[string]int)
+	modelGptOnlyMap = make(map[string]bool)
 	for _, p := range pricingMap {
 		modelEnableGroups[p.ModelName] = p.EnableGroup
 		modelQuotaTypeMap[p.ModelName] = p.QuotaType
+		modelGptOnlyMap[p.ModelName] = p.GptOnly
 	}
 	modelEnableGroupsLock.Unlock()
 

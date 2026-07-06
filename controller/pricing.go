@@ -38,6 +38,7 @@ func GetPricing(c *gin.Context) {
 	userId, exists := c.Get("id")
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
+	userGptMode := false
 	for s, f := range ratio_setting.GetGroupRatioCopy() {
 		groupRatio[s] = f
 	}
@@ -46,6 +47,7 @@ func GetPricing(c *gin.Context) {
 		user, err := model.GetUserCache(userId.(int))
 		if err == nil {
 			group = user.Group
+			userGptMode = user.GetSetting().GptMode
 			for g := range groupRatio {
 				ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
 				if ok {
@@ -57,6 +59,16 @@ func GetPricing(c *gin.Context) {
 
 	usableGroup = service.GetUserUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	// 未开启 GPT 模式的用户不应看到仅由 GPT 专用渠道提供的模型
+	if !userGptMode {
+		filtered := make([]model.Pricing, 0, len(pricing))
+		for _, p := range pricing {
+			if !p.GptOnly {
+				filtered = append(filtered, p)
+			}
+		}
+		pricing = filtered
+	}
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
