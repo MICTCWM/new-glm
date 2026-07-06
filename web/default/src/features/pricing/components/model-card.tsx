@@ -390,7 +390,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             </span>
             <ModelMonitorSparkline
               samples={props.monitorSamples}
-              className='ml-auto w-[100px]'
+              className='ml-auto w-[180px]'
             />
           </button>
         </div>

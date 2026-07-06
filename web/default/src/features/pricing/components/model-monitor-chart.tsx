@@ -110,8 +110,8 @@ export function ModelMonitorSparkline(props: ModelMonitorSparklineProps) {
   return (
     <div
       className={cn(
-        'flex h-8 items-end gap-px',
-        'w-full min-w-[80px] max-w-[120px]',
+        'flex h-9 items-end gap-[1.5px]',
+        'w-full min-w-[150px] max-w-[200px]',
         props.className
       )}
       role='img'
@@ -121,7 +121,7 @@ export function ModelMonitorSparkline(props: ModelMonitorSparklineProps) {
         <div
           key={i}
           className={cn(
-            'flex-1 rounded-sm transition-opacity',
+            'w-[3px] shrink-0 rounded-[1px] transition-opacity',
             colourFor(bar.status)
           )}
           style={{ height: `${bar.heightPct}%` }}
