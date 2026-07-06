@@ -105,6 +105,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/aff_transfer", controller.TransferAffQuota)
 				selfRoute.POST("/transfer_gpt_quota", controller.TransferToGptQuota)
 				selfRoute.POST("/transfer_gpt_quota_back", controller.TransferGptQuotaToQuota)
+				selfRoute.POST("/subscription_to_gpt", controller.SubscriptionToGpt)
 				selfRoute.PUT("/setting", controller.UpdateUserSetting)
 
 				// 2FA routes

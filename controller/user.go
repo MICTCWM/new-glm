@@ -357,8 +357,8 @@ type TransferToGptQuotaRequest struct {
 }
 
 // TransferToGptQuota 将用户基础余额转换为 GPT 专属额度
-// 请求体: { "base_quota": 500 }
-// 汇率: 500 基础余额 = 1.5 GPT 余额
+// 请求体: { "base_quota": 250000000 }
+// 汇率: 500 美金（250000000 内部额度）= 1.5 GPT 余额
 func TransferToGptQuota(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
 		return
@@ -425,6 +425,91 @@ func TransferGptQuotaToQuota(c *gin.Context) {
 		"message": "",
 		"data": gin.H{
 			"base_quota_gained": baseQuota,
+		},
+	})
+}
+
+// SubscriptionToGptRequest 订阅天数转为 GPT 额度的请求体
+type SubscriptionToGptRequest struct {
+	SubscriptionId int `json:"subscription_id" binding:"required"`
+	Days           int `json:"days" binding:"required"`
+}
+
+// SubscriptionToGpt 将用户活跃订阅的剩余天数转换为 GPT 专用额度
+// 请求体: { "subscription_id": 1, "days": 10 }
+// 每日价格 = 订阅总价格 / (月数 * 30)，按月折算
+func SubscriptionToGpt(c *gin.Context) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
+
+	id := c.GetInt("id")
+	req := SubscriptionToGptRequest{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.SubscriptionId <= 0 {
+		common.ApiErrorMsg(c, "订阅ID不能为空")
+		return
+	}
+	if req.Days <= 0 {
+		common.ApiErrorMsg(c, "天数必须大于0")
+		return
+	}
+
+	now := common.GetTimestamp()
+	var userSub model.UserSubscription
+	if err := model.DB.Where("id = ? AND user_id = ? AND status = ? AND end_time > ?",
+		req.SubscriptionId, id, "active", now).First(&userSub).Error; err != nil {
+		common.ApiErrorMsg(c, "订阅不存在或已失效")
+		return
+	}
+
+	plan, err := model.GetSubscriptionPlanById(userSub.PlanId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	dailyPrice := model.CalcDailyPriceFromPlan(plan)
+	if dailyPrice <= 0 {
+		common.ApiErrorMsg(c, "订阅定价异常")
+		return
+	}
+
+	totalPrice := dailyPrice * float64(req.Days)
+	gptQuota := totalPrice * common.GptQuotaExchangeRate
+
+	tx := model.DB.Begin()
+	if tx.Error != nil {
+		common.ApiError(c, tx.Error)
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := model.ReduceSubscriptionDays(tx, req.SubscriptionId, id, req.Days); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	if err := model.AddGptQuota(tx, id, gptQuota); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	model.RecordLog(id, model.LogTypeTopup, fmt.Sprintf("使用订阅 #%d 减少 %d 天，获得 %.4f GPT 额度", req.SubscriptionId, req.Days, gptQuota))
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"gpt_quota_gained": gptQuota,
 		},
 	})
 }

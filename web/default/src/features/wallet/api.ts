@@ -40,6 +40,8 @@ import type {
   WaffoPancakePaymentResponse,
   GptQuotaTransferResponse,
   GptQuotaTransferBackResponse,
+  SubscriptionToGptRequest,
+  SubscriptionToGptResponse,
 } from './types'
 
 // ============================================================================
@@ -273,6 +275,20 @@ export async function transferGptQuotaBack(
   const res = await api.post(
     '/api/user/transfer_gpt_quota_back',
     { gpt_quota: gptQuota },
+    { skipBusinessError: true } as Record<string, unknown>
+  )
+  return res.data
+}
+
+/**
+ * Convert subscription days to GPT quota
+ */
+export async function subscriptionToGpt(
+  request: SubscriptionToGptRequest
+): Promise<SubscriptionToGptResponse> {
+  const res = await api.post(
+    '/api/user/subscription_to_gpt',
+    request,
     { skipBusinessError: true } as Record<string, unknown>
   )
   return res.data

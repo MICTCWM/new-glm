@@ -1204,3 +1204,37 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 		return tx.Save(&sub).Error
 	})
 }
+
+// ReduceSubscriptionDays reduces the end_time of a user subscription by the given number of days
+// and returns the new end_time. It validates that the subscription is active and the reduction
+// doesn't make end_time earlier than now.
+// The caller must handle the transaction.
+func ReduceSubscriptionDays(tx *gorm.DB, subscriptionId, userId int, days int) (int64, error) {
+	if tx == nil {
+		return 0, errors.New("tx is nil")
+	}
+	if days <= 0 {
+		return 0, errors.New("days must be > 0")
+	}
+	now := common.GetTimestamp()
+	var sub UserSubscription
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").
+		Where("id = ? AND user_id = ?", subscriptionId, userId).First(&sub).Error; err != nil {
+		return 0, errors.New("subscription not found")
+	}
+	if sub.Status != "active" {
+		return 0, errors.New("subscription is not active")
+	}
+	if sub.EndTime <= now {
+		return 0, errors.New("subscription has expired")
+	}
+	reduceSeconds := int64(days) * 86400
+	newEndTime := sub.EndTime - reduceSeconds
+	if newEndTime < now {
+		return 0, errors.New("reduction exceeds remaining valid days")
+	}
+	if err := tx.Model(&sub).Update("end_time", newEndTime).Error; err != nil {
+		return 0, err
+	}
+	return newEndTime, nil
+}

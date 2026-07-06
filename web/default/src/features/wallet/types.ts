@@ -271,6 +271,26 @@ export interface GptQuotaTransferBackData {
 export type GptQuotaTransferBackResponse = ApiResponse<GptQuotaTransferBackData>
 
 /**
+ * Subscription to GPT quota transfer request
+ */
+export interface SubscriptionToGptRequest {
+  subscription_id: number
+  days: number
+}
+
+/**
+ * Subscription to GPT quota transfer response data
+ */
+export interface SubscriptionToGptData {
+  gpt_quota_gained: number
+}
+
+/**
+ * Subscription to GPT quota transfer response
+ */
+export type SubscriptionToGptResponse = ApiResponse<SubscriptionToGptData>
+
+/**
  * Topup record status
  */
 export type TopupStatus = 'success' | 'pending' | 'expired'

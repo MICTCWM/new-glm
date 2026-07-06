@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useState } from 'react'
-import { Loader2, Lock } from 'lucide-react'
+import { Loader2, Lock, Unlock } from 'lucide-react'
 import i18next from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -45,6 +45,9 @@ import {
   GPT_TO_BASE_RATIO,
 } from '../../constants'
 import { formatQuota, parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
+import { getSelfSubscriptions } from '@/features/subscriptions/api'
+import { getPublicPlans } from '@/features/subscriptions/api'
+import type { UserSubscriptionRecord, SubscriptionPlan } from '@/features/subscriptions/types'
 
 interface GptRechargeDialogProps {
   open: boolean
@@ -75,6 +78,14 @@ export function GptRechargeDialog({
   const [baseInput, setBaseInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  // 订阅充值相关状态
+  const [subscriptions, setSubscriptions] = useState<UserSubscriptionRecord[]>([])
+  const [subscriptionsLoading, setSubscriptionsLoading] = useState(false)
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([])
+  const [selectedSubId, setSelectedSubId] = useState<number | null>(null)
+  const [daysInput, setDaysInput] = useState('')
+  const [subscriptionSubmitting, setSubscriptionSubmitting] = useState(false)
+
   const isToGpt = direction === 'toGpt'
 
   // Reset state when dialog opens
@@ -83,8 +94,137 @@ export function GptRechargeDialog({
       setMode('gpt')
       setGptInput('')
       setBaseInput('')
+      setSelectedSubId(null)
+      setDaysInput('')
+      setSubscriptions([])
+      setPlans([])
     }
   }, [open])
+
+  // 当方向为 toGpt 且 dialog 打开时，加载订阅列表
+  useEffect(() => {
+    if (open && isToGpt) {
+      setSubscriptionsLoading(true)
+      Promise.all([
+        getSelfSubscriptions(),
+        getPublicPlans(),
+      ])
+        .then(([subRes, planRes]) => {
+          if (subRes.success && subRes.data) {
+            const activeSubs = (subRes.data.subscriptions || []).filter(
+              (s: UserSubscriptionRecord) =>
+                s.subscription.status === 'active'
+            )
+            setSubscriptions(activeSubs)
+          }
+          if (planRes.success && planRes.data) {
+            const planList = (planRes.data as { plan: SubscriptionPlan }[]).map(
+              (p: { plan: SubscriptionPlan }) => p.plan
+            )
+            setPlans(planList)
+          }
+        })
+        .catch(() => {
+          setSubscriptions([])
+          setPlans([])
+        })
+        .finally(() => {
+          setSubscriptionsLoading(false)
+        })
+    }
+  }, [open, isToGpt])
+
+  // 计算选中订阅的剩余天数
+  const selectedSubscription = subscriptions.find(
+    (s) => s.subscription.id === selectedSubId
+  )
+  const remainingDays = selectedSubscription
+    ? Math.max(
+        0,
+        Math.ceil(
+          (selectedSubscription.subscription.end_time * 1000 - Date.now()) /
+            (1000 * 86400)
+        )
+      )
+    : 0
+
+  const daysAmount = Number(daysInput) || 0
+  const daysInvalid = daysAmount <= 0 || !Number.isInteger(daysAmount)
+  const daysExceedsRemaining = daysAmount > remainingDays
+
+  // 订阅充值的 GPT 额度计算（前端预估）
+  const estimatedGptQuotaFromSub = (() => {
+    if (!selectedSubscription || daysInvalid) return 0
+    const sub = selectedSubscription.subscription
+    const plan = plans.find((p) => p.id === sub.plan_id)
+    if (!plan || plan.price_amount <= 0) return 0
+    // 计算总月数
+    let totalMonths = 0
+    switch (plan.duration_unit) {
+      case 'year':
+        totalMonths = plan.duration_value * 12
+        break
+      case 'month':
+        totalMonths = plan.duration_value
+        break
+      case 'day':
+        totalMonths = plan.duration_value / 30
+        break
+      case 'hour':
+        totalMonths = plan.duration_value / (30 * 24)
+        break
+      case 'custom':
+        totalMonths = (plan.custom_seconds || 0) / (30 * 24 * 3600)
+        break
+    }
+    if (totalMonths <= 0) return 0
+    const totalDays = totalMonths * 30
+    const dailyPrice = plan.price_amount / totalDays
+    const totalPrice = dailyPrice * daysAmount
+    // 将美元价格按汇率转为内部额度，再转为 GPT 额度
+    const internalQuota = totalPrice * 500000 // 1 USD = 500000 内部额度
+    return internalQuota * BASE_TO_GPT_RATIO
+  })()
+
+  const canSubmitSubscription =
+    selectedSubId !== null &&
+    !daysInvalid &&
+    !daysExceedsRemaining &&
+    !subscriptionSubmitting
+
+  const handleSubscriptionSubmit = async () => {
+    if (!canSubmitSubscription) return
+    try {
+      setSubscriptionSubmitting(true)
+      const res = await (
+        await import('../../api')
+      ).subscriptionToGpt({
+        subscription_id: selectedSubId!,
+        days: daysAmount,
+      })
+      if (res.success) {
+        toast.success(res.message || i18next.t('Recharge successful'))
+        onOpenChange(false)
+        await onSuccess()
+      } else {
+        toast.error(res.message || i18next.t('Recharge failed'))
+      }
+    } catch (_error) {
+      toast.error(i18next.t('Recharge failed'))
+    } finally {
+      setSubscriptionSubmitting(false)
+    }
+  }
+
+  // 格式化时间戳为日期字符串
+  const formatEndTime = (timestamp: number): string => {
+    const d = new Date(timestamp * 1000)
+    return d.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  }
 
   // 用户输入的是美金，需要转成内部额度
   const gptAmount = Number(gptInput) || 0
@@ -231,20 +371,121 @@ export function GptRechargeDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue='quota' className='w-full'>
-          <TabsList className='grid w-full grid-cols-2'>
-            <TabsTrigger value='subscription'>
-              <Lock className='size-3.5' />
-              {t('Subscription Recharge')}
-            </TabsTrigger>
+        <Tabs defaultValue={isToGpt ? 'subscription' : 'quota'} className='w-full'>
+          <TabsList className={`grid w-full ${isToGpt ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {isToGpt && (
+              <TabsTrigger value='subscription'>
+                <Unlock className='size-3.5' />
+                {t('Subscription Recharge')}
+              </TabsTrigger>
+            )}
             <TabsTrigger value='quota'>{t('Quota Recharge')}</TabsTrigger>
           </TabsList>
 
-          <TabsContent value='subscription' className='mt-4'>
-            <div className='text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm'>
-              {t('Coming soon')}
-            </div>
-          </TabsContent>
+          {isToGpt && (
+            <TabsContent value='subscription' className='mt-4'>
+              <div className='space-y-4'>
+                {subscriptionsLoading ? (
+                  <div className='text-muted-foreground flex items-center justify-center gap-2 py-8 text-sm'>
+                    <Loader2 className='h-4 w-4 animate-spin' />
+                    {t('Loading subscriptions...')}
+                  </div>
+                ) : subscriptions.length === 0 ? (
+                  <div className='text-muted-foreground rounded-lg border border-dashed p-6 text-center text-sm'>
+                    {t('No active subscriptions')}
+                  </div>
+                ) : (
+                  <>
+                    <div className='grid gap-2'>
+                      {subscriptions.map((s) => {
+                        const sub = s.subscription
+                        const isSelected = selectedSubId === sub.id
+                        const subRemaining = Math.max(
+                          0,
+                          Math.ceil(
+                            (sub.end_time * 1000 - Date.now()) / (1000 * 86400)
+                          )
+                        )
+                        const planInfo = plans.find((p) => p.id === sub.plan_id)
+                        return (
+                          <button
+                            key={sub.id}
+                            type='button'
+                            onClick={() => {
+                              setSelectedSubId(isSelected ? null : sub.id)
+                              setDaysInput('')
+                            }}
+                            className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+                              isSelected
+                                ? 'border-primary bg-primary/5'
+                                : 'hover:bg-accent/50'
+                            }`}
+                          >
+                            <div className='flex-1'>
+                              <div className='text-sm font-medium'>
+                                {planInfo?.title || `${t('Subscription')} #${sub.id}`}
+                              </div>
+                              <div className='text-muted-foreground text-xs'>
+                                {t('Expires')}: {formatEndTime(sub.end_time)} · {t('Remaining')} {subRemaining} {t('days')}
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {selectedSubscription && (
+                      <div className='space-y-3 rounded-lg border p-3'>
+                        <div className='space-y-1'>
+                          <Label htmlFor='sub-days'>{t('Days to reduce')}</Label>
+                          <Input
+                            id='sub-days'
+                            type='number'
+                            min={1}
+                            max={remainingDays}
+                            value={daysInput}
+                            onChange={(e) => setDaysInput(e.target.value)}
+                            placeholder={t('Enter number of days')}
+                            className='font-mono'
+                          />
+                        </div>
+
+                        {daysExceedsRemaining && !daysInvalid && (
+                          <p className='text-destructive text-xs font-medium'>
+                            {t('Reduction exceeds remaining valid days')}
+                          </p>
+                        )}
+
+                        <div className='space-y-2 rounded-lg bg-muted/40 p-3'>
+                          <div className='flex items-center justify-between text-sm'>
+                            <span className='text-muted-foreground'>
+                              {t('Estimated GPT quota gained')}
+                            </span>
+                            <span className='font-mono font-semibold text-green-600 tabular-nums'>
+                              {formatGptQuota(estimatedGptQuotaFromSub)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <Button
+                          type='button'
+                          size='lg'
+                          className='w-full'
+                          onClick={handleSubscriptionSubmit}
+                          disabled={!canSubmitSubscription}
+                        >
+                          {subscriptionSubmitting && (
+                            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                          )}
+                          {t('Confirm Recharge')}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </TabsContent>
+          )}
 
           <TabsContent value='quota' className='mt-4'>
             <div className='space-y-4'>

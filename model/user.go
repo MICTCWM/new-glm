@@ -981,6 +981,39 @@ func DecreaseUserGptQuota(id int, quota float64) error {
 	return DB.Model(&User{}).Where("id = ?", id).Update("gpt_quota", gorm.Expr("gpt_quota - ?", quota)).Error
 }
 
+// CalcDailyPriceFromPlan calculates the daily price in USD from a SubscriptionPlan.
+// It converts the plan's duration to months, then divides PriceAmount by total days.
+func CalcDailyPriceFromPlan(plan *SubscriptionPlan) float64 {
+	if plan == nil || plan.PriceAmount <= 0 {
+		return 0
+	}
+	var totalMonths float64
+	switch plan.DurationUnit {
+	case SubscriptionDurationYear:
+		totalMonths = float64(plan.DurationValue) * 12
+	case SubscriptionDurationMonth:
+		totalMonths = float64(plan.DurationValue)
+	case SubscriptionDurationDay:
+		totalMonths = float64(plan.DurationValue) / 30.0
+	case SubscriptionDurationHour:
+		totalMonths = float64(plan.DurationValue) / (30.0 * 24.0)
+	case SubscriptionDurationCustom:
+		if plan.CustomSeconds > 0 {
+			totalMonths = float64(plan.CustomSeconds) / (30.0 * 24.0 * 3600.0)
+		}
+	default:
+		totalMonths = 1
+	}
+	if totalMonths <= 0 {
+		return 0
+	}
+	totalDays := totalMonths * 30.0
+	if totalDays <= 0 {
+		return 0
+	}
+	return plan.PriceAmount / totalDays
+}
+
 // TransferQuotaToGptQuota 将基础余额转换为 GPT 专属额度
 // 汇率：500 美金 = 250000000 内部额度 = 1.5 GPT 余额（转换系数 common.GptQuotaExchangeRate）
 // 事务内 FOR UPDATE 锁定用户行，保证扣减与增加的原子性
@@ -1073,6 +1106,26 @@ func TransferGptQuotaToQuota(userId int, gptQuota float64) (int, error) {
 	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %.4f GPT 额度为 %d 基础额度", gptQuota, baseQuota))
 
 	return baseQuota, nil
+}
+
+// AddGptQuota increases the user's GPT quota by the given amount.
+// This function operates on an existing transaction.
+func AddGptQuota(tx *gorm.DB, userId int, gptQuota float64) error {
+	if tx == nil {
+		return errors.New("tx is nil")
+	}
+	if gptQuota <= 0 {
+		return errors.New("gpt quota must be > 0")
+	}
+	user := &User{}
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(user, userId).Error; err != nil {
+		return err
+	}
+	user.GptQuota += gptQuota
+	if err := tx.Save(user).Error; err != nil {
+		return err
+	}
+	return nil
 }
 
 //func GetRootUserEmail() (email string) {
