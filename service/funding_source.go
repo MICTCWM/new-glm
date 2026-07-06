@@ -3,6 +3,7 @@ package service
 import (
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -61,6 +62,54 @@ func (w *WalletFunding) Refund() error {
 	// IncreaseUserQuota 是 quota += N 的非幂等操作，不能重试，否则会多退额度。
 	// 订阅的 RefundSubscriptionPreConsume 有 requestId 幂等保护所以可以重试。
 	return model.IncreaseUserQuota(w.userId, w.consumed, false)
+}
+
+// ---------------------------------------------------------------------------
+// GptWalletFunding — GPT 专有额度资金来源实现
+// ---------------------------------------------------------------------------
+
+// GptWalletFunding 使用用户的 GPT 专有额度（gpt_quota）作为资金来源。
+// 当用户选到 GPT 专有分组时使用，与基础钱包额度（quota）完全隔离。
+type GptWalletFunding struct {
+	userId   int
+	consumed float64 // 实际预扣的 GPT 额度（float64，GPT 单位）
+}
+
+func (g *GptWalletFunding) Source() string { return BillingSourceGptWallet }
+
+// PreConsume 从 GPT 专有额度中预扣 amount（基础额度 int 单位）。
+// 内部按 common.GptQuotaExchangeRate 转换为 GPT 额度（float64）后扣减。
+func (g *GptWalletFunding) PreConsume(amount int) error {
+	if amount <= 0 {
+		return nil
+	}
+	gptQuota := float64(amount) * common.GptQuotaExchangeRate
+	if err := model.DecreaseUserGptQuota(g.userId, gptQuota); err != nil {
+		return err
+	}
+	g.consumed = gptQuota
+	return nil
+}
+
+// Settle 根据差额调整 GPT 额度（正数补扣，负数退还）。
+// delta 为基础额度 int 单位，内部转换为 GPT 额度。
+func (g *GptWalletFunding) Settle(delta int) error {
+	if delta == 0 {
+		return nil
+	}
+	gptDelta := float64(delta) * common.GptQuotaExchangeRate
+	if delta > 0 {
+		return model.DecreaseUserGptQuota(g.userId, gptDelta)
+	}
+	return model.IncreaseUserGptQuota(g.userId, -gptDelta)
+}
+
+// Refund 退还所有预扣的 GPT 额度（非幂等，不能重试）。
+func (g *GptWalletFunding) Refund() error {
+	if g.consumed <= 0 {
+		return nil
+	}
+	return model.IncreaseUserGptQuota(g.userId, g.consumed)
 }
 
 // ---------------------------------------------------------------------------

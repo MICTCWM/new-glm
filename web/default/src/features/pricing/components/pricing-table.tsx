@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useCallback } from 'react'
+import { Fragment, useState, useCallback } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -36,6 +36,7 @@ import {
 import { TableSkeleton, TableEmpty } from '@/components/data-table'
 import { DataTablePagination } from '@/components/data-table/pagination'
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
+import { isGptGroupModel } from '../lib/filters'
 import type { PricingModel, TokenUnit } from '../types'
 import { usePricingColumns } from './pricing-columns'
 
@@ -47,6 +48,7 @@ export interface PricingTableProps {
   tokenUnit?: TokenUnit
   showRechargePrice?: boolean
   onModelClick?: (modelName: string) => void
+  gptGroups?: string[]
 }
 
 export function PricingTable(props: PricingTableProps) {
@@ -59,6 +61,7 @@ export function PricingTable(props: PricingTableProps) {
     tokenUnit = DEFAULT_TOKEN_UNIT,
     showRechargePrice = false,
     onModelClick,
+    gptGroups = [],
   } = props
 
   const [pagination, setPagination] = useState<PaginationState>({
@@ -91,6 +94,8 @@ export function PricingTable(props: PricingTableProps) {
     [onModelClick]
   )
 
+  const rows = table.getRowModel().rows
+
   return (
     <div className='space-y-4'>
       <div className='overflow-hidden rounded-lg border'>
@@ -118,29 +123,49 @@ export function PricingTable(props: PricingTableProps) {
           <TableBody>
             {isLoading ? (
               <TableSkeleton table={table} keyPrefix='pricing-skeleton' />
-            ) : table.getRowModel().rows.length === 0 ? (
+            ) : rows.length === 0 ? (
               <TableEmpty
                 colSpan={columns.length}
                 title={t('No Models Found')}
                 description={t('No models match your current filters.')}
               />
             ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  onClick={() => handleRowClick(row.original)}
-                  className='hover:bg-muted/30 cursor-pointer transition-colors'
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              rows.map((row, index) => {
+                const isGpt = isGptGroupModel(row.original, gptGroups)
+                const prevRow = rows[index - 1]
+                const prevIsGpt = prevRow
+                  ? isGptGroupModel(prevRow.original, gptGroups)
+                  : false
+                // 仅在 GPT 分组模型组的第一个模型前插入分隔行（首行除外）
+                const showDivider = index > 0 && isGpt && !prevIsGpt
+                return (
+                  <Fragment key={row.id}>
+                    {showDivider && (
+                      <TableRow className='bg-muted/40 hover:bg-muted/40'>
+                        <TableCell
+                          colSpan={columns.length}
+                          className='text-muted-foreground text-center text-sm font-medium'
+                        >
+                          {t('GPT Dedicated Groups')}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    <TableRow
+                      onClick={() => handleRowClick(row.original)}
+                      className='hover:bg-muted/30 cursor-pointer transition-colors'
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </Fragment>
+                )
+              })
             )}
           </TableBody>
         </Table>

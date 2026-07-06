@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createSectionRegistry } from '../utils/section-registry'
 import { GptChannelsSection } from './components/gpt-channels-section'
+import { GptGroupsSection } from './components/gpt-groups-section'
 
 const GPT_SECTIONS = [
   {
@@ -26,6 +27,12 @@ const GPT_SECTIONS = [
     descriptionKey:
       'GPT channel management, only users with GPT mode enabled can use these channels',
     build: () => <GptChannelsSection />,
+  },
+  {
+    id: 'groups',
+    titleKey: 'GPT Group Settings',
+    descriptionKey: 'Configure dedicated groups for GPT mode users',
+    build: () => <GptGroupsSection />,
   },
 ] as const
 

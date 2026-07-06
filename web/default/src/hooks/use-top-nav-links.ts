@@ -34,6 +34,7 @@ const DEFAULT_HEADER_NAV_MODULES = {
   console: true,
   pricing: { enabled: true, requireAuth: false },
   rankings: { enabled: true, requireAuth: false },
+  vendors: { enabled: true, requireAuth: false },
   docs: true,
   about: true,
 }
@@ -84,6 +85,10 @@ function parseHeaderNavModules(
       rankings: parseAccessModule(
         parsed.rankings,
         DEFAULT_HEADER_NAV_MODULES.rankings
+      ),
+      vendors: parseAccessModule(
+        parsed.vendors,
+        DEFAULT_HEADER_NAV_MODULES.vendors
       ),
     }
   } catch {
@@ -142,6 +147,13 @@ export function useTopNavLinks(): TopNavLink[] {
   if (rankings && typeof rankings === 'object' && rankings.enabled) {
     const disabled = rankings.requireAuth && !isAuthed
     links.push({ title: t('Rankings'), href: '/rankings', disabled })
+  }
+
+  // Vendors
+  const vendors = modules?.vendors
+  if (vendors && typeof vendors === 'object' && vendors.enabled) {
+    const disabled = vendors.requireAuth && !isAuthed
+    links.push({ title: t('Vendors'), href: '/vendors', disabled })
   }
 
   // Docs (supports external links)

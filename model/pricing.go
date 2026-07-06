@@ -45,6 +45,7 @@ type PricingVendor struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Icon        string `json:"icon,omitempty"`
+	SupplyType  int    `json:"supply_type"` // 供应类型：0=自有供应, 1=合作供应
 }
 
 var (
@@ -220,6 +221,7 @@ func updatePricing() {
 			Name:        v.Name,
 			Description: v.Description,
 			Icon:        v.Icon,
+			SupplyType:  v.SupplyType,
 		})
 	}
 

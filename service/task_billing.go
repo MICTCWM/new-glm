@@ -90,10 +90,18 @@ func taskIsSubscription(task *model.Task) bool {
 	return task.PrivateData.BillingSource == BillingSourceSubscription && task.PrivateData.SubscriptionId > 0
 }
 
-// taskAdjustFunding 调整任务的资金来源（钱包或订阅），delta > 0 表示扣费，delta < 0 表示退还。
+// taskAdjustFunding 调整任务的资金来源（钱包、订阅或 GPT 钱包），delta > 0 表示扣费，delta < 0 表示退还。
 func taskAdjustFunding(task *model.Task, delta int) error {
 	if taskIsSubscription(task) {
 		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
+	}
+	if task.PrivateData.BillingSource == BillingSourceGptWallet {
+		// GPT 钱包：将基础额度转换为 GPT 额度（float64）后调整
+		gptDelta := float64(delta) * common.GptQuotaExchangeRate
+		if delta > 0 {
+			return model.DecreaseUserGptQuota(task.UserId, gptDelta)
+		}
+		return model.IncreaseUserGptQuota(task.UserId, -gptDelta)
 	}
 	if delta > 0 {
 		return model.DecreaseUserQuota(task.UserId, delta, false)
@@ -286,15 +294,8 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		return
 	}
 
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
-
-	var finalGroupRatio float64
-	if hasUserGroupRatio {
-		finalGroupRatio = userGroupRatio
-	} else {
-		finalGroupRatio = groupRatio
-	}
+	// 使用统一入口获取分组倍率（内部按 GPT > GroupGroup > Group 优先级）
+	finalGroupRatio := GetUserGroupRatio(group, group)
 
 	// 计算 OtherRatios 乘积（视频折扣、时长等）
 	otherMultiplier := 1.0

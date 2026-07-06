@@ -57,6 +57,10 @@ func GetUserAutoGroup(userGroup string) []string {
 // userGroup 用户分组
 // group 需要获取倍率的分组
 func GetUserGroupRatio(userGroup, group string) float64 {
+	// 优先查 GPT 专有分组倍率
+	if ratio_setting.ContainsGptGroupRatio(group) {
+		return ratio_setting.GetGptGroupRatio(group)
+	}
 	ratio, ok := ratio_setting.GetGroupGroupRatio(userGroup, group)
 	if ok {
 		return ratio

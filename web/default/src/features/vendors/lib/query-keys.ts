@@ -16,27 +16,5 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useParams } from '@tanstack/react-router'
-import {
-  GPT_DEFAULT_SECTION,
-  getGptSectionContent,
-  type GptSectionId,
-} from './section-registry.tsx'
-
-export function GptSettings() {
-  const params = useParams({
-    from: '/_authenticated/system-settings/gpt/$section',
-  })
-
-  const activeSection = (params?.section ??
-    GPT_DEFAULT_SECTION) as GptSectionId
-  const sectionContent = getGptSectionContent(activeSection, {})
-
-  return (
-    <div className='flex h-full w-full flex-1 flex-col'>
-      <div className='faded-bottom h-full w-full overflow-y-auto scroll-smooth pe-4 pb-12'>
-        <div className='space-y-4'>{sectionContent}</div>
-      </div>
-    </div>
-  )
-}
+// 复用 models feature 的 vendorsQueryKeys，避免重复定义
+export { vendorsQueryKeys } from '@/features/models/lib/query-keys'

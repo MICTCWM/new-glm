@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 )
@@ -201,6 +202,20 @@ func AddToken(c *gin.Context) {
 		})
 		return
 	}
+	// 校验 GPT 专有分组权限：仅 GPT 模式用户可使用 GPT 专有分组
+	if token.Group != "" && ratio_setting.ContainsGptGroupRatio(token.Group) {
+		userId := c.GetInt("id")
+		userGptMode := false
+		if userId > 0 {
+			if userCache, err := model.GetUserCache(userId); err == nil && userCache != nil {
+				userGptMode = userCache.GetSetting().GptMode
+			}
+		}
+		if !userGptMode {
+			common.ApiErrorMsg(c, "GPT 专有分组仅 GPT 模式用户可用")
+			return
+		}
+	}
 	key, err := common.GenerateKey()
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgTokenGenerateFailed)
@@ -290,6 +305,19 @@ func UpdateToken(c *gin.Context) {
 	if statusOnly != "" {
 		cleanToken.Status = token.Status
 	} else {
+		// 校验 GPT 专有分组权限：仅 GPT 模式用户可使用 GPT 专有分组
+		if token.Group != "" && ratio_setting.ContainsGptGroupRatio(token.Group) {
+			userGptMode := false
+			if userId > 0 {
+				if userCache, err := model.GetUserCache(userId); err == nil && userCache != nil {
+					userGptMode = userCache.GetSetting().GptMode
+				}
+			}
+			if !userGptMode {
+				common.ApiErrorMsg(c, "GPT 专有分组仅 GPT 模式用户可用")
+				return
+			}
+		}
 		// If you add more fields, please also update token.Update()
 		cleanToken.Name = token.Name
 		cleanToken.ExpiredTime = token.ExpiredTime

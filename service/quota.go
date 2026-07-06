@@ -91,10 +91,6 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
-	if err != nil {
-		return err
-	}
 
 	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
 	if err != nil {
@@ -106,21 +102,25 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	textOutTokens := usage.OutputTokenDetails.TextTokens
 	audioInputTokens := usage.InputTokenDetails.AudioTokens
 	audioOutTokens := usage.OutputTokenDetails.AudioTokens
-	groupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
+	// 使用统一入口获取分组倍率（内部按 GPT > GroupGroup > Group 优先级）
+	groupRatio := GetUserGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup)
 	modelRatio, _, _ := ratio_setting.GetModelRatio(modelName)
 
 	autoGroup, exists := common.GetContextKey(ctx, constant.ContextKeyAutoGroup)
 	if exists {
-		groupRatio = ratio_setting.GetGroupRatio(autoGroup.(string))
-		log.Printf("final group ratio: %f", groupRatio)
 		relayInfo.UsingGroup = autoGroup.(string)
+		groupRatio = GetUserGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup)
+		log.Printf("final group ratio: %f", groupRatio)
+	}
+
+	// 同步 BillingSource：GPT 专有分组使用 GPT 额度
+	// 当用户选到 GPT 专有分组时，后续 PostConsumeQuota 会自动走 GPT 钱包分支
+	isGptGroup := ratio_setting.ContainsGptGroupRatio(relayInfo.UsingGroup)
+	if isGptGroup {
+		relayInfo.BillingSource = BillingSourceGptWallet
 	}
 
 	actualGroupRatio := groupRatio
-	userGroupRatio, ok := ratio_setting.GetGroupGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup)
-	if ok {
-		actualGroupRatio = userGroupRatio
-	}
 
 	quotaInfo := QuotaInfo{
 		InputDetails: TokenDetails{
@@ -139,8 +139,27 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 
 	quota := calculateAudioQuota(quotaInfo)
 
-	if userQuota < quota {
-		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
+	// 余额检查：根据分组类型检查对应额度
+	if isGptGroup {
+		// GPT 专有分组：获取并检查 GPT 额度
+		userGptQuota, err := model.GetUserGptQuota(relayInfo.UserId, false)
+		if err != nil {
+			return err
+		}
+		relayInfo.UserGptQuota = userGptQuota
+		preConsumeGpt := float64(quota) * common.GptQuotaExchangeRate
+		if userGptQuota < preConsumeGpt {
+			return fmt.Errorf("GPT 专有额度不足, 剩余 GPT 额度: %.4f, 需要预扣费: %.4f", userGptQuota, preConsumeGpt)
+		}
+	} else {
+		// 非 GPT 分组：获取并检查基础额度
+		userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return err
+		}
+		if userQuota < quota {
+			return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
+		}
 	}
 
 	if !token.UnlimitedQuota && token.RemainQuota < quota {
@@ -443,7 +462,7 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 
 func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (err error) {
 
-	// 1) Consume from wallet quota OR subscription item
+	// 1) Consume from wallet quota OR subscription item OR gpt wallet
 	if relayInfo != nil && relayInfo.BillingSource == BillingSourceSubscription {
 		if relayInfo.SubscriptionId == 0 {
 			return errors.New("subscription id is missing")
@@ -454,6 +473,17 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 				return err
 			}
 			relayInfo.SubscriptionPostDelta += delta
+		}
+	} else if relayInfo != nil && relayInfo.BillingSource == BillingSourceGptWallet {
+		// GPT 钱包：扣减/增加 GPT 专有额度
+		gptQuotaDelta := float64(quota) * common.GptQuotaExchangeRate
+		if quota > 0 {
+			err = model.DecreaseUserGptQuota(relayInfo.UserId, gptQuotaDelta)
+		} else {
+			err = model.IncreaseUserGptQuota(relayInfo.UserId, -gptQuotaDelta)
+		}
+		if err != nil {
+			return err
 		}
 	} else {
 		// Wallet

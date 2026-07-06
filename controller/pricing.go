@@ -49,10 +49,8 @@ func GetPricing(c *gin.Context) {
 			group = user.Group
 			userGptMode = user.GetSetting().GptMode
 			for g := range groupRatio {
-				ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
-				if ok {
-					groupRatio[g] = ratio
-				}
+				// 使用统一入口获取分组倍率（内部按 GPT > GroupGroup > Group 优先级）
+				groupRatio[g] = service.GetUserGroupRatio(group, g)
 			}
 		}
 	}
@@ -84,8 +82,19 @@ func GetPricing(c *gin.Context) {
 		"usable_group":       usableGroup,
 		"supported_endpoint": model.GetSupportedEndpointMap(),
 		"auto_groups":        service.GetUserAutoGroup(group),
+		"gpt_groups":         getGptGroupKeys(),
 		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
+}
+
+// getGptGroupKeys 返回所有 GPT 专有分组的名称列表
+func getGptGroupKeys() []string {
+	gptGroupRatio := ratio_setting.GetGptGroupRatioCopy()
+	keys := make([]string, 0, len(gptGroupRatio))
+	for k := range gptGroupRatio {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func ResetModelRatio(c *gin.Context) {

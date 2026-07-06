@@ -47,6 +47,7 @@ export function Pricing() {
     usableGroup,
     endpointMap,
     autoGroups,
+    gptGroups,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -128,6 +129,7 @@ export function Pricing() {
           usdExchangeRate={usdExchangeRate}
           tokenUnit={tokenUnit}
           showRechargePrice={showRechargePrice}
+          gptGroups={gptGroups}
         />
       )
     }
@@ -140,6 +142,7 @@ export function Pricing() {
         tokenUnit={tokenUnit}
         showRechargePrice={showRechargePrice}
         onModelClick={handleModelClick}
+        gptGroups={gptGroups}
       />
     )
   }

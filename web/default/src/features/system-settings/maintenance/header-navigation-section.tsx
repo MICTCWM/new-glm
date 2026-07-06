@@ -47,6 +47,8 @@ const headerNavSchema = z.object({
   pricingRequireAuth: z.boolean(),
   rankingsEnabled: z.boolean(),
   rankingsRequireAuth: z.boolean(),
+  vendorsEnabled: z.boolean(),
+  vendorsRequireAuth: z.boolean(),
   docs: z.boolean(),
   about: z.boolean(),
 })
@@ -81,6 +83,14 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.rankings?.requireAuth === undefined
       ? HEADER_NAV_DEFAULT.rankings.requireAuth
       : Boolean(config.rankings.requireAuth),
+  vendorsEnabled:
+    config.vendors?.enabled === undefined
+      ? HEADER_NAV_DEFAULT.vendors.enabled
+      : Boolean(config.vendors.enabled),
+  vendorsRequireAuth:
+    config.vendors?.requireAuth === undefined
+      ? HEADER_NAV_DEFAULT.vendors.requireAuth
+      : Boolean(config.vendors.requireAuth),
   docs:
     config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
   about:
@@ -122,6 +132,11 @@ export function HeaderNavigationSection({
         ...(config.rankings ?? HEADER_NAV_DEFAULT.rankings),
         enabled: values.rankingsEnabled,
         requireAuth: values.rankingsRequireAuth,
+      },
+      vendors: {
+        ...(config.vendors ?? HEADER_NAV_DEFAULT.vendors),
+        enabled: values.vendorsEnabled,
+        requireAuth: values.vendorsRequireAuth,
       },
     }
 
@@ -170,7 +185,7 @@ export function HeaderNavigationSection({
   const accessModules: Array<{
     enabledKey: keyof HeaderNavFormValues
     requireAuthKey: keyof HeaderNavFormValues
-    requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled'
+    requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled' | 'vendorsEnabled'
     title: string
     description: string
     requireAuthTitle: string
@@ -196,6 +211,17 @@ export function HeaderNavigationSection({
       requireAuthTitle: t('Require login to view rankings'),
       requireAuthDescription: t(
         'Visitors must authenticate before accessing the rankings page.'
+      ),
+    },
+    {
+      enabledKey: 'vendorsEnabled',
+      requireAuthKey: 'vendorsRequireAuth',
+      requireAuthDependsOn: 'vendorsEnabled',
+      title: t('Vendors'),
+      description: t('Vendors list and management page.'),
+      requireAuthTitle: t('Require login to view vendors'),
+      requireAuthDescription: t(
+        'Visitors must authenticate before accessing the vendors page.'
       ),
     },
   ]

@@ -22,6 +22,7 @@ type ModuleAccess = { enabled: boolean; requireAuth: boolean }
 const DEFAULTS: Record<string, ModuleAccess> = {
   pricing: { enabled: true, requireAuth: false },
   rankings: { enabled: true, requireAuth: false },
+  vendors: { enabled: true, requireAuth: false },
 }
 
 function parseAccess(raw: unknown, fallback: ModuleAccess): ModuleAccess {
@@ -45,7 +46,9 @@ function getCachedStatus(): Record<string, unknown> | null {
   }
 }
 
-export function getModuleAccess(module: 'rankings' | 'pricing'): ModuleAccess {
+export function getModuleAccess(
+  module: 'rankings' | 'pricing' | 'vendors'
+): ModuleAccess {
   const status = getCachedStatus()
   if (!status) return DEFAULTS[module]
 

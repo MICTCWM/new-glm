@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -237,6 +238,13 @@ func (s *BillingSession) reserveFunding(delta int) error {
 		}
 		funding.consumed += delta
 		return nil
+	case *GptWalletFunding:
+		gptDelta := float64(delta) * common.GptQuotaExchangeRate
+		if err := model.DecreaseUserGptQuota(funding.userId, gptDelta); err != nil {
+			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+		}
+		funding.consumed += gptDelta
+		return nil
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, int64(delta)); err != nil {
 			return types.NewErrorWithStatusCode(
@@ -260,6 +268,13 @@ func (s *BillingSession) rollbackFundingReserve(delta int) {
 			common.SysLog("error rolling back wallet funding reserve: " + err.Error())
 		} else {
 			funding.consumed -= delta
+		}
+	case *GptWalletFunding:
+		gptDelta := float64(delta) * common.GptQuotaExchangeRate
+		if err := model.IncreaseUserGptQuota(funding.userId, gptDelta); err != nil {
+			common.SysLog("error rolling back gpt wallet funding reserve: " + err.Error())
+		} else {
+			funding.consumed -= gptDelta
 		}
 	case *SubscriptionFunding:
 		if err := model.PostConsumeUserSubscriptionDelta(funding.subscriptionId, -int64(delta)); err != nil {
@@ -303,6 +318,10 @@ func (s *BillingSession) shouldTrust(c *gin.Context) bool {
 	switch s.funding.Source() {
 	case BillingSourceWallet:
 		return s.relayInfo.UserQuota > trustQuota
+	case BillingSourceGptWallet:
+		// GPT 额度信任旁路：将 trustQuota 转换为 GPT 额度单位比较
+		gptTrustQuota := float64(trustQuota) * common.GptQuotaExchangeRate
+		return s.relayInfo.UserGptQuota > gptTrustQuota
 	case BillingSourceSubscription:
 		// 订阅不能启用信任旁路。原因：
 		// 1. PreConsumeUserSubscription 要求 amount>0 来创建预扣记录并锁定订阅
@@ -396,6 +415,45 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 			return nil, apiErr
 		}
 		return session, nil
+	}
+
+	// tryGptWallet 使用 GPT 专有额度（gpt_quota）作为资金来源。
+	// 当用户选到 GPT 专有分组时使用，与基础钱包额度（quota）完全隔离，
+	// 不足时直接报错，不降级到基础余额或订阅。
+	tryGptWallet := func() (*BillingSession, *types.NewAPIError) {
+		userGptQuota, err := model.GetUserGptQuota(relayInfo.UserId, false)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+		}
+		preConsumeGpt := float64(preConsumedQuota) * common.GptQuotaExchangeRate
+		if userGptQuota <= 0 {
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("GPT 专有额度不足, 剩余 GPT 额度: %.4f", userGptQuota),
+				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		if userGptQuota-preConsumeGpt < 0 {
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("GPT 专有额度不足, 剩余 GPT 额度: %.4f, 需要预扣费: %.4f", userGptQuota, preConsumeGpt),
+				types.ErrorCodeInsufficientUserQuota, http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
+		relayInfo.UserGptQuota = userGptQuota
+
+		session := &BillingSession{
+			relayInfo: relayInfo,
+			funding:   &GptWalletFunding{userId: relayInfo.UserId},
+		}
+		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
+			return nil, apiErr
+		}
+		return session, nil
+	}
+
+	// GPT 专有分组优先于用户的 BillingPreference
+	// 当用户选到 GPT 专有分组时，必须使用 GPT 额度扣费
+	if ratio_setting.ContainsGptGroupRatio(relayInfo.UsingGroup) {
+		return tryGptWallet()
 	}
 
 	switch pref {

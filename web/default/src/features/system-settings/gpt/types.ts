@@ -23,3 +23,15 @@ export interface GptChannelInfo {
   status: number
   tag?: string | null
 }
+
+export interface GptGroupRow {
+  _id: string
+  name: string
+  ratio: number
+  description: string
+}
+
+export interface GptGroupSettings {
+  groupRatio: Record<string, number>
+  userUsableGroups: Record<string, string>
+}

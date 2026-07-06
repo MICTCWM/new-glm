@@ -124,6 +124,7 @@ type RelayInfo struct {
 	UserSetting            dto.UserSetting
 	UserEmail              string
 	UserQuota              int
+	UserGptQuota           float64 // 用户 GPT 专有额度（用于信任检查和日志）
 	RelayFormat            types.RelayFormat
 	SendResponseCount      int
 	ReceivedResponseCount  int

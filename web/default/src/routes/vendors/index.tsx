@@ -16,27 +16,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useParams } from '@tanstack/react-router'
-import {
-  GPT_DEFAULT_SECTION,
-  getGptSectionContent,
-  type GptSectionId,
-} from './section-registry.tsx'
+import { createFileRoute, redirect } from '@tanstack/react-router'
+import { Vendors } from '@/features/vendors'
+import { getModuleAccess } from '@/lib/nav-modules'
+import { useAuthStore } from '@/stores/auth-store'
 
-export function GptSettings() {
-  const params = useParams({
-    from: '/_authenticated/system-settings/gpt/$section',
-  })
-
-  const activeSection = (params?.section ??
-    GPT_DEFAULT_SECTION) as GptSectionId
-  const sectionContent = getGptSectionContent(activeSection, {})
-
-  return (
-    <div className='flex h-full w-full flex-1 flex-col'>
-      <div className='faded-bottom h-full w-full overflow-y-auto scroll-smooth pe-4 pb-12'>
-        <div className='space-y-4'>{sectionContent}</div>
-      </div>
-    </div>
-  )
-}
+export const Route = createFileRoute('/vendors/')({
+  beforeLoad: () => {
+    const access = getModuleAccess('vendors')
+    if (!access.enabled) {
+      throw redirect({ to: '/' })
+    }
+    if (access.requireAuth) {
+      const { auth } = useAuthStore.getState()
+      if (!auth.user) {
+        throw redirect({ to: '/sign-in', search: { redirect: '/vendors' } })
+      }
+    }
+  },
+  component: Vendors,
+})

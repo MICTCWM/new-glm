@@ -241,6 +241,17 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "GptGroupRatio":
+		err = ratio_setting.CheckGptGroupRatio(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	case "GptUserUsableGroups":
+		// 无需特殊验证，JSON 解析在 updateOptionMap 中处理
 	case "ImageRatio":
 		err = ratio_setting.UpdateImageRatioByJSONString(option.Value.(string))
 		if err != nil {

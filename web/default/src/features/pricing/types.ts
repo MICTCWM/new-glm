@@ -98,6 +98,8 @@ export type PricingData = {
   usable_group: Record<string, { desc: string; ratio: number }>
   supported_endpoint: Record<string, string>
   auto_groups: string[]
+  /** GPT 专有分组名列表，可能为空数组 */
+  gpt_groups?: string[]
 }
 
 export type TokenUnit = 'M' | 'K'

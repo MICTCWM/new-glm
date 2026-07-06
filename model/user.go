@@ -974,11 +974,19 @@ func IncreaseUserGptQuota(id int, quota float64) error {
 }
 
 // DecreaseUserGptQuota 扣减用户的 GPT 专属额度
+// 余额不足时返回错误，避免额度变成负数
 func DecreaseUserGptQuota(id int, quota float64) error {
 	if quota < 0 {
 		return errors.New("gpt_quota 不能为负数！")
 	}
-	return DB.Model(&User{}).Where("id = ?", id).Update("gpt_quota", gorm.Expr("gpt_quota - ?", quota)).Error
+	result := DB.Model(&User{}).Where("id = ? AND gpt_quota >= ?", id, quota).Update("gpt_quota", gorm.Expr("gpt_quota - ?", quota))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("gpt_quota 余额不足")
+	}
+	return nil
 }
 
 // CalcDailyPriceFromPlan calculates the daily price in USD from a SubscriptionPlan.
