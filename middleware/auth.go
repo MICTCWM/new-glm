@@ -384,12 +384,16 @@ func TokenAuth() func(c *gin.Context) {
 		if tokenGroup != "" {
 			// check common.UserUsableGroups[userGroup]
 			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
-				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", tokenGroup))
-				return
+				// GPT 专有分组：仅 GPT 模式用户可使用
+				if !(ratio_setting.ContainsGptGroupRatio(tokenGroup) && userCache.GetSetting().GptMode) {
+					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", tokenGroup))
+					return
+				}
 			}
 			// check group in common.GroupRatio
 			if !ratio_setting.ContainsGroupRatio(tokenGroup) {
-				if tokenGroup != "auto" {
+				// GPT 专有分组不在 GroupRatio 中，但已在上面校验过 GPT 模式，放行
+				if !ratio_setting.ContainsGptGroupRatio(tokenGroup) && tokenGroup != "auto" {
 					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("分组 %s 已被弃用", tokenGroup))
 					return
 				}
