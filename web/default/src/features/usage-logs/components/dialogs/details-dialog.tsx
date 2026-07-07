@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Copy,
   Check,
@@ -26,6 +28,7 @@ import {
   Headphones,
   Monitor,
   Cloud,
+  Sparkles,
   Globe,
   ShieldCheck,
   UserCog,
@@ -34,8 +37,6 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
@@ -66,6 +67,7 @@ import {
   getParamOverrideActionLabel,
   parseAuditLine,
   decodeBillingExprB64,
+  getBillingSourceDisplay,
   getTieredBillingSummary,
   hasAnyCacheTokens,
   isViolationFeeLog,
@@ -201,11 +203,7 @@ function describeHiddenValue(value: unknown): string {
  * blacklisted as a whole. `tool_calls` and all other fields are preserved
  * as-is (conservative: when in doubt, keep the data).
  */
-function compactValue(
-  value: unknown,
-  key: string,
-  parentKey: string
-): unknown {
+function compactValue(value: unknown, key: string, parentKey: string): unknown {
   // `parentKey` is retained for future fine-grained compacting rules (e.g.
   // hiding a field only when nested under a specific parent). It is read
   // here so the parameter stays part of the public recursion signature.
@@ -236,9 +234,7 @@ function compactValue(
  * shows only the core parameters at a glance. SSE streams and non-JSON
  * payloads are returned verbatim (stream lines are hard to compact reliably).
  */
-function formatBodyContentCompact(
-  content: string | undefined | null
-): string {
+function formatBodyContentCompact(content: string | undefined | null): string {
   if (!content) return ''
   if (content.includes('data:')) return content
   try {
@@ -296,7 +292,7 @@ function DetailCollapsiblePanel(props: CollapsiblePanelProps) {
         >
           <ChevronDown
             className={cn(
-              'size-3.5 shrink-0 text-muted-foreground transition-transform',
+              'text-muted-foreground size-3.5 shrink-0 transition-transform',
               open && 'rotate-180'
             )}
             aria-hidden='true'
@@ -387,9 +383,7 @@ function RequestResponseDetails(props: RequestResponseDetailsProps) {
   if (isLoading) {
     return (
       <DetailSection label={t('Request/Response Details')}>
-        <p className='text-muted-foreground px-1 text-xs'>
-          {t('Loading...')}
-        </p>
+        <p className='text-muted-foreground px-1 text-xs'>{t('Loading...')}</p>
       </DetailSection>
     )
   }
@@ -728,7 +722,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isConsume = props.log.type === 2
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
-  const isSubscription = other?.billing_source === 'subscription'
+  const billingSource = getBillingSourceDisplay(other)
+  const isSubscription = billingSource?.source === 'subscription'
+  const isGptWallet = billingSource?.source === 'gpt_wallet'
   const isTieredBilling =
     isConsume &&
     !isViolation &&
@@ -883,6 +879,28 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 />
               )}
 
+              {isConsume && billingSource && (
+                <DetailRow
+                  label={t('Billing Source')}
+                  value={
+                    <StatusBadge
+                      label={t(billingSource.label)}
+                      icon={
+                        billingSource.source === 'gpt_wallet'
+                          ? Sparkles
+                          : billingSource.source === 'subscription'
+                            ? Cloud
+                            : undefined
+                      }
+                      variant={billingSource.variant}
+                      size='sm'
+                      showDot={billingSource.source === 'wallet'}
+                      copyable={false}
+                    />
+                  }
+                />
+              )}
+
               {showAdminIp && (
                 <DetailRow
                   label={t('IP Address')}
@@ -935,14 +953,20 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 />
               )}
 
-              {(props.log.retry_count > 0 || (other?.upstream_retry_count ?? 0) > 0) && (
+              {(props.log.retry_count > 0 ||
+                (other?.upstream_retry_count ?? 0) > 0) && (
                 <DetailRow
                   label={t('Retry Count')}
                   value={
                     <span className='flex items-center gap-1'>
-                      <RotateCw className='size-3 text-amber-500' aria-hidden='true' />
+                      <RotateCw
+                        className='size-3 text-amber-500'
+                        aria-hidden='true'
+                      />
                       <span className='font-medium text-amber-600'>
-                        {props.log.retry_count || other?.upstream_retry_count || 0}
+                        {props.log.retry_count ||
+                          other?.upstream_retry_count ||
+                          0}
                       </span>
                     </span>
                   }
@@ -954,7 +978,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   label={t('Retry Delays')}
                   value={
                     <span className='text-muted-foreground'>
-                      {other.retry_delays.map((delay, index) => `${index + 1}:${delay}s`).join(', ')}
+                      {other.retry_delays
+                        .map((delay, index) => `${index + 1}:${delay}s`)
+                        .join(', ')}
                     </span>
                   }
                 />
@@ -1019,7 +1045,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 label={t('Detail Error')}
                 variant='danger'
               >
-                <p className='text-xs font-mono break-all'>{other.admin_info.detail_error}</p>
+                <p className='font-mono text-xs break-all'>
+                  {other.admin_info.detail_error}
+                </p>
               </DetailSection>
             )}
 
@@ -1222,6 +1250,35 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 other={other}
                 isAdmin={props.isAdmin}
               />
+            )}
+
+            {isGptWallet && billingSource && (
+              <DetailSection label={t('GPT Billing')}>
+                <DetailRow
+                  label={t('Source')}
+                  value={
+                    <StatusBadge
+                      label={t(billingSource.label)}
+                      icon={Sparkles}
+                      variant={billingSource.variant}
+                      size='sm'
+                      showDot={false}
+                      copyable={false}
+                    />
+                  }
+                />
+                <DetailRow
+                  label={t('Consumed Cost')}
+                  value={formatLogQuota(props.log.quota)}
+                  mono
+                />
+                <DetailRow
+                  label={t('Note')}
+                  value={t(
+                    'This request was deducted from GPT-exclusive quota, not the base wallet balance.'
+                  )}
+                />
+              </DetailSection>
             )}
 
             {/* Tiered pricing breakdown (when billing_mode is tiered_expr) */}

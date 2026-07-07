@@ -105,6 +105,50 @@ export function parseLogOther(other: string): LogOtherData | null {
   }
 }
 
+export type BillingSourceKind = 'wallet' | 'subscription' | 'gpt_wallet'
+
+export interface BillingSourceDisplay {
+  source: BillingSourceKind
+  label: string
+  shortLabel: string
+  description: string
+  variant: StatusBadgeProps['variant']
+}
+
+export function getBillingSourceDisplay(
+  other: LogOtherData | null
+): BillingSourceDisplay | null {
+  const source = other?.billing_source
+  switch (source) {
+    case 'gpt_wallet':
+      return {
+        source,
+        label: 'GPT Wallet',
+        shortLabel: 'GPT',
+        description: 'Deducted from GPT-exclusive quota',
+        variant: 'blue',
+      }
+    case 'subscription':
+      return {
+        source,
+        label: 'Subscription',
+        shortLabel: 'SUB',
+        description: 'Deducted by subscription quota',
+        variant: 'green',
+      }
+    case 'wallet':
+      return {
+        source,
+        label: 'Wallet',
+        shortLabel: 'Wallet',
+        description: 'Deducted from base wallet quota',
+        variant: 'neutral',
+      }
+    default:
+      return null
+  }
+}
+
 /**
  * Get time color based on duration (in seconds)
  */
@@ -279,7 +323,9 @@ export function getTieredBillingSummary(
 
   const fixedPriceRaw = Number(tier.fixed_price)
   const fixedPrice =
-    Number.isFinite(fixedPriceRaw) && fixedPriceRaw > 0 ? fixedPriceRaw : undefined
+    Number.isFinite(fixedPriceRaw) && fixedPriceRaw > 0
+      ? fixedPriceRaw
+      : undefined
 
   return { tiers, tier, priceEntries, fixedPrice }
 }

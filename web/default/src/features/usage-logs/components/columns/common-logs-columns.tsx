@@ -43,6 +43,7 @@ import {
   getFirstResponseTimeColor,
   getResponseTimeColor,
   getTieredBillingSummary,
+  getBillingSourceDisplay,
   hasAnyCacheTokens,
   parseLogOther,
   isViolationFeeLog,
@@ -120,6 +121,13 @@ function buildDetailSegments(
   if (!other) return []
 
   const segments: DetailSegment[] = []
+  const billingSource = getBillingSourceDisplay(other)
+
+  if (billingSource?.source === 'gpt_wallet') {
+    segments.push({
+      text: t('GPT Billing'),
+    })
+  }
 
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
   const formatPrice = (price: number) =>
@@ -606,11 +614,14 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                   </>
                 )}
               </span>
-              {(log.retry_count > 0 || (other?.upstream_retry_count ?? 0) > 0) && (
+              {(log.retry_count > 0 ||
+                (other?.upstream_retry_count ?? 0) > 0) && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger
-                      render={<span className='inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400' />}
+                      render={
+                        <span className='inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400' />
+                      }
                     >
                       <RotateCw className='size-3' aria-hidden='true' />
                       <span className='font-mono text-[11px] tabular-nums'>
@@ -618,7 +629,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {t('Retry Count')}: {log.retry_count || other?.upstream_retry_count || 0}
+                      {t('Retry Count')}:{' '}
+                      {log.retry_count || other?.upstream_retry_count || 0}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -717,34 +729,73 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const quota = row.getValue('quota') as number
         const other = parseLogOther(log.other)
-        const isSubscription = other?.billing_source === 'subscription'
+        const billingSource = getBillingSourceDisplay(other)
+        const isSubscription = billingSource?.source === 'subscription'
+        const isGptWallet = billingSource?.source === 'gpt_wallet'
 
         if (isSubscription) {
           return (
             <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <span className='inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' />
-                  }
-                >
-                  <span
-                    className='size-1.5 rounded-full bg-emerald-500'
-                    aria-hidden='true'
-                  />
-                  {t('Subscription')}
-                </TooltipTrigger>
-                <TooltipContent>
-                  <span>
-                    {t('Deducted by subscription')}: {formatLogQuota(quota)}
-                  </span>
-                </TooltipContent>
-              </Tooltip>
+              <div className='flex flex-col gap-0.5'>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span className='inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' />
+                    }
+                  >
+                    <span
+                      className='size-1.5 rounded-full bg-emerald-500'
+                      aria-hidden='true'
+                    />
+                    {t('Subscription')}
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <span>
+                      {t('Deducted by subscription')}: {formatLogQuota(quota)}
+                    </span>
+                  </TooltipContent>
+                </Tooltip>
+                <span className='text-muted-foreground font-mono text-[11px] tabular-nums'>
+                  {formatLogQuota(quota)}
+                </span>
+              </div>
             </TooltipProvider>
           )
         }
 
         const quotaStr = formatLogQuota(quota)
+
+        if (isGptWallet) {
+          return (
+            <TooltipProvider>
+              <div className='flex flex-col gap-0.5'>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<div className='inline-flex w-fit' />}
+                  >
+                    <StatusBadge
+                      label={billingSource.shortLabel}
+                      icon={Sparkles}
+                      variant={billingSource.variant}
+                      size='sm'
+                      showDot={false}
+                      copyable={false}
+                      className='rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300'
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <span>
+                      {t(billingSource.description)}: {quotaStr}
+                    </span>
+                  </TooltipContent>
+                </Tooltip>
+                <span className='font-mono text-[11px] text-sky-700 tabular-nums dark:text-sky-300'>
+                  {quotaStr}
+                </span>
+              </div>
+            </TooltipProvider>
+          )
+        }
 
         return (
           <div className='flex flex-col gap-0.5'>
