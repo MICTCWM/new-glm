@@ -147,6 +147,7 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 		"violation_fee_marker": CSAMViolationMarker,
 	}
 	appendAutoRouteInfo(relayInfo, other)
+	appendBillingInfo(relayInfo, other)
 
 	logModel := relayInfo.GetDisplayModelName()
 	if logModel == "" {
@@ -158,7 +159,7 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 		ModelName:      logModel,
 		TokenName:      tokenName,
 		Quota:          feeQuota,
-		Content:        "Violation fee charged",
+		Content:        PrefixBillingLogContent(relayInfo.BillingSource, "Violation fee charged"),
 		TokenId:        relayInfo.TokenId,
 		UseTimeSeconds: int(useTimeSeconds),
 		IsStream:       relayInfo.IsStream,

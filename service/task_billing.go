@@ -51,6 +51,8 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
 	appendAutoRouteInfo(info, other)
+	appendBillingInfo(info, other)
+	logContent = PrefixBillingLogContent(info.BillingSource, logContent)
 	logModel := info.GetDisplayModelName()
 	if logModel == "" {
 		logModel = info.OriginModelName
@@ -133,6 +135,12 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 // taskBillingOther 从 task 的 BillingContext 构建日志 Other 字段。
 func taskBillingOther(task *model.Task) map[string]interface{} {
 	other := make(map[string]interface{})
+	if task.PrivateData.BillingSource != "" {
+		other["billing_source"] = task.PrivateData.BillingSource
+	}
+	if task.PrivateData.BillingSource == BillingSourceSubscription && task.PrivateData.SubscriptionId > 0 {
+		other["subscription_id"] = task.PrivateData.SubscriptionId
+	}
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other["model_price"] = bc.ModelPrice
 		if bc.ModelRatio > 0 {
@@ -252,10 +260,14 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	other["task_id"] = task.TaskID
 	other["pre_consumed_quota"] = preConsumedQuota
 	other["actual_quota"] = actualQuota
+	logContent := reason
+	if logType == model.LogTypeConsume {
+		logContent = PrefixBillingLogContent(task.PrivateData.BillingSource, reason)
+	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:    task.UserId,
 		LogType:   logType,
-		Content:   reason,
+		Content:   logContent,
 		ChannelId: task.ChannelId,
 		ModelName: taskModelName(task),
 		Quota:     logQuota,

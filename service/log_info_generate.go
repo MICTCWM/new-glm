@@ -121,7 +121,7 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 	if relayInfo == nil || other == nil {
 		return
 	}
-	// billing_source: "wallet" or "subscription"
+	// billing_source: "wallet", "subscription" or "gpt_wallet"
 	if relayInfo.BillingSource != "" {
 		other["billing_source"] = relayInfo.BillingSource
 	}
@@ -277,6 +277,7 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData types.Price
 	}
 	appendAutoRouteInfo(relayInfo, other)
 	appendRequestPath(nil, relayInfo, other)
+	appendBillingInfo(relayInfo, other)
 	return other
 }
 
