@@ -291,6 +291,9 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if err := ensureUserGptQuotaColumn(); err != nil {
+		return err
+	}
 	if common.UsingSQLite {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
@@ -362,6 +365,9 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	if err := ensureUserGptQuotaColumn(); err != nil {
+		return err
+	}
 	if common.UsingSQLite {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
@@ -373,6 +379,16 @@ func migrateDBFast() error {
 	}
 	common.SysLog("database migrated")
 	return nil
+}
+
+func ensureUserGptQuotaColumn() error {
+	if DB == nil {
+		return nil
+	}
+	if DB.Migrator().HasColumn(&User{}, "GptQuota") {
+		return nil
+	}
+	return DB.Migrator().AddColumn(&User{}, "GptQuota")
 }
 
 func migrateLOGDB() error {

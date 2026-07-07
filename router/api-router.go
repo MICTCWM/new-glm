@@ -77,8 +77,8 @@ func SetApiRouter(router *gin.Engine) {
 			selfRoute := userRoute.Group("/")
 			selfRoute.Use(middleware.UserAuth())
 			{
-				selfRoute.GET("/self/groups", controller.GetUserGroups)
-				selfRoute.GET("/self", controller.GetSelf)
+				selfRoute.GET("/self/groups", middleware.DisableCache(), controller.GetUserGroups)
+				selfRoute.GET("/self", middleware.DisableCache(), controller.GetSelf)
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.PUT("/self", controller.UpdateSelf)
 				selfRoute.DELETE("/self", controller.DeleteSelf)
