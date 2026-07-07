@@ -158,7 +158,7 @@ export function ApiKeysMutateDrawer({
     defaultValues: getApiKeyFormDefaultValues(defaultUseAutoGroup),
   })
 
-  // Load existing data when updating
+  // Load existing data when updating - only trigger on open/isUpdate/currentRow changes
   useEffect(() => {
     if (open && isUpdate && currentRow) {
       getApiKey(currentRow.id).then((result) => {
@@ -166,10 +166,16 @@ export function ApiKeysMutateDrawer({
           form.reset(transformApiKeyToFormDefaults(result.data))
         }
       })
-    } else if (open && !isUpdate) {
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isUpdate, currentRow])
+
+  // Set default values when creating
+  useEffect(() => {
+    if (open && !isUpdate) {
       form.reset(getApiKeyFormDefaultValues(defaultUseAutoGroup && backendHasAuto))
     }
-  }, [open, isUpdate, currentRow, form, defaultUseAutoGroup, backendHasAuto])
+  }, [open, isUpdate, form, defaultUseAutoGroup, backendHasAuto])
 
   // Correct group after groups load: if the form value is not in available groups, fall back
   useEffect(() => {
