@@ -168,6 +168,13 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 		}
 		// Wallet quota is not deducted when billed from subscription.
 		other["wallet_quota_deducted"] = 0
+	} else if relayInfo.BillingSource == BillingSourceGptWallet {
+		if relayInfo.InitialPreConsumedQuota > 0 {
+			other["gpt_pre_consumed"] = relayInfo.InitialPreConsumedQuota
+		}
+		if relayInfo.BillingPostDeltaQuota != 0 {
+			other["gpt_post_delta"] = relayInfo.BillingPostDeltaQuota
+		}
 	}
 }
 

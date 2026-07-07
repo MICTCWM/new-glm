@@ -73,3 +73,21 @@ func TestTransferGptQuotaToQuotaDoesNotRoundUpTinyFraction(t *testing.T) {
 	assert.Zero(t, reloaded.Quota)
 	assert.InDelta(t, GptQuotaFromBaseQuota(1), reloaded.GptQuota, 1e-12)
 }
+
+func TestForceDecreaseUserGptQuotaAllowsNegativeBalance(t *testing.T) {
+	truncateTables(t)
+
+	userID := 91004
+	require.NoError(t, DB.Create(&User{
+		Id:       userID,
+		Username: "gpt_quota_negative",
+		Status:   common.UserStatusEnabled,
+		GptQuota: GptQuotaFromBaseQuota(1),
+	}).Error)
+
+	require.NoError(t, ForceDecreaseUserGptQuota(userID, GptQuotaFromBaseQuota(2)))
+
+	var got float64
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", userID).Select("gpt_quota").Scan(&got).Error)
+	assert.InDelta(t, -GptQuotaFromBaseQuota(1), got, 1e-12)
+}

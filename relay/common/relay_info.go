@@ -128,11 +128,13 @@ type RelayInfo struct {
 	UserGptMode            bool    `json:"-"` // 用户是否启用 GPT 模式（从 UserSetting.GptMode 获取）
 	// NativeMode 原生请求模式：GPT 专用渠道跳过自动重试和参数覆盖
 	// 当渠道 GptModeRequired=true 且用户 GPT 模式开启时设为 true
-	NativeMode bool `json:"-"`
-	RelayFormat            types.RelayFormat
-	SendResponseCount      int
-	ReceivedResponseCount  int
-	FinalPreConsumedQuota  int // 最终预消耗的配额
+	NativeMode              bool `json:"-"`
+	RelayFormat             types.RelayFormat
+	SendResponseCount       int
+	ReceivedResponseCount   int
+	InitialPreConsumedQuota int // 请求初始预扣额度，用于日志展示预扣与后补差额
+	BillingPostDeltaQuota   int // 请求后结算差额（实际消耗 - 预扣）
+	FinalPreConsumedQuota   int // 最终预消耗的配额
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
@@ -491,9 +493,9 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
-		DisplayModelName:  common.GetContextKeyString(c, constant.ContextKeyDisplayModel),
+		DisplayModelName:   common.GetContextKeyString(c, constant.ContextKeyDisplayModel),
 		AutoRouteModelName: common.GetContextKeyString(c, constant.ContextKeyAutoRouteModel),
-		OriginModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		OriginModelName:    common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),

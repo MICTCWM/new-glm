@@ -435,6 +435,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(usage.CompletionTokens))
 	})
+	FlushDeferredResponse(ctx)
 	recordLogDetail(ctx, relayInfo, logId)
 }
 
@@ -480,7 +481,7 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 		// GPT 钱包：扣减/增加 GPT 专有额度
 		gptQuotaDelta := model.GptQuotaFromBaseQuota(quota)
 		if quota > 0 {
-			err = model.DecreaseUserGptQuota(relayInfo.UserId, gptQuotaDelta)
+			err = model.ForceDecreaseUserGptQuota(relayInfo.UserId, gptQuotaDelta)
 		} else {
 			err = model.IncreaseUserGptQuota(relayInfo.UserId, -gptQuotaDelta)
 		}

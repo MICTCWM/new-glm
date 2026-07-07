@@ -1272,6 +1272,21 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   value={formatLogQuota(props.log.quota)}
                   mono
                 />
+                {other?.gpt_pre_consumed != null && (
+                  <DetailRow
+                    label={t('Pre-consumed')}
+                    value={formatLogQuota(other.gpt_pre_consumed)}
+                    mono
+                  />
+                )}
+                {other?.gpt_post_delta != null &&
+                  other.gpt_post_delta !== 0 && (
+                    <DetailRow
+                      label={t('Post Delta')}
+                      value={formatLogQuota(other.gpt_post_delta)}
+                      mono
+                    />
+                  )}
                 <DetailRow
                   label={t('Note')}
                   value={t(

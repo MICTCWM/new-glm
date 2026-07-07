@@ -1039,6 +1039,21 @@ func DecreaseUserGptQuota(id int, quota float64) error {
 	return nil
 }
 
+// ForceDecreaseUserGptQuota 扣减用户的 GPT 专属额度，允许余额变成负数。
+// 仅应用于请求完成后的补扣场景，避免上游已成功响应但补扣失败导致漏计费。
+func ForceDecreaseUserGptQuota(id int, quota float64) error {
+	amount, err := gptQuotaAmount(quota)
+	if err != nil {
+		return err
+	}
+	if amount.IsZero() {
+		return nil
+	}
+	return DB.Model(&User{}).
+		Where("id = ?", id).
+		Update("gpt_quota", gorm.Expr("gpt_quota - CAST(? AS "+userGptQuotaSQLCast+")", gptQuotaSQLValue(amount))).Error
+}
+
 // CalcDailyPriceFromPlan calculates the daily price in USD from a SubscriptionPlan.
 // It converts the plan's duration to months, then divides PriceAmount by total days.
 func CalcDailyPriceFromPlan(plan *SubscriptionPlan) float64 {

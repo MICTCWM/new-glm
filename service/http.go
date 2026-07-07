@@ -13,6 +13,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	deferredResponseEnabledKey = "deferred_response_enabled"
+	deferredResponsePayloadKey = "deferred_response_payload"
+)
+
+type deferredHTTPResponse struct {
+	statusCode int
+	headers    http.Header
+	data       []byte
+}
+
 func CloseResponseBodyGracefully(httpResponse *http.Response) {
 	if httpResponse == nil || httpResponse.Body == nil {
 		return
@@ -43,6 +54,71 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 
 func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	if c.Writer == nil {
+		return
+	}
+
+	if shouldDeferResponse(c) {
+		statusCode := http.StatusOK
+		headers := make(http.Header)
+		if src != nil {
+			statusCode = src.StatusCode
+			for k, v := range src.Header {
+				if !ShouldCopyUpstreamHeader(c, k, v) {
+					continue
+				}
+				headers[k] = append([]string(nil), v...)
+			}
+		}
+		c.Set(deferredResponsePayloadKey, &deferredHTTPResponse{
+			statusCode: statusCode,
+			headers:    headers,
+			data:       append([]byte(nil), data...),
+		})
+		return
+	}
+
+	writeHTTPResponse(c, src, data)
+}
+
+func EnableDeferredResponse(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(deferredResponseEnabledKey, true)
+}
+
+func FlushDeferredResponse(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	value, ok := c.Get(deferredResponsePayloadKey)
+	if !ok {
+		return
+	}
+	payload, ok := value.(*deferredHTTPResponse)
+	if !ok || payload == nil {
+		return
+	}
+	if c.Keys != nil {
+		delete(c.Keys, deferredResponsePayloadKey)
+		delete(c.Keys, deferredResponseEnabledKey)
+	}
+	writeHTTPResponse(c, &http.Response{
+		StatusCode: payload.statusCode,
+		Header:     payload.headers,
+	}, payload.data)
+}
+
+func shouldDeferResponse(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	deferEnabled, ok := c.Get(deferredResponseEnabledKey)
+	return ok && deferEnabled == true
+}
+
+func writeHTTPResponse(c *gin.Context, src *http.Response, data []byte) {
+	if c == nil || c.Writer == nil {
 		return
 	}
 

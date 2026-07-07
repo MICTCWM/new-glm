@@ -3,6 +3,7 @@ package service
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -30,6 +31,25 @@ func TestGenerateMjOtherInfo_AppendsBillingSource(t *testing.T) {
 	})
 
 	assert.Equal(t, BillingSourceGptWallet, other["billing_source"])
+}
+
+func TestGenerateTextOtherInfo_AppendsGptBillingBreakdown(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	now := time.Now()
+
+	other := GenerateTextOtherInfo(ctx, &relaycommon.RelayInfo{
+		BillingSource:           BillingSourceGptWallet,
+		InitialPreConsumedQuota: 2000,
+		BillingPostDeltaQuota:   700,
+		FirstResponseTime:       now,
+		StartTime:               now,
+		ChannelMeta:             &relaycommon.ChannelMeta{},
+	}, 1, 1, 1, 0, 0, 0, -1)
+
+	assert.Equal(t, BillingSourceGptWallet, other["billing_source"])
+	assert.Equal(t, 2000, other["gpt_pre_consumed"])
+	assert.Equal(t, 700, other["gpt_post_delta"])
 }
 
 func TestTaskBillingOther_IncludesBillingSource(t *testing.T) {

@@ -391,6 +391,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
 			return nil, apiErr
 		}
+		relayInfo.InitialPreConsumedQuota = session.preConsumedQuota
 		return session, nil
 	}
 
@@ -413,6 +414,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if apiErr := session.preConsume(c, int(subConsume)); apiErr != nil {
 			return nil, apiErr
 		}
+		relayInfo.InitialPreConsumedQuota = session.preConsumedQuota
 		return session, nil
 	}
 
@@ -446,6 +448,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
 			return nil, apiErr
 		}
+		relayInfo.InitialPreConsumedQuota = session.preConsumedQuota
 		return session, nil
 	}
 

@@ -65,6 +65,9 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 
 	info.ShouldIncludeUsage = includeUsage
+	if !info.IsStream && info.BillingSource == service.BillingSourceGptWallet {
+		service.EnableDeferredResponse(c)
+	}
 
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {

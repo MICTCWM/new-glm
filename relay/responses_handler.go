@@ -70,6 +70,9 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	if adaptor == nil {
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
+	if !info.IsStream && info.BillingSource == service.BillingSourceGptWallet {
+		service.EnableDeferredResponse(c)
+	}
 	adaptor.Init(info)
 
 	// 强制系统提示词拼接：在 adaptor 调用前追加，确保强制提示词始终在最前面

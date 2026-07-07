@@ -98,7 +98,7 @@ func (g *GptWalletFunding) Settle(delta int) error {
 	}
 	gptDelta := model.GptQuotaFromBaseQuota(delta)
 	if delta > 0 {
-		return model.DecreaseUserGptQuota(g.userId, gptDelta)
+		return model.ForceDecreaseUserGptQuota(g.userId, gptDelta)
 	}
 	return model.IncreaseUserGptQuota(g.userId, -gptDelta)
 }
