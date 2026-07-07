@@ -40,7 +40,12 @@ import {
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatQuotaAmount,
+  formatTokens,
+  formatUseTime,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { Button } from '@/components/ui/button'
@@ -87,6 +92,16 @@ function timingTextColorClass(
   if (variant === 'success') return 'text-emerald-600'
   if (variant === 'warning') return 'text-amber-600'
   return 'text-rose-600'
+}
+
+function formatQuotaForBillingSource(
+  quota: number,
+  billingSource?: string
+): string {
+  if (billingSource === 'gpt_wallet') {
+    return formatQuotaAmount(quota)
+  }
+  return formatLogQuota(quota)
 }
 
 function DetailRow(props: {
@@ -623,7 +638,7 @@ function BillingBreakdown(props: {
 
   rows.push({
     label: t('Total Cost'),
-    value: formatLogQuota(log.quota),
+    value: formatQuotaForBillingSource(log.quota, other.billing_source),
   })
 
   if (rows.length === 0) return null
@@ -1269,13 +1284,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 />
                 <DetailRow
                   label={t('Consumed Cost')}
-                  value={formatLogQuota(props.log.quota)}
+                  value={formatQuotaForBillingSource(
+                    props.log.quota,
+                    other?.billing_source
+                  )}
                   mono
                 />
                 {other?.gpt_pre_consumed != null && (
                   <DetailRow
                     label={t('Pre-consumed')}
-                    value={formatLogQuota(other.gpt_pre_consumed)}
+                    value={formatQuotaAmount(other.gpt_pre_consumed)}
                     mono
                   />
                 )}
@@ -1283,7 +1301,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   other.gpt_post_delta !== 0 && (
                     <DetailRow
                       label={t('Post Delta')}
-                      value={formatLogQuota(other.gpt_post_delta)}
+                      value={formatQuotaAmount(other.gpt_post_delta)}
                       mono
                     />
                   )}

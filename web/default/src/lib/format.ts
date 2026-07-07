@@ -167,6 +167,19 @@ export function formatLogQuota(quota: number): string {
 }
 
 /**
+ * Format raw quota units as a plain numeric USD-equivalent amount without a currency symbol.
+ * Used by GPT wallet logs where the numeric value should match the GPT quota value directly.
+ */
+export function formatQuotaAmount(quota: number): string {
+  const { config } = getCurrencyDisplay()
+  const amount = quota / config.quotaPerUnit
+  const digits = Math.abs(amount) >= 1 ? 4 : 6
+  return amount
+    .toFixed(digits)
+    .replace(/\.?0+$/, '')
+}
+
+/**
  * Format tokens count with K/M suffixes
  */
 export function formatTokens(tokens: number): string {

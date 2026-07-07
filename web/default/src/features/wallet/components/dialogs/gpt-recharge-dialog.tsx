@@ -191,7 +191,7 @@ export function GptRechargeDialog({
     const totalDays = totalMonths * 30
     const dailyPrice = plan.price_amount / totalDays
     const totalPrice = dailyPrice * daysAmount
-    // 订阅 USD 价格直接等于 GPT 额度数值（1 USD 订阅 = 1 GPT 额度）
+    // 订阅 USD 价格直接等于 GPT 额度数值（1 USD = 1 GPT 额度数值）
     return totalPrice
   })()
 

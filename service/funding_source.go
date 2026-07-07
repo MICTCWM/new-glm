@@ -77,7 +77,7 @@ type GptWalletFunding struct {
 func (g *GptWalletFunding) Source() string { return BillingSourceGptWallet }
 
 // PreConsume 从 GPT 专有额度中预扣 amount（基础额度 int 单位）。
-// 内部按 common.GptQuotaExchangeRate 转换为 GPT 额度（float64）后扣减。
+// GPT 额度数值与美元数值一致，内部会将基础额度转换为对应 GPT 额度数值后扣减。
 func (g *GptWalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil

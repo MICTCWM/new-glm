@@ -367,8 +367,8 @@ type TransferToGptQuotaRequest struct {
 }
 
 // TransferToGptQuota 将用户基础余额转换为 GPT 专属额度
-// 请求体: { "base_quota": 250000000 }
-// 汇率: 500 美金（250000000 内部额度）= 1.5 GPT 余额
+// 请求体: { "base_quota": 500000 }
+// 规则: 500000 内部额度 = 1 GPT 额度数值
 func TransferToGptQuota(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
 		return
@@ -407,7 +407,7 @@ type TransferGptQuotaToQuotaRequest struct {
 
 // TransferGptQuotaToQuota 将用户 GPT 专属额度转换回基础余额
 // 请求体: { "gpt_quota": 1.5 }
-// 汇率: 1.5 GPT 余额 = 500 美金（250000000 内部额度）
+// 规则: 1 GPT 额度数值 = 500000 内部额度
 func TransferGptQuotaToQuota(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
 		return

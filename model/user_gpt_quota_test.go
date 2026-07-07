@@ -23,16 +23,21 @@ func TestDecreaseUserGptQuotaPersistsSmallDelta(t *testing.T) {
 
 	var got float64
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", userID).Select("gpt_quota").Scan(&got).Error)
-	assert.InDelta(t, 0.002997, got, 1e-12)
+	assert.InDelta(t, 0.002, got, 1e-12)
 
 	baseQuota, err := TransferGptQuotaToQuota(userID, got)
 	require.NoError(t, err)
-	assert.Equal(t, 499500, baseQuota)
+	assert.Equal(t, 1000, baseQuota)
 
 	var reloaded User
 	require.NoError(t, DB.First(&reloaded, userID).Error)
-	assert.Equal(t, 499500, reloaded.Quota)
+	assert.Equal(t, 1000, reloaded.Quota)
 	assert.InDelta(t, 0, reloaded.GptQuota, 1e-12)
+}
+
+func TestGptQuotaFromBaseQuotaMatchesUsdValue(t *testing.T) {
+	assert.InDelta(t, 0.003338, GptQuotaFromBaseQuota(1669), 1e-12)
+	assert.InDelta(t, 1.0, GptQuotaFromBaseQuota(500000), 1e-12)
 }
 
 func TestDecreaseUserGptQuotaRejectsInsufficientBalance(t *testing.T) {

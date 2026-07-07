@@ -979,10 +979,9 @@ func gptQuotaSQLValue(amount decimal.Decimal) string {
 }
 
 func gptQuotaFromBaseQuotaDecimal(baseQuota int) decimal.Decimal {
-	// common.GptQuotaExchangeRate == 0.003 / 500000 == 3 / 500000000.
+	// GPT 额度数值与美元数值一致：500000 内部额度 = 1 GPT 额度数值。
 	return decimal.NewFromInt(int64(baseQuota)).
-		Mul(decimal.NewFromInt(3)).
-		Div(decimal.NewFromInt(500000000)).
+		Div(decimal.NewFromInt(500000)).
 		Round(userGptQuotaScale)
 }
 
@@ -1088,7 +1087,7 @@ func CalcDailyPriceFromPlan(plan *SubscriptionPlan) float64 {
 }
 
 // TransferQuotaToGptQuota 将基础余额转换为 GPT 专属额度
-// 汇率：500 美金 = 250000000 内部额度 = 1.5 GPT 余额（转换系数 common.GptQuotaExchangeRate）
+// 规则：GPT 额度数值与美元数值一致，500000 内部额度 = 1 GPT 额度数值。
 // 事务内 FOR UPDATE 锁定用户行，保证扣减与增加的原子性
 func TransferQuotaToGptQuota(userId int, baseQuota int) (float64, error) {
 	if baseQuota <= 0 {
@@ -1142,7 +1141,7 @@ func TransferQuotaToGptQuota(userId int, baseQuota int) (float64, error) {
 }
 
 // TransferGptQuotaToQuota 将 GPT 专属额度转换回基础余额
-// 汇率：1.5 GPT 余额 = 250000000 内部额度 = 500 美金（反向使用 1/common.GptQuotaExchangeRate）
+// 规则：1 GPT 额度数值 = 1 美元 = 500000 内部额度。
 // 事务内 FOR UPDATE 锁定用户行，保证扣减与增加的原子性
 func TransferGptQuotaToQuota(userId int, gptQuota float64) (int, error) {
 	if gptQuota <= 0 {
@@ -1176,8 +1175,7 @@ func TransferGptQuotaToQuota(userId int, gptQuota float64) (int, error) {
 
 	// 反向计算可获得的内部额度。内部额度是整数，向下取整避免小数向上取整套利。
 	baseQuota := int(gptQuotaDecimal.
-		Mul(decimal.NewFromInt(500000000)).
-		Div(decimal.NewFromInt(3)).
+		Mul(decimal.NewFromInt(500000)).
 		IntPart())
 	if baseQuota <= 0 {
 		return 0, errors.New("转换金额过小，无法转换为有效基础额度！")

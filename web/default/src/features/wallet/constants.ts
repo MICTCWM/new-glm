@@ -71,13 +71,13 @@ export const DEFAULT_DISCOUNT_RATE = 1.0
 export const DEFAULT_MIN_TOPUP = 1
 
 /**
- * GPT quota exchange rate: 500 base balance = 1.5 GPT balance
- * base = gpt * (500 / 1.5)
+ * GPT quota exchange rate: 500000 quota units = 1 GPT quota value
+ * base = gpt * 500000
  */
-export const GPT_TO_BASE_RATIO = 500000 / 0.003 // 1 GPT = 166666666.67 内部额度
+export const GPT_TO_BASE_RATIO = 500000 // 1 GPT = 500000 内部额度
 
 /**
- * GPT quota exchange rate: 500 base balance = 1.5 GPT balance
- * gpt = base * (1.5 / 500)
+ * GPT quota exchange rate: GPT quota value equals USD value
+ * gpt = base / 500000
  */
-export const BASE_TO_GPT_RATIO = 0.003 / 500000 // 1 内部额度 = 0.000000006 GPT
+export const BASE_TO_GPT_RATIO = 1 / 500000 // 1 内部额度 = 0.000002 GPT
