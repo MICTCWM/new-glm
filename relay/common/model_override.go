@@ -40,7 +40,8 @@ func OverrideResponseModel(data []byte, info *RelayInfo) []byte {
 		return data
 	}
 
-	if gjson.GetBytes(data, path).String() == target {
+	current := gjson.GetBytes(data, path)
+	if !current.Exists() || current.String() == target {
 		return data
 	}
 
@@ -67,7 +68,8 @@ func OverrideStreamChunkModel(data string, info *RelayInfo) string {
 		return data
 	}
 
-	if gjson.Get(data, path).String() == target {
+	current := gjson.Get(data, path)
+	if !current.Exists() || current.String() == target {
 		return data
 	}
 

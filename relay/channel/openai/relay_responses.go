@@ -126,6 +126,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		case "response.output_text.delta":
 			// 处理输出文本
 			responseTextBuilder.WriteString(streamResponse.Delta)
+			data = relaycommon.OverrideStreamChunkModel(data, info)
+			sendResponsesStreamData(c, streamResponse, data)
 		case dto.ResponsesOutputTypeItemDone:
 			// 函数调用处理
 			if streamResponse.Item != nil {
@@ -138,6 +140,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					}
 				}
 			}
+			data = relaycommon.OverrideStreamChunkModel(data, info)
+			sendResponsesStreamData(c, streamResponse, data)
 		default:
 			// 强制把流式 chunk 的 model 字段覆盖为用户原始请求的 model ID（嵌套 response.model）
 			data = relaycommon.OverrideStreamChunkModel(data, info)
