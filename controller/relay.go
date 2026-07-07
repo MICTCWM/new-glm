@@ -285,6 +285,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 
+		// GPT 专用渠道走原生模式：跳过重试和参数覆盖
+		if channelSetting := channel.GetSetting(); channelSetting.GptModeRequired && relayInfo.UserGptMode {
+			relayInfo.NativeMode = true
+			maxRetryTimes = 0 // 确保不重试
+		}
+
 		// Try to increment RPM counter for the selected channel
 		if channel.MaxRPM > 0 {
 			tracker := service.GetRpmTracker(channel.Id, channel.MaxRPM)

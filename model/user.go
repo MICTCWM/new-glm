@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -1114,6 +1115,60 @@ func TransferGptQuotaToQuota(userId int, gptQuota float64) (int, error) {
 	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %.4f GPT 额度为 %d 基础额度", gptQuota, baseQuota))
 
 	return baseQuota, nil
+}
+
+// DisableGptModeForAllUsers 管理员关闭 GPT 模式时，强制退出所有 GPT 模式用户，
+// 并将其 GPT 额度全部转为基础额度。
+// 同时设置通知标志（GptModeDisabledAt 时间戳），供前端登录后弹窗提示。
+// 单个用户处理失败不会中断整体流程，仅记录日志，保证批量处理的健壮性。
+func DisableGptModeForAllUsers() error {
+	// 1. 查询所有 Setting 中包含 "gpt_mode":true 的用户（LIKE 粗筛）
+	var users []User
+	if err := DB.Where("setting LIKE ?", "%\"gpt_mode\":true%").Find(&users).Error; err != nil {
+		return err
+	}
+
+	// 2. 逐个处理：关闭 GptMode + GPT 额度转基础额度
+	for i := range users {
+		u := &users[i]
+		setting := u.GetSetting()
+		// LIKE 查询可能误判，二次确认确实为 GPT 模式用户
+		if !setting.GptMode {
+			continue
+		}
+
+		// 2.1 关闭 GptMode 并保存设置到数据库
+		setting.GptMode = false
+		u.SetSetting(setting)
+		if err := DB.Model(u).Updates(map[string]interface{}{
+			"setting": u.Setting,
+		}).Error; err != nil {
+			common.SysError(fmt.Sprintf("保存用户 %d 设置失败: %v", u.Id, err))
+			// 设置保存失败则跳过后续额度转换，避免数据不一致
+			continue
+		}
+
+		// 2.2 GPT 额度转基础额度（如果有 GPT 额度）
+		if u.GptQuota > 0 {
+			if _, err := TransferGptQuotaToQuota(u.Id, u.GptQuota); err != nil {
+				common.SysError(fmt.Sprintf("用户 %d GPT 额度转换失败: %v", u.Id, err))
+				// 额度转换失败不影响 GptMode 关闭
+			}
+		}
+
+		// 2.3 清除用户缓存，避免 userCache.GetSetting().GptMode 仍返回 true
+		if err := InvalidateUserCache(u.Id); err != nil {
+			common.SysError(fmt.Sprintf("清除用户 %d 缓存失败: %v", u.Id, err))
+		}
+	}
+
+	// 3. 设置通知标志（记录关闭时间戳，供前端判断是否需要弹窗）
+	disabledAt := strconv.FormatInt(time.Now().Unix(), 10)
+	if err := UpdateOption("GptModeDisabledAt", disabledAt); err != nil {
+		common.SysError(fmt.Sprintf("保存 GptModeDisabledAt 失败: %v", err))
+	}
+
+	return nil
 }
 
 // AddGptQuota increases the user's GPT quota by the given amount.

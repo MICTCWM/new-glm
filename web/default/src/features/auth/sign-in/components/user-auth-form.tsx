@@ -60,6 +60,7 @@ import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import { beginPasskeyLogin, finishPasskeyLogin } from '@/features/auth/passkey'
 import type { AuthFormProps } from '@/features/auth/types'
+import { useGptModeNoticeStore } from '@/stores/gpt-mode-notice-store'
 
 export function UserAuthForm({
   className,
@@ -155,6 +156,13 @@ export function UserAuthForm({
         if (res.data?.require_2fa) {
           redirectTo2FA()
           return
+        }
+
+        // 检测管理员是否关闭了 GPT 模式，若是则触发告知弹窗
+        if (res.data?.gpt_mode_disabled) {
+          useGptModeNoticeStore
+            .getState()
+            .notifyIfChanged(res.data.gpt_mode_disabled_at ?? '')
         }
 
         await handleLoginSuccess(res.data as { id?: number } | null, redirectTo)

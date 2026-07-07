@@ -19,8 +19,16 @@ For commercial licensing, please contact support@quantumnous.com
 import { createSectionRegistry } from '../utils/section-registry'
 import { GptChannelsSection } from './components/gpt-channels-section'
 import { GptGroupsSection } from './components/gpt-groups-section'
+import { GptModeToggleSection } from './components/gpt-mode-toggle-section'
 
 const GPT_SECTIONS = [
+  {
+    id: 'mode',
+    titleKey: 'GPT Mode',
+    descriptionKey:
+      'When disabled, all users in GPT mode will be forced to exit, and their GPT quota will be automatically converted to base quota.',
+    build: () => <GptModeToggleSection />,
+  },
   {
     id: 'channels',
     titleKey: 'GPT Channels',
@@ -40,7 +48,7 @@ export type GptSectionId = (typeof GPT_SECTIONS)[number]['id']
 
 const gptRegistry = createSectionRegistry<GptSectionId, Record<string, never>>({
   sections: GPT_SECTIONS,
-  defaultSection: 'channels',
+  defaultSection: 'mode',
   basePath: '/system-settings/gpt',
   urlStyle: 'path',
 })

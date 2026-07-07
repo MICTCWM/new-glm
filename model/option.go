@@ -12,6 +12,8 @@ import (
 	"github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	"github.com/bytedance/gopkg/util/gopool"
 )
 
 type Option struct {
@@ -151,6 +153,10 @@ func InitOptionMap() {
 	common.OptionMap["UserUsableGroups"] = setting.UserUsableGroups2JSONString()
 	common.OptionMap["GptGroupRatio"] = ratio_setting.GptGroupRatio2JSONString()
 	common.OptionMap["GptUserUsableGroups"] = setting.GptUserUsableGroups2JSONString()
+	// GPT 模式总开关，默认开启；管理员关闭时会触发级联操作（强制退出所有 GPT 模式用户 + GPT 额度转基础额度）
+	common.OptionMap["GptModeEnabled"] = "true"
+	// GptModeDisabledAt 记录最近一次关闭 GPT 模式的 Unix 时间戳，供前端登录后弹窗提示
+	common.OptionMap["GptModeDisabledAt"] = ""
 	common.OptionMap["CompletionRatio"] = ratio_setting.CompletionRatio2JSONString()
 	common.OptionMap["ImageRatio"] = ratio_setting.ImageRatio2JSONString()
 	common.OptionMap["AudioRatio"] = ratio_setting.AudioRatio2JSONString()
@@ -519,6 +525,18 @@ func updateOptionMap(key string, value string) (err error) {
 		err = ratio_setting.UpdateGptGroupRatioByJSONString(value)
 	case "GptUserUsableGroups":
 		err = setting.UpdateGptUserUsableGroupsByJSONString(value)
+	case "GptModeEnabled":
+		// 管理员关闭 GPT 模式总开关时，触发级联操作：
+		// 强制退出所有 GPT 模式用户 + GPT 额度全部转为基础额度 + 设置通知标志
+		// 异步执行以避免与 updateOptionMap 持有的 OptionMapRWMutex 产生死锁
+		// （DisableGptModeForAllUsers 内部会调用 UpdateOption 再次获取该锁）
+		if value == "false" {
+			gopool.Go(func() {
+				if err := DisableGptModeForAllUsers(); err != nil {
+					common.SysError("DisableGptModeForAllUsers 失败: " + err.Error())
+				}
+			})
+		}
 	case "CompletionRatio":
 		err = ratio_setting.UpdateCompletionRatioByJSONString(value)
 	case "ModelPrice":

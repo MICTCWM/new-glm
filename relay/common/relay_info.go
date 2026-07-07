@@ -125,6 +125,10 @@ type RelayInfo struct {
 	UserEmail              string
 	UserQuota              int
 	UserGptQuota           float64 // 用户 GPT 专有额度（用于信任检查和日志）
+	UserGptMode            bool    `json:"-"` // 用户是否启用 GPT 模式（从 UserSetting.GptMode 获取）
+	// NativeMode 原生请求模式：GPT 专用渠道跳过自动重试和参数覆盖
+	// 当渠道 GptModeRequired=true 且用户 GPT 模式开启时设为 true
+	NativeMode bool `json:"-"`
 	RelayFormat            types.RelayFormat
 	SendResponseCount      int
 	ReceivedResponseCount  int
@@ -527,6 +531,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
 	if ok {
 		info.UserSetting = userSetting
+		info.UserGptMode = userSetting.GptMode
 	}
 
 	return info

@@ -104,16 +104,26 @@ func setupLogin(user *model.User, c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserSessionSaveFailed)
 		return
 	}
+	// 检查 GPT 模式是否被管理员关闭，用于前端弹窗提示
+	common.OptionMapRWMutex.RLock()
+	gptModeEnabled := common.OptionMap["GptModeEnabled"]
+	gptModeDisabledAt := common.OptionMap["GptModeDisabledAt"]
+	common.OptionMapRWMutex.RUnlock()
+
+	gptModeDisabled := gptModeEnabled == "false"
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "",
 		"success": true,
 		"data": map[string]any{
-			"id":           user.Id,
-			"username":     user.Username,
-			"display_name": user.DisplayName,
-			"role":         user.Role,
-			"status":       user.Status,
-			"group":        user.Group,
+			"id":                   user.Id,
+			"username":             user.Username,
+			"display_name":         user.DisplayName,
+			"role":                 user.Role,
+			"status":               user.Status,
+			"group":                user.Group,
+			"gpt_mode_disabled":    gptModeDisabled,
+			"gpt_mode_disabled_at": gptModeDisabledAt,
 		},
 	})
 }

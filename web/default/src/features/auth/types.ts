@@ -66,6 +66,9 @@ export interface LoginResponse {
   data?: {
     require_2fa?: boolean
     id?: number
+    // 后端在管理员关闭 GPT 模式后返回，前端据此弹出告知弹窗
+    gpt_mode_disabled?: boolean
+    gpt_mode_disabled_at?: string
   }
 }
 

@@ -180,7 +180,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		}
 
 		// apply param override
-		if len(info.ParamOverride) > 0 {
+		// 原生模式：GPT 专用渠道跳过参数覆盖
+		if !info.NativeMode && len(info.ParamOverride) > 0 {
 			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
@@ -195,6 +196,10 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
+	// 原生模式：GPT 专用渠道跳过上游重试
+	if info.NativeMode {
+		upstreamRetryTimes = 0
+	}
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
 	var upstreamBuf *bytes.Buffer
