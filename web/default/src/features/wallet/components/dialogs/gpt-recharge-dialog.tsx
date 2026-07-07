@@ -45,8 +45,7 @@ import {
   GPT_TO_BASE_RATIO,
 } from '../../constants'
 import { formatQuota, parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
-import { getSelfSubscriptions } from '@/features/subscriptions/api'
-import { getPublicPlans } from '@/features/subscriptions/api'
+import { getPublicPlans, getSelfSubscriptions } from '@/features/subscriptions/api'
 import type { UserSubscriptionRecord, SubscriptionPlan } from '@/features/subscriptions/types'
 
 interface GptRechargeDialogProps {
@@ -121,7 +120,7 @@ export function GptRechargeDialog({
       ])
         .then(([subRes, planRes]) => {
           if (subRes.success && subRes.data) {
-            const activeSubs = (subRes.data || []).filter(
+            const activeSubs = (subRes.data.subscriptions || []).filter(
               (s: UserSubscriptionRecord) =>
                 s.subscription.status === 'active'
             )

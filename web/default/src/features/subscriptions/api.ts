@@ -137,7 +137,7 @@ export async function paySubscriptionEpay(
 // ============================================================================
 
 export async function getSelfSubscriptions(): Promise<
-  ApiResponse<UserSubscriptionRecord[]>
+  ApiResponse<SelfSubscriptionData>
 > {
   const res = await api.get('/api/subscription/self')
   return res.data
