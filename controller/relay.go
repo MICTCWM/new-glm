@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -146,6 +147,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
+	}
+
+	// 初始化 BillingSource：GPT 专有分组使用 GPT 钱包扣费
+	// 此处提前设置，确保即使后续路径绕过 PreConsumeBilling（如免费模型），
+	// PostConsumeQuota 也能正确识别资金来源扣减 GPT 额度
+	if ratio_setting.ContainsGptGroupRatio(relayInfo.UsingGroup) {
+		relayInfo.BillingSource = service.BillingSourceGptWallet
 	}
 
 	// 流式请求：提前建立 SSE 响应头与状态码，确保排队通知与重试 wait 帧能"立即"到达客户端，
@@ -977,6 +985,13 @@ func RelayMidjourney(c *gin.Context) {
 		return
 	}
 
+	// 初始化 BillingSource：GPT 专有分组使用 GPT 钱包扣费
+	// mjproxy_handler 直接调用 PostConsumeQuota 绕过 BillingSession，
+	// 此处提前设置，确保 PostConsumeQuota 正确识别资金来源扣减 GPT 额度
+	if ratio_setting.ContainsGptGroupRatio(relayInfo.UsingGroup) {
+		relayInfo.BillingSource = service.BillingSourceGptWallet
+	}
+
 	var mjErr *dto.MidjourneyResponse
 	switch relayInfo.RelayMode {
 	case relayconstant.RelayModeMidjourneyNotify:
@@ -1056,6 +1071,13 @@ func RelayTask(c *gin.Context) {
 			StatusCode: http.StatusInternalServerError,
 		})
 		return
+	}
+
+	// 初始化 BillingSource：GPT 专有分组使用 GPT 钱包扣费
+	// 任务流程可能因免费模型跳过 PreConsumeBilling，提前设置确保
+	// SettleBilling/PostConsumeQuota 及异步 taskAdjustFunding 正确扣 GPT 额度
+	if ratio_setting.ContainsGptGroupRatio(relayInfo.UsingGroup) {
+		relayInfo.BillingSource = service.BillingSourceGptWallet
 	}
 
 	if taskErr := relay.ResolveOriginTask(c, relayInfo); taskErr != nil {
