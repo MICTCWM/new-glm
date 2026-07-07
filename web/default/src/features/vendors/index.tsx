@@ -16,10 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   AlertDialog,
@@ -46,6 +46,9 @@ import { VendorsPrimaryButtons } from './components/vendors-primary-buttons'
 import { vendorsQueryKeys } from './lib/query-keys'
 import type { Vendor, VendorMonitorSample } from './types'
 
+/** 监控刷新间隔（秒）— 默认 60s，与后端采样间隔保持一致 */
+const MONITOR_REFRESH_INTERVAL_SEC = 60
+
 export function Vendors() {
   const { t } = useTranslation()
   const isAdmin = useIsAdmin()
@@ -69,6 +72,21 @@ export function Vendors() {
     refetchInterval: 60 * 1000,
     retry: false,
   })
+
+  // 刷新倒计时
+  const [countdown, setCountdown] = useState(MONITOR_REFRESH_INTERVAL_SEC)
+  const resetCountdown = useCallback(() => {
+    setCountdown(MONITOR_REFRESH_INTERVAL_SEC)
+  }, [])
+  useEffect(() => {
+    resetCountdown()
+  }, [monitorQuery.dataUpdatedAt, resetCountdown])
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown((prev) => Math.max(0, prev - 1))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const vendors = vendorsQuery.data?.data?.items ?? []
 
@@ -130,6 +148,16 @@ export function Vendors() {
           </div>
           <VendorsPrimaryButtons />
         </header>
+
+        {/* 监控刷新倒计时 */}
+        {monitorQuery.data && (
+          <div className='text-muted-foreground flex items-center justify-end gap-1.5 text-[11px]'>
+            <RefreshCw className='size-3' />
+            <span>
+              {t('Auto-refresh in {{count}}s', { count: countdown })}
+            </span>
+          </div>
+        )}
 
         {vendorsQuery.isLoading ? (
           <VendorsLoading />

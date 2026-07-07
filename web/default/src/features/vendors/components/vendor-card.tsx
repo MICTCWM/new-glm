@@ -183,7 +183,11 @@ function VendorCardBase(props: VendorCardProps) {
               className='ml-auto w-[180px]'
             />
             <span className='text-muted-foreground shrink-0 text-[11px] font-mono'>
-              {latestMs !== null ? `${latestMs}ms` : '—'}
+              {latestMs !== null
+                ? latestMs >= 1000
+                  ? `${(latestMs / 1000).toFixed(1)}s`
+                  : `${latestMs}ms`
+                : '—'}
             </span>
           </button>
         )}

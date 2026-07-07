@@ -16,9 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
@@ -27,6 +27,9 @@ import { getAllModelMonitorSamples } from '../api'
 import type { ModelMonitorSample, PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
+
+/** 监控刷新间隔（秒）— 默认 60s，与后端采样间隔保持一致 */
+const MONITOR_REFRESH_INTERVAL_SEC = 60
 
 export interface ModelCardGridProps {
   models: PricingModel[]
@@ -60,6 +63,22 @@ export function ModelCardGrid(props: ModelCardGridProps) {
     refetchInterval: 60 * 1000,
     retry: false,
   })
+
+  // 刷新倒计时：track 距离下次自动刷新的秒数
+  const [countdown, setCountdown] = useState(MONITOR_REFRESH_INTERVAL_SEC)
+  const resetCountdown = useCallback(() => {
+    setCountdown(MONITOR_REFRESH_INTERVAL_SEC)
+  }, [])
+  useEffect(() => {
+    // 每次数据更新后重置倒计时
+    resetCountdown()
+  }, [monitorQuery.dataUpdatedAt, resetCountdown])
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown((prev) => Math.max(0, prev - 1))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const pagedModels = useMemo(() => {
     const start = (currentPage - 1) * pageSize
@@ -104,6 +123,16 @@ export function ModelCardGrid(props: ModelCardGridProps) {
 
   return (
     <div className='space-y-4 sm:space-y-5'>
+      {/* 监控刷新倒计时 */}
+      {monitorQuery.data && (
+        <div className='text-muted-foreground flex items-center justify-end gap-1.5 text-[11px]'>
+          <RefreshCw className='size-3' />
+          <span>
+            {t('Auto-refresh in {{count}}s', { count: countdown })}
+          </span>
+        </div>
+      )}
+
       <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:grid-cols-3'>
         {pagedModels.map(renderCard)}
       </div>

@@ -45,6 +45,18 @@ function formatHHmm(unixSeconds: number): string {
   return `${hh}:${mm}`
 }
 
+/**
+ * Format milliseconds to a human-readable time string.
+ * If >= 1000 ms, show as seconds with one decimal place.
+ * Otherwise show as integer ms.
+ */
+function formatLatency(ms: number): string {
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)}s`
+  }
+  return `${Math.round(ms)}ms`
+}
+
 // ---------------------------------------------------------------------------
 // VendorMonitorSparkline — 纯 CSS/Tailwind 迷你柱形图
 // ---------------------------------------------------------------------------
@@ -144,6 +156,14 @@ export interface VendorMonitorBarChartProps {
 /**
  * 供应商监控完整柱形图，使用 VChart 渲染。每根柱子代表一个 60 秒采样桶；
  * 柱体颜色编码状态（成功 / 失败 / 无数据），柱体高度编码响应时间（毫秒）。
+ *
+ * 关键设计决策：
+ * - Y 轴以**秒**为单位（而非毫秒），避免出现 "7000 ms" 这样的大数字。
+ * - 失败的柱子获得**固定可见高度**（轴上相当于 0.5s），这样红色柱子即使在
+ *   缩放后也始终可见——与缩略图的行为一致（红色柱子始终显示）。
+ * - 无数据柱子获得较小的固定高度（0.2s），以区别于失败柱子。
+ * - 缩略图和此图表使用**相同的颜色方案**，因此缩略图中的红色柱子在展开后
+ *   仍然是红色的。
  */
 export function VendorMonitorBarChart(props: VendorMonitorBarChartProps) {
   const { t } = useTranslation()
@@ -153,23 +173,31 @@ export function VendorMonitorBarChart(props: VendorMonitorBarChartProps) {
     const slice = props.samples.slice(-MAX_SAMPLES)
     if (slice.length === 0) return null
 
+    // Determine max value for reasonable Y-axis, but always include
+    // enough room for the fixed failed/no-data heights.
+    const maxMs = slice.reduce(
+      (m, s) => (s.has_data && s.use_time_ms > m ? s.use_time_ms : m),
+      0
+    )
+    // Y-axis max: at least 2s to show failed bars, but scale to real data if higher
+    const yMax = Math.max(2000, maxMs * 1.15)
+
     const data = slice.map((s) => {
       const status = sampleStatus(s)
-      // VChart 需要每根柱子有正数高度。对不可见桶使用小的哨兵值，
-      // 同时保留真实 use_time_ms 供 tooltip 显示。
-      let renderValue: number
+      // Convert ms to seconds for the Y-axis
+      let renderValueSec: number
       if (status === 'no_data') {
-        renderValue = 5
-      } else if (s.use_time_ms <= 0) {
-        renderValue = 10
+        renderValueSec = 0.2 // fixed visible stub (200ms equivalent)
+      } else if (!s.has_data || s.use_time_ms <= 0) {
+        renderValueSec = 0.5 // fixed visible stub for failed/success-without-time
       } else {
-        renderValue = s.use_time_ms
+        renderValueSec = s.use_time_ms / 1000
       }
       return {
         time: formatHHmm(s.created_at),
-        value: renderValue,
+        value: renderValueSec,
         status,
-        // 原始字段，通过 tooltip 展示。
+        rawSec: s.has_data ? s.use_time_ms / 1000 : 0,
         rawMs: s.use_time_ms,
         hasData: s.has_data,
       }
@@ -228,13 +256,16 @@ export function VendorMonitorBarChart(props: VendorMonitorBarChartProps) {
         {
           orient: 'left',
           label: {
-            formatMethod: (val: number | string) => `${val} ms`,
+            formatMethod: (val: number | string) => `${val}s`,
             style: { fill: 'currentColor', fontSize: 10 },
           },
           grid: { visible: true, style: { lineDash: [3, 3] } },
+          // Force zero-based Y-axis so small bars don't get exaggerated
+          zero: true,
+          max: yMax / 1000,
           title: {
             visible: true,
-            text: t('Response time (ms)'),
+            text: t('Response time'),
             style: { fill: 'currentColor', fontSize: 11 },
             autoRotate: false,
           },
@@ -246,8 +277,12 @@ export function VendorMonitorBarChart(props: VendorMonitorBarChartProps) {
           content: [
             {
               key: t('Response time'),
-              value: (d: { rawMs: number; hasData: boolean }) =>
-                d.hasData ? `${d.rawMs} ms` : t('No data'),
+              value: (d: { rawMs: number; hasData: boolean; status: string }) =>
+                !d.hasData
+                  ? t('No data')
+                  : d.status === 'failed'
+                    ? `${t('Failed')}`
+                    : formatLatency(d.rawMs),
             },
             {
               key: t('Status'),

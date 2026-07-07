@@ -12,10 +12,10 @@ type MonitorSetting struct {
 	AutoTestChannelMinutes float64 `json:"auto_test_channel_minutes"`
 }
 
-// 默认配置
+// 默认配置（默认 60 秒）
 var monitorSetting = MonitorSetting{
 	AutoTestChannelEnabled: false,
-	AutoTestChannelMinutes: 10,
+	AutoTestChannelMinutes: 60,
 }
 
 func init() {

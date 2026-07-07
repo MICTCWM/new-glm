@@ -280,7 +280,7 @@ export function MonitoringSettingsSection({
               name='monitor_setting.auto_test_channel_minutes'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Test interval (minutes)')}</FormLabel>
+                  <FormLabel>{t('Test interval (seconds)')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
@@ -301,7 +301,7 @@ export function MonitoringSettingsSection({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('How frequently the system tests all channels')}
+                    {t('How frequently the system tests all channels (in seconds)')}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

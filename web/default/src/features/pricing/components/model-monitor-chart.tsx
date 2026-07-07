@@ -45,6 +45,18 @@ function formatHHmm(unixSeconds: number): string {
   return `${hh}:${mm}`
 }
 
+/**
+ * Format milliseconds to a human-readable time string.
+ * If >= 1000 ms, show as seconds with one decimal place.
+ * Otherwise show as integer ms.
+ */
+function formatLatency(ms: number): string {
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)}s`
+  }
+  return `${Math.round(ms)}ms`
+}
+
 // ---------------------------------------------------------------------------
 // ModelMonitorSparkline — pure CSS/Tailwind mini bar chart
 // ---------------------------------------------------------------------------
@@ -145,6 +157,15 @@ export interface ModelMonitorBarChartProps {
  * Full-size monitor bar chart rendered with VChart. Each bar is one 60s sample
  * bucket; the bar's colour encodes its status (success / failed / no-data)
  * and the bar's height encodes the response time in milliseconds.
+ *
+ * Key design decisions:
+ * - Y-axis shows latency in **seconds** (not ms) to avoid large numbers like "7000 ms".
+ * - Failed bars get a **fixed visible height** (equivalent to 0.5s on the axis) so
+ *   red bars are always visible even when the chart is zoomed in — matching the
+ *   sparkline's behaviour where failed bars are always shown.
+ * - No-data bars get a smaller fixed height (0.2s) to distinguish from failed.
+ * - The sparkline and this chart use the **same colour scheme**, so red bars in
+ *   the thumbnail remain red in the expanded view.
  */
 export function ModelMonitorBarChart(props: ModelMonitorBarChartProps) {
   const { t } = useTranslation()
@@ -154,24 +175,31 @@ export function ModelMonitorBarChart(props: ModelMonitorBarChartProps) {
     const slice = props.samples.slice(-MAX_SAMPLES)
     if (slice.length === 0) return null
 
+    // Determine max value for reasonable Y-axis, but always include
+    // enough room for the fixed failed/no-data heights.
+    const maxMs = slice.reduce(
+      (m, s) => (s.has_data && s.use_time_ms > m ? s.use_time_ms : m),
+      0
+    )
+    // Y-axis max: at least 2s to show failed bars, but scale to real data if higher
+    const yMax = Math.max(2000, maxMs * 1.15)
+
     const data = slice.map((s) => {
       const status = sampleStatus(s)
-      // VChart needs a positive numeric height for every bar. Substitute
-      // small sentinel values for buckets that would otherwise be invisible
-      // while preserving the real `use_time_ms` for the tooltip.
-      let renderValue: number
+      // Convert ms to seconds for the Y-axis
+      let renderValueSec: number
       if (status === 'no_data') {
-        renderValue = 5
-      } else if (s.use_time_ms <= 0) {
-        renderValue = 10
+        renderValueSec = 0.2 // fixed visible stub (200ms equivalent)
+      } else if (!s.has_data || s.use_time_ms <= 0) {
+        renderValueSec = 0.5 // fixed visible stub for failed/success-without-time
       } else {
-        renderValue = s.use_time_ms
+        renderValueSec = s.use_time_ms / 1000
       }
       return {
         time: formatHHmm(s.created_at),
-        value: renderValue,
+        value: renderValueSec,
         status,
-        // Original fields, surfaced via tooltip.
+        rawSec: s.has_data ? s.use_time_ms / 1000 : 0,
         rawMs: s.use_time_ms,
         hasData: s.has_data,
       }
@@ -230,13 +258,16 @@ export function ModelMonitorBarChart(props: ModelMonitorBarChartProps) {
         {
           orient: 'left',
           label: {
-            formatMethod: (val: number | string) => `${val} ms`,
+            formatMethod: (val: number | string) => `${val}s`,
             style: { fill: 'currentColor', fontSize: 10 },
           },
           grid: { visible: true, style: { lineDash: [3, 3] } },
+          // Force zero-based Y-axis so small bars don't get exaggerated
+          zero: true,
+          max: yMax / 1000,
           title: {
             visible: true,
-            text: t('Response time (ms)'),
+            text: t('Response time'),
             style: { fill: 'currentColor', fontSize: 11 },
             autoRotate: false,
           },
@@ -248,8 +279,12 @@ export function ModelMonitorBarChart(props: ModelMonitorBarChartProps) {
           content: [
             {
               key: t('Response time'),
-              value: (d: { rawMs: number; hasData: boolean }) =>
-                d.hasData ? `${d.rawMs} ms` : t('No data'),
+              value: (d: { rawMs: number; hasData: boolean; status: string }) =>
+                !d.hasData
+                  ? t('No data')
+                  : d.status === 'failed'
+                    ? `${t('Failed')}`
+                    : formatLatency(d.rawMs),
             },
             {
               key: t('Status'),
