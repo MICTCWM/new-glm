@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useState } from 'react'
-import { Loader2, Lock, Unlock } from 'lucide-react'
+import { Loader2, Unlock } from 'lucide-react'
 import i18next from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -60,8 +60,18 @@ interface GptRechargeDialogProps {
 
 type RechargeMode = 'gpt' | 'base'
 
+const GPT_QUOTA_FRACTION_DIGITS = 9
+
 function formatGptQuota(value: number): string {
-  return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: GPT_QUOTA_FRACTION_DIGITS,
+  })
+}
+
+function formatGptQuotaInput(value: number): string {
+  return value
+    .toFixed(GPT_QUOTA_FRACTION_DIGITS)
+    .replace(/\.?0+$/, '')
 }
 
 export function GptRechargeDialog({
@@ -111,7 +121,7 @@ export function GptRechargeDialog({
       ])
         .then(([subRes, planRes]) => {
           if (subRes.success && subRes.data) {
-            const activeSubs = (subRes.data.subscriptions || []).filter(
+            const activeSubs = (subRes.data || []).filter(
               (s: UserSubscriptionRecord) =>
                 s.subscription.status === 'active'
             )
@@ -289,7 +299,7 @@ export function GptRechargeDialog({
       if (mode === 'gpt') {
         // gpt模式：计算对应的GPT数量
         const gptAmount = availableBaseQuota / GPT_TO_BASE_RATIO
-        setGptInput(gptAmount.toFixed(4))
+        setGptInput(formatGptQuotaInput(gptAmount))
       } else {
         // base模式：将基础余额转换为USD
         const usdAmount = quotaUnitsToDollars(availableBaseQuota)
@@ -299,7 +309,7 @@ export function GptRechargeDialog({
       // GPT转基础：将所有GPT余额转换为基础余额
       if (mode === 'gpt') {
         // gpt模式：直接使用所有GPT余额
-        setGptInput(availableGptQuota.toFixed(4))
+        setGptInput(formatGptQuotaInput(availableGptQuota))
       } else {
         // base模式：计算对应的基础余额USD
         const baseQuota = availableGptQuota * GPT_TO_BASE_RATIO

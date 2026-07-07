@@ -147,7 +147,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 			return err
 		}
 		relayInfo.UserGptQuota = userGptQuota
-		preConsumeGpt := float64(quota) * common.GptQuotaExchangeRate
+		preConsumeGpt := model.GptQuotaFromBaseQuota(quota)
 		if userGptQuota < preConsumeGpt {
 			return fmt.Errorf("GPT 专有额度不足, 剩余 GPT 额度: %.4f, 需要预扣费: %.4f", userGptQuota, preConsumeGpt)
 		}
@@ -476,7 +476,7 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 		}
 	} else if relayInfo != nil && relayInfo.BillingSource == BillingSourceGptWallet {
 		// GPT 钱包：扣减/增加 GPT 专有额度
-		gptQuotaDelta := float64(quota) * common.GptQuotaExchangeRate
+		gptQuotaDelta := model.GptQuotaFromBaseQuota(quota)
 		if quota > 0 {
 			err = model.DecreaseUserGptQuota(relayInfo.UserId, gptQuotaDelta)
 		} else {

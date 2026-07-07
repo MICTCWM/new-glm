@@ -254,6 +254,9 @@ func migrateDB() error {
 	if err := migrateTokenModelLimitsToText(); err != nil {
 		return err
 	}
+	if err := migrateUserGptQuotaPrecision(); err != nil {
+		return err
+	}
 
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -307,6 +310,9 @@ func migrateDB() error {
 }
 
 func migrateDBFast() error {
+	if err := migrateUserGptQuotaPrecision(); err != nil {
+		return err
+	}
 
 	var wg sync.WaitGroup
 
@@ -385,10 +391,81 @@ func ensureUserGptQuotaColumn() error {
 	if DB == nil {
 		return nil
 	}
-	if DB.Migrator().HasColumn(&User{}, "GptQuota") {
+	if !DB.Migrator().HasColumn(&User{}, "GptQuota") {
+		return DB.Migrator().AddColumn(&User{}, "GptQuota")
+	}
+	return migrateUserGptQuotaPrecision()
+}
+
+func migrateUserGptQuotaPrecision() error {
+	if common.UsingSQLite {
 		return nil
 	}
-	return DB.Migrator().AddColumn(&User{}, "GptQuota")
+
+	const tableName = "users"
+	const columnName = "gpt_quota"
+	requiredPrecision := 36
+	requiredScale := userGptQuotaScale
+
+	if !DB.Migrator().HasTable(tableName) {
+		return nil
+	}
+	if !DB.Migrator().HasColumn(&User{}, "GptQuota") {
+		return nil
+	}
+
+	var alterSQL string
+	if common.UsingPostgreSQL {
+		var meta struct {
+			DataType         string `gorm:"column:data_type"`
+			NumericPrecision int    `gorm:"column:numeric_precision"`
+			NumericScale     int    `gorm:"column:numeric_scale"`
+		}
+		if err := DB.Raw(`SELECT data_type,
+				COALESCE(numeric_precision, 0) AS numeric_precision,
+				COALESCE(numeric_scale, 0) AS numeric_scale
+			FROM information_schema.columns
+			WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
+			tableName, columnName).Scan(&meta).Error; err != nil {
+			return fmt.Errorf("failed to query metadata for %s.%s: %w", tableName, columnName, err)
+		}
+		if strings.EqualFold(meta.DataType, "numeric") &&
+			meta.NumericPrecision >= requiredPrecision &&
+			meta.NumericScale >= requiredScale {
+			return nil
+		}
+		alterSQL = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s::%s`,
+			tableName, columnName, userGptQuotaColumnType, columnName, userGptQuotaColumnType)
+	} else if common.UsingMySQL {
+		var meta struct {
+			DataType         string `gorm:"column:data_type"`
+			NumericPrecision int    `gorm:"column:numeric_precision"`
+			NumericScale     int    `gorm:"column:numeric_scale"`
+		}
+		if err := DB.Raw(`SELECT DATA_TYPE AS data_type,
+				COALESCE(NUMERIC_PRECISION, 0) AS numeric_precision,
+				COALESCE(NUMERIC_SCALE, 0) AS numeric_scale
+			FROM information_schema.COLUMNS
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+			tableName, columnName).Scan(&meta).Error; err != nil {
+			return fmt.Errorf("failed to query metadata for %s.%s: %w", tableName, columnName, err)
+		}
+		if strings.EqualFold(meta.DataType, "decimal") &&
+			meta.NumericPrecision >= requiredPrecision &&
+			meta.NumericScale >= requiredScale {
+			return nil
+		}
+		alterSQL = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN %s %s DEFAULT 0",
+			tableName, columnName, userGptQuotaColumnType)
+	} else {
+		return nil
+	}
+
+	if err := DB.Exec(alterSQL).Error; err != nil {
+		return fmt.Errorf("failed to migrate %s.%s to %s: %w", tableName, columnName, userGptQuotaColumnType, err)
+	}
+	common.SysLog(fmt.Sprintf("Successfully migrated %s.%s to %s", tableName, columnName, userGptQuotaColumnType))
+	return nil
 }
 
 func migrateLOGDB() error {

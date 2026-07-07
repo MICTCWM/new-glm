@@ -97,7 +97,7 @@ func taskAdjustFunding(task *model.Task, delta int) error {
 	}
 	if task.PrivateData.BillingSource == BillingSourceGptWallet {
 		// GPT 钱包：将基础额度转换为 GPT 额度（float64）后调整
-		gptDelta := float64(delta) * common.GptQuotaExchangeRate
+		gptDelta := model.GptQuotaFromBaseQuota(delta)
 		if delta > 0 {
 			return model.DecreaseUserGptQuota(task.UserId, gptDelta)
 		}

@@ -3,7 +3,6 @@ package service
 import (
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -83,7 +82,7 @@ func (g *GptWalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
 	}
-	gptQuota := float64(amount) * common.GptQuotaExchangeRate
+	gptQuota := model.GptQuotaFromBaseQuota(amount)
 	if err := model.DecreaseUserGptQuota(g.userId, gptQuota); err != nil {
 		return err
 	}
@@ -97,7 +96,7 @@ func (g *GptWalletFunding) Settle(delta int) error {
 	if delta == 0 {
 		return nil
 	}
-	gptDelta := float64(delta) * common.GptQuotaExchangeRate
+	gptDelta := model.GptQuotaFromBaseQuota(delta)
 	if delta > 0 {
 		return model.DecreaseUserGptQuota(g.userId, gptDelta)
 	}

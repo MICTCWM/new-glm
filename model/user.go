@@ -16,10 +16,17 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
 const UserNameMaxLength = 20
+
+const (
+	userGptQuotaColumnType = "decimal(36,18)"
+	userGptQuotaSQLCast    = "DECIMAL(36,18)"
+	userGptQuotaScale      = 18
+)
 
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
@@ -40,7 +47,7 @@ type User struct {
 	VerificationCode string         `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
 	AccessToken      *string        `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int            `json:"quota" gorm:"type:int;default:0"`
-	GptQuota         float64        `json:"gpt_quota" gorm:"type:decimal(20,4);default:0"` // GPT 专属额度（用户开启 GPT 模式后将基础余额转换得到）
+	GptQuota         float64        `json:"gpt_quota" gorm:"type:decimal(36,18);default:0"`         // GPT 专属额度（用户开启 GPT 模式后将基础余额转换得到）
 	UsedQuota        int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount     int            `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string         `json:"group" gorm:"type:varchar(64);default:'default'"`
@@ -956,6 +963,35 @@ func DeltaUpdateUserQuota(id int, delta int) (err error) {
 	}
 }
 
+func gptQuotaAmount(quota float64) (decimal.Decimal, error) {
+	if math.IsNaN(quota) || math.IsInf(quota, 0) {
+		return decimal.Zero, errors.New("gpt_quota 不是有效数字")
+	}
+	amount := decimal.NewFromFloat(quota).Round(userGptQuotaScale)
+	if amount.IsNegative() {
+		return decimal.Zero, errors.New("gpt_quota 不能为负数！")
+	}
+	return amount, nil
+}
+
+func gptQuotaSQLValue(amount decimal.Decimal) string {
+	return amount.StringFixed(userGptQuotaScale)
+}
+
+func gptQuotaFromBaseQuotaDecimal(baseQuota int) decimal.Decimal {
+	// common.GptQuotaExchangeRate == 0.003 / 500000 == 3 / 500000000.
+	return decimal.NewFromInt(int64(baseQuota)).
+		Mul(decimal.NewFromInt(3)).
+		Div(decimal.NewFromInt(500000000)).
+		Round(userGptQuotaScale)
+}
+
+// GptQuotaFromBaseQuota converts internal quota units to GPT quota units.
+func GptQuotaFromBaseQuota(baseQuota int) float64 {
+	value, _ := gptQuotaFromBaseQuotaDecimal(baseQuota).Float64()
+	return value
+}
+
 // GetUserGptQuota 从数据库读取用户的 GPT 专属额度
 // GPT 额度充值是低频操作，暂不引入 Redis 缓存，直接操作 DB
 func GetUserGptQuota(id int, fromDB bool) (gptQuota float64, err error) {
@@ -968,19 +1004,32 @@ func GetUserGptQuota(id int, fromDB bool) (gptQuota float64, err error) {
 
 // IncreaseUserGptQuota 增加用户的 GPT 专属额度
 func IncreaseUserGptQuota(id int, quota float64) error {
-	if quota < 0 {
-		return errors.New("gpt_quota 不能为负数！")
+	amount, err := gptQuotaAmount(quota)
+	if err != nil {
+		return err
 	}
-	return DB.Model(&User{}).Where("id = ?", id).Update("gpt_quota", gorm.Expr("gpt_quota + ?", quota)).Error
+	if amount.IsZero() {
+		return nil
+	}
+	return DB.Model(&User{}).
+		Where("id = ?", id).
+		Update("gpt_quota", gorm.Expr("gpt_quota + CAST(? AS "+userGptQuotaSQLCast+")", gptQuotaSQLValue(amount))).Error
 }
 
 // DecreaseUserGptQuota 扣减用户的 GPT 专属额度
 // 余额不足时返回错误，避免额度变成负数
 func DecreaseUserGptQuota(id int, quota float64) error {
-	if quota < 0 {
-		return errors.New("gpt_quota 不能为负数！")
+	amount, err := gptQuotaAmount(quota)
+	if err != nil {
+		return err
 	}
-	result := DB.Model(&User{}).Where("id = ? AND gpt_quota >= ?", id, quota).Update("gpt_quota", gorm.Expr("gpt_quota - ?", quota))
+	if amount.IsZero() {
+		return nil
+	}
+	sqlAmount := gptQuotaSQLValue(amount)
+	result := DB.Model(&User{}).
+		Where("id = ? AND gpt_quota >= CAST(? AS "+userGptQuotaSQLCast+")", id, sqlAmount).
+		Update("gpt_quota", gorm.Expr("gpt_quota - CAST(? AS "+userGptQuotaSQLCast+")", sqlAmount))
 	if result.Error != nil {
 		return result.Error
 	}
@@ -1050,14 +1099,21 @@ func TransferQuotaToGptQuota(userId int, baseQuota int) (float64, error) {
 	}
 
 	// 计算可获得的 GPT 额度
-	gptQuota := float64(baseQuota) * common.GptQuotaExchangeRate
+	gptQuotaDecimal := gptQuotaFromBaseQuotaDecimal(baseQuota)
+	gptQuota, _ := gptQuotaDecimal.Float64()
 
 	// 更新用户额度
-	user.Quota -= baseQuota
-	user.GptQuota += gptQuota
-
-	if err := tx.Save(user).Error; err != nil {
-		return 0, err
+	result := tx.Model(&User{}).
+		Where("id = ? AND quota >= ?", userId, baseQuota).
+		Updates(map[string]interface{}{
+			"quota":     gorm.Expr("quota - ?", baseQuota),
+			"gpt_quota": gorm.Expr("gpt_quota + CAST(? AS "+userGptQuotaSQLCast+")", gptQuotaSQLValue(gptQuotaDecimal)),
+		})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return 0, errors.New("基础余额不足！")
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -1065,7 +1121,7 @@ func TransferQuotaToGptQuota(userId int, baseQuota int) (float64, error) {
 	}
 
 	// 记录转换日志
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %d 基础额度为 %.4f GPT 额度", baseQuota, gptQuota))
+	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %d 基础额度为 %.9f GPT 额度", baseQuota, gptQuota))
 
 	return gptQuota, nil
 }
@@ -1077,6 +1133,13 @@ func TransferGptQuotaToQuota(userId int, gptQuota float64) (int, error) {
 	if gptQuota <= 0 {
 		return 0, errors.New("转换额度必须大于 0！")
 	}
+	gptQuotaDecimal, err := gptQuotaAmount(gptQuota)
+	if err != nil {
+		return 0, err
+	}
+	if gptQuotaDecimal.IsZero() {
+		return 0, errors.New("转换金额过小，无法转换为有效基础额度！")
+	}
 
 	tx := DB.Begin()
 	if tx.Error != nil {
@@ -1085,34 +1148,45 @@ func TransferGptQuotaToQuota(userId int, gptQuota float64) (int, error) {
 	defer tx.Rollback()
 
 	user := &User{}
-	err := tx.Set("gorm:query_option", "FOR UPDATE").First(user, userId).Error
+	err = tx.Set("gorm:query_option", "FOR UPDATE").First(user, userId).Error
 	if err != nil {
 		return 0, err
 	}
 
 	// 检查用户的 GPT 额度是否充足
-	if user.GptQuota < gptQuota {
+	currentGptQuota := decimal.NewFromFloat(user.GptQuota).Round(userGptQuotaScale)
+	if currentGptQuota.LessThan(gptQuotaDecimal) {
 		return 0, errors.New("GPT 额度不足！")
 	}
 
-	// 反向计算可获得的内部额度（四舍五入取整）
-	baseQuota := int(math.Round(gptQuota / common.GptQuotaExchangeRate))
+	// 反向计算可获得的内部额度。内部额度是整数，向下取整避免小数向上取整套利。
+	baseQuota := int(gptQuotaDecimal.
+		Mul(decimal.NewFromInt(500000000)).
+		Div(decimal.NewFromInt(3)).
+		IntPart())
 	if baseQuota <= 0 {
 		return 0, errors.New("转换金额过小，无法转换为有效基础额度！")
 	}
 
-	user.GptQuota -= gptQuota
-	user.Quota += baseQuota
-
-	if err := tx.Save(user).Error; err != nil {
-		return 0, err
+	sqlAmount := gptQuotaSQLValue(gptQuotaDecimal)
+	result := tx.Model(&User{}).
+		Where("id = ? AND gpt_quota >= CAST(? AS "+userGptQuotaSQLCast+")", userId, sqlAmount).
+		Updates(map[string]interface{}{
+			"quota":     gorm.Expr("quota + ?", baseQuota),
+			"gpt_quota": gorm.Expr("gpt_quota - CAST(? AS "+userGptQuotaSQLCast+")", sqlAmount),
+		})
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return 0, errors.New("GPT 额度不足！")
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		return 0, err
 	}
 
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %.4f GPT 额度为 %d 基础额度", gptQuota, baseQuota))
+	RecordLog(userId, LogTypeTopup, fmt.Sprintf("转换 %.9f GPT 额度为 %d 基础额度", gptQuota, baseQuota))
 
 	return baseQuota, nil
 }
@@ -1177,18 +1251,16 @@ func AddGptQuota(tx *gorm.DB, userId int, gptQuota float64) error {
 	if tx == nil {
 		return errors.New("tx is nil")
 	}
-	if gptQuota <= 0 {
+	amount, err := gptQuotaAmount(gptQuota)
+	if err != nil {
+		return err
+	}
+	if !amount.IsPositive() {
 		return errors.New("gpt quota must be > 0")
 	}
-	user := &User{}
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(user, userId).Error; err != nil {
-		return err
-	}
-	user.GptQuota += gptQuota
-	if err := tx.Save(user).Error; err != nil {
-		return err
-	}
-	return nil
+	return tx.Model(&User{}).
+		Where("id = ?", userId).
+		Update("gpt_quota", gorm.Expr("gpt_quota + CAST(? AS "+userGptQuotaSQLCast+")", gptQuotaSQLValue(amount))).Error
 }
 
 //func GetRootUserEmail() (email string) {

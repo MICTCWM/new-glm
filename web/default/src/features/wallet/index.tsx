@@ -66,8 +66,12 @@ import type {
   CreemProduct,
 } from './types'
 
+const GPT_QUOTA_FRACTION_DIGITS = 9
+
 function formatGptQuota(value: number): string {
-  return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: GPT_QUOTA_FRACTION_DIGITS,
+  })
 }
 
 interface WalletProps {

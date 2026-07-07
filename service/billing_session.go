@@ -239,7 +239,7 @@ func (s *BillingSession) reserveFunding(delta int) error {
 		funding.consumed += delta
 		return nil
 	case *GptWalletFunding:
-		gptDelta := float64(delta) * common.GptQuotaExchangeRate
+		gptDelta := model.GptQuotaFromBaseQuota(delta)
 		if err := model.DecreaseUserGptQuota(funding.userId, gptDelta); err != nil {
 			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 		}
@@ -270,7 +270,7 @@ func (s *BillingSession) rollbackFundingReserve(delta int) {
 			funding.consumed -= delta
 		}
 	case *GptWalletFunding:
-		gptDelta := float64(delta) * common.GptQuotaExchangeRate
+		gptDelta := model.GptQuotaFromBaseQuota(delta)
 		if err := model.IncreaseUserGptQuota(funding.userId, gptDelta); err != nil {
 			common.SysLog("error rolling back gpt wallet funding reserve: " + err.Error())
 		} else {
@@ -319,9 +319,8 @@ func (s *BillingSession) shouldTrust(c *gin.Context) bool {
 	case BillingSourceWallet:
 		return s.relayInfo.UserQuota > trustQuota
 	case BillingSourceGptWallet:
-		// GPT 额度信任旁路：将 trustQuota 转换为 GPT 额度单位比较
-		gptTrustQuota := float64(trustQuota) * common.GptQuotaExchangeRate
-		return s.relayInfo.UserGptQuota > gptTrustQuota
+		// GPT 专属钱包必须预扣，避免小额请求只在结算阶段补扣造成风控缺口。
+		return false
 	case BillingSourceSubscription:
 		// 订阅不能启用信任旁路。原因：
 		// 1. PreConsumeUserSubscription 要求 amount>0 来创建预扣记录并锁定订阅
@@ -425,7 +424,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		}
-		preConsumeGpt := float64(preConsumedQuota) * common.GptQuotaExchangeRate
+		preConsumeGpt := model.GptQuotaFromBaseQuota(preConsumedQuota)
 		if userGptQuota <= 0 {
 			return nil, types.NewErrorWithStatusCode(
 				fmt.Errorf("GPT 专有额度不足, 剩余 GPT 额度: %.4f", userGptQuota),
