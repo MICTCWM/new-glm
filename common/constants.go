@@ -295,6 +295,7 @@ const (
 // RPM Queue configuration
 var RpmQueueTimeout = 60 * time.Second // 排队等待超时时间
 
-// GPT 额度转换汇率：GPT 额度数值与美元数值一致。
-// 500000 内部额度 = 1 美元 = 1 GPT 额度数值。
-const GptQuotaExchangeRate = 1.0 / 500000.0
+// GPT 钱包互转汇率：
+// 500 基础余额 = 1.5 GPT 余额，即 250000000 内部额度 = 1.5 GPT。
+// 这里只描述“基础余额 <-> GPT 余额”的互转规则，不用于请求扣费换算。
+const GptQuotaExchangeRate = 0.003 / 500000.0

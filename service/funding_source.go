@@ -77,7 +77,7 @@ type GptWalletFunding struct {
 func (g *GptWalletFunding) Source() string { return BillingSourceGptWallet }
 
 // PreConsume 从 GPT 专有额度中预扣 amount（基础额度 int 单位）。
-// GPT 额度数值与美元数值一致，内部会将基础额度转换为对应 GPT 额度数值后扣减。
+// 请求扣费按日志数值换算：500000 内部额度 = 1 GPT 扣费单位。
 func (g *GptWalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
@@ -91,7 +91,7 @@ func (g *GptWalletFunding) PreConsume(amount int) error {
 }
 
 // Settle 根据差额调整 GPT 额度（正数补扣，负数退还）。
-// delta 为基础额度 int 单位，内部转换为 GPT 额度。
+// delta 为基础额度 int 单位，内部按 GPT 扣费单位换算。
 func (g *GptWalletFunding) Settle(delta int) error {
 	if delta == 0 {
 		return nil

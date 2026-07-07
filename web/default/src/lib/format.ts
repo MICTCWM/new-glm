@@ -167,8 +167,8 @@ export function formatLogQuota(quota: number): string {
 }
 
 /**
- * Format raw quota units as a plain numeric USD-equivalent amount without a currency symbol.
- * Used by GPT wallet logs where the numeric value should match the GPT quota value directly.
+ * Format raw quota units as a plain numeric billing value without a currency symbol.
+ * Used by GPT wallet logs where the deduction should match the GPT quota numeric value directly.
  */
 export function formatQuotaAmount(quota: number): string {
   const { config } = getCurrencyDisplay()

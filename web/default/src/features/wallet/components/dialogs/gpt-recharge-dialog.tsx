@@ -235,12 +235,13 @@ export function GptRechargeDialog({
     })
   }
 
-  // 用户输入的是美金，需要转成内部额度
+  // 基础余额输入框使用基础钱包的 USD 展示值，提交前要先转回内部额度。
+  // GPT 输入框直接使用 GPT 余额数值本身。
   const gptAmount = Number(gptInput) || 0
   const baseAmountUsd = Number(baseInput) || 0 // 用户输入的美金金额
   const baseAmountInput = parseQuotaFromDollars(baseAmountUsd) // 转成内部额度
 
-  // 计算换算后的内部额度与 GPT 额度（两个方向的换算公式一致，区别在于扣除/获得的语义）：
+  // 按钱包互转规则计算结果：500 基础余额 = 1.5 GPT 余额。
   // gpt 模式 → 输入 GPT 数量：base = gpt * GPT_TO_BASE_RATIO，gpt = gptAmount
   // base 模式 → 输入 USD：base = baseAmountInput，gpt = baseAmountInput * BASE_TO_GPT_RATIO
   // toGpt:  effectiveBaseQuota 为要扣除的基础余额，effectiveGptQuota 为获得的 GPT 额度

@@ -27,17 +27,46 @@ func TestDecreaseUserGptQuotaPersistsSmallDelta(t *testing.T) {
 
 	baseQuota, err := TransferGptQuotaToQuota(userID, got)
 	require.NoError(t, err)
-	assert.Equal(t, 1000, baseQuota)
+	assert.Equal(t, 333333, baseQuota)
 
 	var reloaded User
 	require.NoError(t, DB.First(&reloaded, userID).Error)
-	assert.Equal(t, 1000, reloaded.Quota)
+	assert.Equal(t, 333333, reloaded.Quota)
 	assert.InDelta(t, 0, reloaded.GptQuota, 1e-12)
 }
 
-func TestGptQuotaFromBaseQuotaMatchesUsdValue(t *testing.T) {
+func TestGptQuotaFromBaseQuotaMatchesBillingValue(t *testing.T) {
 	assert.InDelta(t, 0.003338, GptQuotaFromBaseQuota(1669), 1e-12)
 	assert.InDelta(t, 1.0, GptQuotaFromBaseQuota(500000), 1e-12)
+}
+
+func TestTransferQuotaToGptQuotaUsesWalletExchangeRate(t *testing.T) {
+	truncateTables(t)
+
+	userID := 91005
+	require.NoError(t, DB.Create(&User{
+		Id:       userID,
+		Username: "gpt_quota_wallet_exchange",
+		Status:   common.UserStatusEnabled,
+		Quota:    250000000,
+	}).Error)
+
+	gptQuota, err := TransferQuotaToGptQuota(userID, 250000000)
+	require.NoError(t, err)
+	assert.InDelta(t, 1.5, gptQuota, 1e-12)
+
+	var reloaded User
+	require.NoError(t, DB.First(&reloaded, userID).Error)
+	assert.Zero(t, reloaded.Quota)
+	assert.InDelta(t, 1.5, reloaded.GptQuota, 1e-12)
+
+	baseQuota, err := TransferGptQuotaToQuota(userID, reloaded.GptQuota)
+	require.NoError(t, err)
+	assert.Equal(t, 250000000, baseQuota)
+
+	require.NoError(t, DB.First(&reloaded, userID).Error)
+	assert.Equal(t, 250000000, reloaded.Quota)
+	assert.InDelta(t, 0, reloaded.GptQuota, 1e-12)
 }
 
 func TestDecreaseUserGptQuotaRejectsInsufficientBalance(t *testing.T) {
@@ -63,20 +92,21 @@ func TestTransferGptQuotaToQuotaDoesNotRoundUpTinyFraction(t *testing.T) {
 	truncateTables(t)
 
 	userID := 91003
+	tinyGptQuota := 0.000000000000000001
 	require.NoError(t, DB.Create(&User{
 		Id:       userID,
 		Username: "gpt_quota_floor",
 		Status:   common.UserStatusEnabled,
-		GptQuota: GptQuotaFromBaseQuota(1),
+		GptQuota: tinyGptQuota,
 	}).Error)
 
-	_, err := TransferGptQuotaToQuota(userID, GptQuotaFromBaseQuota(1)/2)
+	_, err := TransferGptQuotaToQuota(userID, tinyGptQuota)
 	require.ErrorContains(t, err, "转换金额过小")
 
 	var reloaded User
 	require.NoError(t, DB.First(&reloaded, userID).Error)
 	assert.Zero(t, reloaded.Quota)
-	assert.InDelta(t, GptQuotaFromBaseQuota(1), reloaded.GptQuota, 1e-12)
+	assert.InDelta(t, tinyGptQuota, reloaded.GptQuota, 1e-24)
 }
 
 func TestForceDecreaseUserGptQuotaAllowsNegativeBalance(t *testing.T) {
