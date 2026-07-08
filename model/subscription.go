@@ -171,6 +171,10 @@ type SubscriptionPlan struct {
 	// Total quota (amount in quota units, 0 = unlimited)
 	TotalAmount int64 `json:"total_amount" gorm:"type:bigint;not null;default:0"`
 
+	// Weekly amount limit (amount in quota units, 0 = no weekly limit)
+	// 与quota_reset_period独立叠加，按订阅起始日计算每7天一个周期
+	WeeklyAmountLimit int64 `json:"weekly_amount_limit" gorm:"type:bigint;not null;default:0"`
+
 	// Quota reset period for plan
 	QuotaResetPeriod        string `json:"quota_reset_period" gorm:"type:varchar(16);default:'never'"`
 	QuotaResetCustomSeconds int64  `json:"quota_reset_custom_seconds" gorm:"type:bigint;default:0"`
@@ -247,6 +251,16 @@ type UserSubscription struct {
 
 	LastResetTime int64 `json:"last_reset_time" gorm:"type:bigint;default:0"`
 	NextResetTime int64 `json:"next_reset_time" gorm:"type:bigint;default:0;index"`
+
+	// 周限额相关字段（与quota_reset_period独立叠加）
+	// WeeklyAmountLimit: 周限额快照（0=不限制），创建订阅时从plan快照
+	WeeklyAmountLimit int64 `json:"weekly_amount_limit" gorm:"type:bigint;not null;default:0"`
+	// WeeklyAmountUsed: 本周已用额度
+	WeeklyAmountUsed int64 `json:"weekly_amount_used" gorm:"type:bigint;not null;default:0"`
+	// WeeklyPeriodStart: 当前周周期起点（unix秒）
+	WeeklyPeriodStart int64 `json:"weekly_period_start" gorm:"type:bigint;default:0"`
+	// WeeklyPeriodEnd: 当前周周期终点（unix秒），定时任务用索引
+	WeeklyPeriodEnd int64 `json:"weekly_period_end" gorm:"type:bigint;default:0;index"`
 
 	UpgradeGroup  string `json:"upgrade_group" gorm:"type:varchar(64);default:''"`
 	PrevUserGroup string `json:"prev_user_group" gorm:"type:varchar(64);default:''"`
@@ -483,21 +497,32 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 			}
 		}
 	}
+	// 周限额初始化：从plan快照WeeklyAmountLimit，启用时设置首个周期[StartTime, StartTime+7天)
+	weeklyPeriodStart := int64(0)
+	weeklyPeriodEnd := int64(0)
+	if plan.WeeklyAmountLimit > 0 {
+		weeklyPeriodStart = now.Unix()
+		weeklyPeriodEnd = weeklyPeriodStart + 7*24*3600
+	}
 	sub := &UserSubscription{
-		UserId:        userId,
-		PlanId:        plan.Id,
-		AmountTotal:   plan.TotalAmount,
-		AmountUsed:    0,
-		StartTime:     now.Unix(),
-		EndTime:       endUnix,
-		Status:        "active",
-		Source:        source,
-		LastResetTime: lastReset,
-		NextResetTime: nextReset,
-		UpgradeGroup:  upgradeGroup,
-		PrevUserGroup: prevGroup,
-		CreatedAt:     common.GetTimestamp(),
-		UpdatedAt:     common.GetTimestamp(),
+		UserId:             userId,
+		PlanId:             plan.Id,
+		AmountTotal:        plan.TotalAmount,
+		AmountUsed:         0,
+		StartTime:          now.Unix(),
+		EndTime:            endUnix,
+		Status:             "active",
+		Source:             source,
+		LastResetTime:      lastReset,
+		NextResetTime:      nextReset,
+		WeeklyAmountLimit:  plan.WeeklyAmountLimit,
+		WeeklyAmountUsed:   0,
+		WeeklyPeriodStart:  weeklyPeriodStart,
+		WeeklyPeriodEnd:    weeklyPeriodEnd,
+		UpgradeGroup:       upgradeGroup,
+		PrevUserGroup:      prevGroup,
+		CreatedAt:          common.GetTimestamp(),
+		UpdatedAt:          common.GetTimestamp(),
 	}
 	if err := tx.Create(sub).Error; err != nil {
 		return nil, err
@@ -966,6 +991,36 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 	return tx.Save(sub).Error
 }
 
+// maybeResetWeeklyQuotaTx 在事务内检查并重置周限额。
+// 如果当前时间 >= WeeklyPeriodEnd，清零 WeeklyAmountUsed 并推进周期。
+// 循环推进以处理服务停机导致的多次周期已过。
+// 与 quota_reset_period 独立，按订阅起始日计算每7天一个周期。
+func maybeResetWeeklyQuotaTx(tx *gorm.DB, sub *UserSubscription, now int64) error {
+	if tx == nil || sub == nil {
+		return errors.New("invalid weekly reset args")
+	}
+	if sub.WeeklyAmountLimit <= 0 {
+		return nil // 未启用周限额
+	}
+	// 循环推进周期直到 WeeklyPeriodEnd > now
+	changed := false
+	for sub.WeeklyPeriodEnd > 0 && sub.WeeklyPeriodEnd <= now {
+		sub.WeeklyPeriodStart = sub.WeeklyPeriodEnd
+		sub.WeeklyPeriodEnd = sub.WeeklyPeriodStart + 7*24*3600
+		sub.WeeklyAmountUsed = 0
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	// 保存到数据库
+	return tx.Model(sub).Updates(map[string]interface{}{
+		"weekly_period_start": sub.WeeklyPeriodStart,
+		"weekly_period_end":   sub.WeeklyPeriodEnd,
+		"weekly_amount_used":  sub.WeeklyAmountUsed,
+	}).Error
+}
+
 // PreConsumeUserSubscription pre-consumes from any active subscription total quota.
 func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
 	if userId <= 0 {
@@ -1022,10 +1077,22 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			if err := maybeResetUserSubscriptionWithPlanTx(tx, &sub, plan, now); err != nil {
 				return err
 			}
+			// 检查并重置周限额（与quota_reset_period独立叠加）
+			if err := maybeResetWeeklyQuotaTx(tx, &sub, now); err != nil {
+				return err
+			}
 			usedBefore := sub.AmountUsed
+			// 检查总额限制（0=不限制）
 			if sub.AmountTotal > 0 {
 				remain := sub.AmountTotal - usedBefore
 				if remain < amount {
+					continue
+				}
+			}
+			// 检查周限额（仅WeeklyAmountLimit>0时启用，不足则回退到下一个订阅或钱包）
+			if sub.WeeklyAmountLimit > 0 {
+				weeklyRemain := sub.WeeklyAmountLimit - sub.WeeklyAmountUsed
+				if weeklyRemain < amount {
 					continue
 				}
 			}
@@ -1052,6 +1119,10 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				return err
 			}
 			sub.AmountUsed += amount
+			// 启用周限额时同步预扣周已用额度
+			if sub.WeeklyAmountLimit > 0 {
+				sub.WeeklyAmountUsed += amount
+			}
 			if err := tx.Save(&sub).Error; err != nil {
 				return err
 			}
@@ -1139,6 +1210,47 @@ func ResetDueSubscriptions(limit int) (int, error) {
 	return resetCount, nil
 }
 
+// ResetDueWeeklyQuotas resets weekly quotas whose weekly_period_end has passed.
+// 查询启用周限额且当前周期已到期的订阅，分批重置WeeklyAmountUsed并推进周期。
+// 复用与ResetDueSubscriptions相同的FOR UPDATE事务模式，保证并发安全。
+func ResetDueWeeklyQuotas(limit int) (int, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	now := GetDBTimestamp()
+	var subs []UserSubscription
+	if err := DB.Where("weekly_period_end > 0 AND weekly_period_end <= ? AND weekly_amount_limit > 0 AND status = ?", now, "active").
+		Order("weekly_period_end asc").
+		Limit(limit).
+		Find(&subs).Error; err != nil {
+		return 0, err
+	}
+	if len(subs) == 0 {
+		return 0, nil
+	}
+	resetCount := 0
+	for _, sub := range subs {
+		subCopy := sub
+		err := DB.Transaction(func(tx *gorm.DB) error {
+			var locked UserSubscription
+			if err := tx.Set("gorm:query_option", "FOR UPDATE").
+				Where("id = ? AND weekly_period_end > 0 AND weekly_period_end <= ?", subCopy.Id, now).
+				First(&locked).Error; err != nil {
+				return nil // 可能已被其他进程处理，跳过
+			}
+			if err := maybeResetWeeklyQuotaTx(tx, &locked, now); err != nil {
+				return err
+			}
+			resetCount++
+			return nil
+		})
+		if err != nil {
+			return resetCount, err
+		}
+	}
+	return resetCount, nil
+}
+
 // CleanupSubscriptionPreConsumeRecords removes old idempotency records to keep table small.
 func CleanupSubscriptionPreConsumeRecords(olderThanSeconds int64) (int64, error) {
 	if olderThanSeconds <= 0 {
@@ -1178,7 +1290,12 @@ func GetSubscriptionPlanInfoByUserSubscriptionId(userSubscriptionId int) (*Subsc
 	return info, nil
 }
 
-// Update subscription used amount by delta (positive consume more, negative refund).
+// PostConsumeUserSubscriptionDelta 调整订阅已用额度（delta>0补扣，delta<0退还）。
+// 周限额设计取舍：此处不调用 maybeResetWeeklyQuotaTx。若调用时周周期已切换，
+// delta 会被 clamp 到 0（退还场景）或计入新周期（补扣场景），与业务预期不符。
+// 保留当前行为：PostConsume 紧随 PreConsume（同一请求生命周期），周期切换概率极低；
+// 即使发生，退款"丢失"不会导致数据不一致，新周期从 0 开始是正确的。
+// 退款仅影响当前所在周期，周期切换后退款不会累积到新周期。
 func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error {
 	if userSubscriptionId <= 0 {
 		return errors.New("invalid userSubscriptionId")
@@ -1201,6 +1318,14 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 			return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
 		}
 		sub.AmountUsed = newUsed
+		// 启用周限额时同步调整周已用额度（delta>0补扣，delta<0退还，退还不能小于0）
+		if sub.WeeklyAmountLimit > 0 {
+			newWeeklyUsed := sub.WeeklyAmountUsed + delta
+			if newWeeklyUsed < 0 {
+				newWeeklyUsed = 0
+			}
+			sub.WeeklyAmountUsed = newWeeklyUsed
+		}
 		return tx.Save(&sub).Error
 	})
 }

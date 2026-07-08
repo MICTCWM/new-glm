@@ -53,6 +53,7 @@ func runSubscriptionQuotaResetOnce() {
 	ctx := context.Background()
 	totalReset := 0
 	totalExpired := 0
+	totalWeeklyReset := 0
 	for {
 		n, err := model.ExpireDueSubscriptions(subscriptionResetBatchSize)
 		if err != nil {
@@ -81,13 +82,28 @@ func runSubscriptionQuotaResetOnce() {
 			break
 		}
 	}
+	// 周限额重置：与quota_reset_period独立，按订阅起始日计算每7天一个周期
+	for {
+		n, err := model.ResetDueWeeklyQuotas(subscriptionResetBatchSize)
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("subscription weekly quota reset task failed: %v", err))
+			return
+		}
+		if n == 0 {
+			break
+		}
+		totalWeeklyReset += n
+		if n < subscriptionResetBatchSize {
+			break
+		}
+	}
 	lastCleanup := time.Unix(subscriptionCleanupLast.Load(), 0)
 	if time.Since(lastCleanup) >= subscriptionCleanupInterval {
 		if _, err := model.CleanupSubscriptionPreConsumeRecords(7 * 24 * 3600); err == nil {
 			subscriptionCleanupLast.Store(time.Now().Unix())
 		}
 	}
-	if common.DebugEnabled && (totalReset > 0 || totalExpired > 0) {
-		logger.LogDebug(ctx, "subscription maintenance: reset_count=%d, expired_count=%d", totalReset, totalExpired)
+	if common.DebugEnabled && (totalReset > 0 || totalExpired > 0 || totalWeeklyReset > 0) {
+		logger.LogDebug(ctx, "subscription maintenance: reset_count=%d, weekly_reset_count=%d, expired_count=%d", totalReset, totalWeeklyReset, totalExpired)
 	}
 }

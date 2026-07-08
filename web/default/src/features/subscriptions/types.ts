@@ -37,6 +37,7 @@ export const subscriptionPlanSchema = z.object({
   sort_order: z.number(),
   max_purchase_per_user: z.number(),
   total_amount: z.number(),
+  weekly_amount_limit: z.number(),
   upgrade_group: z.string().optional(),
   stripe_price_id: z.string().optional(),
   creem_product_id: z.string().optional(),
@@ -63,6 +64,10 @@ export const userSubscriptionSchema = z.object({
   amount_total: z.number(),
   amount_used: z.number(),
   next_reset_time: z.number().optional(),
+  weekly_amount_limit: z.number().optional(),
+  weekly_amount_used: z.number().optional(),
+  weekly_period_start: z.number().optional(),
+  weekly_period_end: z.number().optional(),
 })
 
 export type UserSubscription = z.infer<typeof userSubscriptionSchema>
