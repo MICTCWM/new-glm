@@ -1106,6 +1106,12 @@ button { font-family: var(--font); cursor: pointer; border: none; }
   color: oklch(0.35 0 0);
 }
 
+/* ==================== LANGUAGE SWITCHER ==================== */
+.lang-switcher { display: flex; gap: 4px; margin-right: 8px; }
+.lang-btn { padding: 4px 10px; font-size: 12px; font-weight: 600; color: var(--text-tertiary); background: transparent; border-radius: 6px; transition: all 0.2s; }
+.lang-btn.active { color: var(--text-primary); background: oklch(0.95 0 0); }
+.lang-btn:hover { color: var(--text-primary); }
+
 /* ==================== SCROLL REVEAL ANIMATIONS ==================== */
 .reveal {
   opacity: 0;
@@ -1167,14 +1173,18 @@ button { font-family: var(--font); cursor: pointer; border: none; }
     glm
   </div>
   <div class="nav-links">
-    <a href="#features">Features</a>
-    <a href="#models">Models</a>
-    <a href="#pricing">Pricing</a>
-    <a href="#docs">Docs</a>
+    <a href="#features" data-i18n="nav.features">Features</a>
+    <a href="#models" data-i18n="nav.models">Models</a>
+    <a href="#pricing" data-i18n="nav.pricing">Pricing</a>
+    <a href="#docs" data-i18n="nav.docs">Docs</a>
   </div>
   <div class="nav-actions">
-    <a href="/console" class="btn-ghost">Sign in</a>
-    <a href="/console" class="btn-primary">Get Started</a>
+    <div class="lang-switcher">
+      <button class="lang-btn" data-lang="en">EN</button>
+      <button class="lang-btn" data-lang="zh">中</button>
+    </div>
+    <a href="/sign-in" class="btn-ghost" data-i18n="nav.signin">Sign in</a>
+    <a href="/sign-up" class="btn-primary" data-i18n="nav.getStarted">Get Started</a>
   </div>
 </nav>
 
@@ -1187,19 +1197,19 @@ button { font-family: var(--font); cursor: pointer; border: none; }
         <span class="hero-badge-dot">
           <svg viewBox="0 0 12 12" fill="none"><path d="M4 6l2 2 3-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </span>
-        <span id="heroBadgeText">v2.0 — Now with GPT-5 & Claude 4 support</span>
+        <span id="heroBadgeText" data-i18n="hero.badge">v2.0 — Now with GPT-5 & Claude 4 support</span>
       </div>
       <h1 class="hero-title reveal reveal-delay-1">
-        <span>Unified AI</span>
-        <span class="hero-title-stroke">Infrastructure</span>
-        <span class="hero-title-gradient">Platform</span>
+        <span data-i18n="hero.title1">Unified AI</span>
+        <span class="hero-title-stroke" data-i18n="hero.title2">Infrastructure</span>
+        <span class="hero-title-gradient" data-i18n="hero.title3">Platform</span>
       </h1>
-      <p class="hero-subtitle reveal reveal-delay-2">
+      <p class="hero-subtitle reveal reveal-delay-2" data-i18n="hero.subtitle">
         One API gateway for every AI model. Manage keys, track usage, optimize costs, and scale effortlessly across OpenAI, Anthropic, Google, and more.
       </p>
       <div class="hero-cta reveal reveal-delay-3">
-        <a href="/console" class="btn-hero-primary">Start Building Free</a>
-        <a href="/console" id="docsLinkHero" class="btn-hero-secondary">View Documentation</a>
+        <a href="/sign-up" class="btn-hero-primary" data-i18n="hero.cta1">Start Building Free</a>
+        <a href="/sign-up" id="docsLinkHero" class="btn-hero-secondary" data-i18n="hero.cta2">View Documentation</a>
       </div>
       <div class="hero-code-block reveal reveal-delay-4">
         <div class="hero-code-header">
@@ -1207,7 +1217,7 @@ button { font-family: var(--font); cursor: pointer; border: none; }
           <span class="code-dot"></span>
           <span class="code-dot"></span>
         </div>
-        <span class="line"><span class="token-comment">// Initialize glm client</span></span>
+        <span class="line"><span class="token-comment" data-i18n="hero.codeComment">// Initialize glm client</span></span>
         <span class="line"><span class="token-keyword">import</span> { <span class="token-func">glm</span> } <span class="token-keyword">from</span> <span class="token-string">'@glm/sdk'</span><span class="token-bracket">;</span></span>
         <span class="line">&nbsp;</span>
         <span class="line"><span class="token-keyword">const</span> <span class="token-func">client</span> <span class="token-bracket">=</span> <span class="token-keyword">new</span> <span class="token-func">glm</span><span class="token-bracket">({</span></span>
@@ -1228,30 +1238,30 @@ button { font-family: var(--font); cursor: pointer; border: none; }
         </div>
         <div class="mockup-body">
           <div class="mockup-sidebar">
-            <div class="mockup-sidebar-item active">Dashboard</div>
-            <div class="mockup-sidebar-item">Channels</div>
-            <div class="mockup-sidebar-item">Keys</div>
-            <div class="mockup-sidebar-item">Logs</div>
+            <div class="mockup-sidebar-item active" data-i18n="mockup.sidebar.dashboard">Dashboard</div>
+            <div class="mockup-sidebar-item" data-i18n="mockup.sidebar.channels">Channels</div>
+            <div class="mockup-sidebar-item" data-i18n="mockup.sidebar.keys">Keys</div>
+            <div class="mockup-sidebar-item" data-i18n="mockup.sidebar.logs">Logs</div>
           </div>
           <div class="mockup-card">
             <div class="mockup-card-header">
-              <span class="mockup-card-title">API Usage Today</span>
-              <span class="mockup-card-badge">+12.5%</span>
+              <span class="mockup-card-title" id="mockupCardTitle" data-i18n="mockup.cardTitle">API Usage Today</span>
+              <span class="mockup-card-badge" id="mockupCardBadge">+12.5%</span>
             </div>
             <div class="mockup-chart" id="mockupChart"></div>
           </div>
           <div class="mockup-stats-row">
             <div class="mockup-stat">
-              <div class="mockup-stat-label">Requests</div>
-              <div class="mockup-stat-value">24.8K</div>
+              <div class="mockup-stat-label" id="mockupStatLabel1" data-i18n="mockup.stat.activeModels">Active Models</div>
+              <div class="mockup-stat-value" id="mockupStatValue1">24.8K</div>
             </div>
             <div class="mockup-stat">
-              <div class="mockup-stat-label">Tokens</div>
-              <div class="mockup-stat-value">1.2M</div>
+              <div class="mockup-stat-label" id="mockupStatLabel2" data-i18n="mockup.stat.tokens">Tokens</div>
+              <div class="mockup-stat-value" id="mockupStatValue2">1.2M</div>
             </div>
             <div class="mockup-stat">
-              <div class="mockup-stat-label">Cost</div>
-              <div class="mockup-stat-value">$18.4</div>
+              <div class="mockup-stat-label" id="mockupStatLabel3" data-i18n="mockup.stat.vendors">Vendors</div>
+              <div class="mockup-stat-value" id="mockupStatValue3">$18.4</div>
             </div>
           </div>
         </div>
@@ -1262,7 +1272,7 @@ button { font-family: var(--font); cursor: pointer; border: none; }
 
 <!-- ==================== TRUSTED BY ==================== -->
 <section class="trusted">
-  <div class="trusted-label reveal">Trusted by forward-thinking teams</div>
+  <div class="trusted-label reveal" data-i18n="trusted.label">Trusted by forward-thinking teams</div>
   <div class="trusted-logos reveal reveal-delay-1">
     <span class="trusted-logo">Vercel</span>
     <span class="trusted-logo">Linear</span>
@@ -1276,9 +1286,9 @@ button { font-family: var(--font); cursor: pointer; border: none; }
 <!-- ==================== FEATURES BENTO GRID ==================== -->
 <section class="features" id="features">
   <div class="features-header reveal">
-    <div class="section-label">Features</div>
-    <div class="section-title">Everything you need.<br>Nothing you don't.</div>
-    <div class="section-desc">A complete AI infrastructure platform designed for developers who value simplicity and power.</div>
+    <div class="section-label" data-i18n="features.label">Features</div>
+    <div class="section-title" data-i18n="features.title">Everything you need.<br>Nothing you don't.</div>
+    <div class="section-desc" data-i18n="features.desc">A complete AI infrastructure platform designed for developers who value simplicity and power.</div>
   </div>
   <div class="bento-grid">
     <!-- Cell 1: Channel Management (span-2) -->
@@ -1287,10 +1297,10 @@ button { font-family: var(--font); cursor: pointer; border: none; }
         <div class="bento-icon">
           <svg viewBox="0 0 18 18" fill="none"><path d="M2 9h4l2-3 2 6 2-3h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/></svg>
         </div>
-        <span class="bento-cell-title">Multi-Channel Routing</span>
+        <span class="bento-cell-title" data-i18n="bento.channels.title">Multi-Channel Routing</span>
       </div>
-      <div class="bento-cell-desc">Intelligent load balancing across providers with automatic failover and latency-based routing.</div>
-      <div class="sim-channels">
+      <div class="bento-cell-desc" data-i18n="bento.channels.desc">Intelligent load balancing across providers with automatic failover and latency-based routing.</div>
+      <div class="sim-channels" id="simChannels">
         <!-- Node graph simulation -->
         <div class="sim-node primary" style="top: 60px; left: 50%; transform: translateX(-50%);">glm</div>
         <div class="sim-node" style="top: 20px; left: 12%;">OA</div>
@@ -1334,9 +1344,9 @@ button { font-family: var(--font); cursor: pointer; border: none; }
         <div class="bento-icon">
           <svg viewBox="0 0 18 18" fill="none"><path d="M9 1a5 5 0 00-5 5v3H3v7h12V9h-1V6a5 5 0 00-5-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="12.5" r="1" fill="currentColor"/></svg>
         </div>
-        <span class="bento-cell-title">API Key Management</span>
+        <span class="bento-cell-title" data-i18n="bento.keys.title">API Key Management</span>
       </div>
-      <div class="bento-cell-desc">Granular permissions, rate limits, and usage quotas for every key.</div>
+      <div class="bento-cell-desc" data-i18n="bento.keys.desc">Granular permissions, rate limits, and usage quotas for every key.</div>
       <div class="sim-terminal">
         <span class="line"><span class="prompt">$ </span><span class="cmd">glm keys create</span></span>
         <span class="line"><span class="output">  Name: </span><span class="key-value">production-web</span></span>
@@ -1356,9 +1366,9 @@ button { font-family: var(--font); cursor: pointer; border: none; }
         <div class="bento-icon">
           <svg viewBox="0 0 18 18" fill="none"><path d="M3 14V8M7 14V4M11 14v-4M15 14V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         </div>
-        <span class="bento-cell-title">Usage Analytics</span>
+        <span class="bento-cell-title" data-i18n="bento.analytics.title">Usage Analytics</span>
       </div>
-      <div class="bento-cell-desc">Real-time dashboards with token-level granularity, cost forecasting, and anomaly detection.</div>
+      <div class="bento-cell-desc" data-i18n="bento.analytics.desc">Real-time dashboards with token-level granularity, cost forecasting, and anomaly detection.</div>
       <div class="sim-chart-container">
         <svg class="sim-chart-svg" viewBox="0 0 400 160" preserveAspectRatio="none">
           <defs>
@@ -1390,9 +1400,9 @@ button { font-family: var(--font); cursor: pointer; border: none; }
         <div class="bento-icon">
           <svg viewBox="0 0 18 18" fill="none"><path d="M2 4h14M2 4v10a2 2 0 002 2h10a2 2 0 002-2V4M2 4l2-2h10l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <span class="bento-cell-title">Smart Billing</span>
+        <span class="bento-cell-title" data-i18n="bento.billing.title">Smart Billing</span>
       </div>
-      <div class="bento-cell-desc">Flexible billing with model-level cost breakdowns.</div>
+      <div class="bento-cell-desc" data-i18n="bento.billing.desc">Flexible billing with model-level cost breakdowns.</div>
       <div class="sim-pricing">
         <div class="sim-price-row">
           <span class="sim-price-model">GPT-5</span>
@@ -1423,9 +1433,9 @@ button { font-family: var(--font); cursor: pointer; border: none; }
         <div class="bento-icon">
           <svg viewBox="0 0 18 18" fill="none"><path d="M2 2h14v10H7l-3 3v-3H2V2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
         </div>
-        <span class="bento-cell-title">Playground</span>
+        <span class="bento-cell-title" data-i18n="bento.playground.title">Playground</span>
       </div>
-      <div class="bento-cell-desc">Test models interactively before integrating into your app.</div>
+      <div class="bento-cell-desc" data-i18n="bento.playground.desc">Test models interactively before integrating into your app.</div>
       <div class="sim-playground">
         <div class="sim-playground-input">
           <div class="avatar"></div>
@@ -1444,9 +1454,9 @@ button { font-family: var(--font); cursor: pointer; border: none; }
         <div class="bento-icon">
           <svg viewBox="0 0 18 18" fill="none"><path d="M4 2h10a2 2 0 012 2v8a2 2 0 01-2 2H6l-2 2v-2a2 2 0 01-2-2V4a2 2 0 012-2z" stroke="currentColor" stroke-width="1.5"/></svg>
         </div>
-        <span class="bento-cell-title">Support System</span>
+        <span class="bento-cell-title" data-i18n="bento.support.title">Support System</span>
       </div>
-      <div class="bento-cell-desc">Built-in ticketing with priority routing and SLA tracking.</div>
+      <div class="bento-cell-desc" data-i18n="bento.support.desc">Built-in ticketing with priority routing and SLA tracking.</div>
       <div class="sim-tickets">
         <div class="sim-ticket">
           <span class="sim-ticket-status open"></span>
@@ -1472,14 +1482,14 @@ button { font-family: var(--font); cursor: pointer; border: none; }
 <section class="code-section">
   <div class="code-section-inner">
     <div class="reveal">
-      <div class="code-section-label">Developer Experience</div>
-      <div class="code-section-title">Built for developers,<br>by developers.</div>
-      <div class="code-section-desc">Clean APIs, comprehensive SDKs, and documentation that actually helps. Get started in under 5 minutes.</div>
+      <div class="code-section-label" data-i18n="code.label">Developer Experience</div>
+      <div class="code-section-title" data-i18n="code.title">Built for developers,<br>by developers.</div>
+      <div class="code-section-desc" data-i18n="code.desc">Clean APIs, comprehensive SDKs, and documentation that actually helps. Get started in under 5 minutes.</div>
       <div class="code-section-lang">
-        <span class="lang-tag active">Python</span>
-        <span class="lang-tag">Node.js</span>
-        <span class="lang-tag">cURL</span>
-        <span class="lang-tag">Go</span>
+        <span class="lang-tag active" data-i18n="code.lang.python">Python</span>
+        <span class="lang-tag" data-i18n="code.lang.nodejs">Node.js</span>
+        <span class="lang-tag" data-i18n="code.lang.curl">cURL</span>
+        <span class="lang-tag" data-i18n="code.lang.go">Go</span>
       </div>
     </div>
     <div class="code-editor reveal reveal-delay-2">
@@ -1525,35 +1535,35 @@ button { font-family: var(--font); cursor: pointer; border: none; }
 <!-- ==================== STATS ==================== -->
 <section class="stats">
   <div class="stats-header reveal">
-    <div class="section-label">Scale</div>
-    <div class="section-title">Powering AI at any scale.</div>
-    <div class="section-desc">From hobby projects to enterprise deployments, we handle the complexity so you can focus on building.</div>
+    <div class="section-label" data-i18n="stats.label">Scale</div>
+    <div class="section-title" data-i18n="stats.title">Powering AI at any scale.</div>
+    <div class="section-desc" data-i18n="stats.desc">From hobby projects to enterprise deployments, we handle the complexity so you can focus on building.</div>
   </div>
   <div class="stats-grid">
     <div class="stat-card reveal reveal-delay-1">
       <div class="stat-number" data-target="99.9" data-suffix="%">0%</div>
-      <div class="stat-label">Uptime SLA</div>
+      <div class="stat-label" data-i18n="stats.stat1">Uptime SLA</div>
       <svg class="stat-sparkline" width="120" height="32" viewBox="0 0 120 32">
         <polyline points="0,28 15,26 30,27 45,24 60,25 75,22 90,23 105,20 120,22" fill="none" stroke="oklch(0.75 0.25 140)" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
     </div>
     <div class="stat-card reveal reveal-delay-2">
       <div class="stat-number" data-target="2.4" data-suffix="B+">0</div>
-      <div class="stat-label">API Requests Processed</div>
+      <div class="stat-label" data-i18n="stats.stat2">API Requests Processed</div>
       <svg class="stat-sparkline" width="120" height="32" viewBox="0 0 120 32">
         <polyline points="0,30 15,28 30,25 45,24 60,20 75,16 90,12 105,8 120,4" fill="none" stroke="oklch(0.75 0.25 140)" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
     </div>
     <div class="stat-card reveal reveal-delay-3">
       <div class="stat-number" data-target="150" data-suffix="+">0</div>
-      <div class="stat-label">AI Models Available</div>
+      <div class="stat-label" data-i18n="stats.stat3">AI Models Available</div>
       <svg class="stat-sparkline" width="120" height="32" viewBox="0 0 120 32">
         <polyline points="0,28 15,24 30,26 45,20 60,22 75,16 90,18 105,10 120,12" fill="none" stroke="oklch(0.75 0.25 140)" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
     </div>
     <div class="stat-card reveal reveal-delay-4">
       <div class="stat-number" data-target="12" data-suffix="ms">0</div>
-      <div class="stat-label">Avg. Latency Overhead</div>
+      <div class="stat-label" data-i18n="stats.stat4">Avg. Latency Overhead</div>
       <svg class="stat-sparkline" width="120" height="32" viewBox="0 0 120 32">
         <polyline points="0,16 15,18 30,14 45,16 60,12 75,14 90,10 105,12 120,8" fill="none" stroke="oklch(0.75 0.25 140)" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
@@ -1563,9 +1573,9 @@ button { font-family: var(--font); cursor: pointer; border: none; }
 
 <!-- ==================== MODEL ECOSYSTEM ==================== -->
 <section class="ecosystem" id="models">
-  <div class="ecosystem-label reveal">Model Ecosystem</div>
-  <div class="ecosystem-title reveal reveal-delay-1">One gateway.<br>Every model provider.</div>
-  <div class="ecosystem-desc reveal reveal-delay-2">Connect once, access all. glm aggregates every major AI provider into a single, unified API interface.</div>
+  <div class="ecosystem-label reveal" data-i18n="ecosystem.label">Model Ecosystem</div>
+  <div class="ecosystem-title reveal reveal-delay-1" data-i18n="ecosystem.title">One gateway.<br>Every model provider.</div>
+  <div class="ecosystem-desc reveal reveal-delay-2" data-i18n="ecosystem.desc">Connect once, access all. glm aggregates every major AI provider into a single, unified API interface.</div>
   <div class="ecosystem-graph reveal reveal-delay-3" id="ecosystemGraph">
     <!-- Center node -->
     <div class="ecosystem-center">
@@ -1612,13 +1622,13 @@ button { font-family: var(--font); cursor: pointer; border: none; }
 
 <!-- ==================== CTA SECTION ==================== -->
 <section class="cta">
-  <div class="cta-title reveal">Ready to ship<br>faster with AI?</div>
-  <div class="cta-desc reveal reveal-delay-1">Join thousands of developers building the next generation of AI-powered applications.</div>
-  <a href="/console" class="btn-cta-glow reveal reveal-delay-2">
-    Get Started — It's Free
+  <div class="cta-title reveal" data-i18n="cta.title">Ready to ship<br>faster with AI?</div>
+  <div class="cta-desc reveal reveal-delay-1" data-i18n="cta.desc">Join thousands of developers building the next generation of AI-powered applications.</div>
+  <a href="/sign-up" class="btn-cta-glow reveal reveal-delay-2">
+    <span data-i18n="cta.btn">Get Started — It's Free</span>
     <svg viewBox="0 0 18 18" fill="none"><path d="M4 9h10M10 5l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
   </a>
-  <div class="btn-cta-subtle reveal reveal-delay-3">No credit card required. Free tier includes 1M tokens/month.</div>
+  <div class="btn-cta-subtle reveal reveal-delay-3" data-i18n="cta.subtle">No credit card required. Free tier includes 1M tokens/month.</div>
 </section>
 
 <!-- ==================== FOOTER ==================== -->
@@ -1632,11 +1642,11 @@ button { font-family: var(--font); cursor: pointer; border: none; }
       glm
     </div>
     <div class="footer-links">
-      <a href="#" id="docsLinkFooter">Documentation</a>
-      <a href="#">Status</a>
-      <a href="#">GitHub</a>
-      <a href="#">Twitter</a>
-      <a href="#">Discord</a>
+      <a href="#" id="docsLinkFooter" data-i18n="footer.docs">Documentation</a>
+      <a href="#" data-i18n="footer.status">Status</a>
+      <a href="#" data-i18n="footer.github">GitHub</a>
+      <a href="#" data-i18n="footer.twitter">Twitter</a>
+      <a href="#" data-i18n="footer.discord">Discord</a>
     </div>
     <div class="footer-copy" id="footerCopy">&copy; 2026 glm. All rights reserved.</div>
   </div>
@@ -1644,6 +1654,200 @@ button { font-family: var(--font); cursor: pointer; border: none; }
 
 <!-- ==================== JAVASCRIPT ==================== -->
 <script>
+// ==================== 双语翻译（i18n）====================
+// 翻译字典：覆盖所有 data-i18n key
+const I18N_DICT = {
+  en: {
+    'nav.features': 'Features',
+    'nav.models': 'Models',
+    'nav.pricing': 'Pricing',
+    'nav.docs': 'Docs',
+    'nav.signin': 'Sign in',
+    'nav.getStarted': 'Get Started',
+    'hero.badge': 'v{version} — Now with GPT-5 & Claude 4 support',
+    'hero.title1': 'Unified AI',
+    'hero.title2': 'Infrastructure',
+    'hero.title3': 'Platform',
+    'hero.subtitle': 'One API gateway for every AI model. Manage keys, track usage, optimize costs, and scale effortlessly across OpenAI, Anthropic, Google, and more.',
+    'hero.cta1': 'Start Building Free',
+    'hero.cta2': 'View Documentation',
+    'hero.codeComment': '// Initialize glm client',
+    'mockup.sidebar.dashboard': 'Dashboard',
+    'mockup.sidebar.channels': 'Channels',
+    'mockup.sidebar.keys': 'Keys',
+    'mockup.sidebar.logs': 'Logs',
+    'mockup.cardTitle': 'API Usage Today',
+    'mockup.stat.activeModels': 'Active Models',
+    'mockup.stat.tokens': 'Tokens',
+    'mockup.stat.vendors': 'Vendors',
+    'trusted.label': 'Trusted by forward-thinking teams',
+    'features.label': 'Features',
+    'features.title': 'Everything you need.\nNothing you don\'t.',
+    'features.desc': 'A complete AI infrastructure platform designed for developers who value simplicity and power.',
+    'bento.channels.title': 'Multi-Channel Routing',
+    'bento.channels.desc': 'Intelligent load balancing across providers with automatic failover and latency-based routing.',
+    'bento.keys.title': 'API Key Management',
+    'bento.keys.desc': 'Granular permissions, rate limits, and usage quotas for every key.',
+    'bento.analytics.title': 'Usage Analytics',
+    'bento.analytics.desc': 'Real-time dashboards with token-level granularity, cost forecasting, and anomaly detection.',
+    'bento.billing.title': 'Smart Billing',
+    'bento.billing.desc': 'Flexible billing with model-level cost breakdowns.',
+    'bento.playground.title': 'Playground',
+    'bento.playground.desc': 'Test models interactively before integrating into your app.',
+    'bento.support.title': 'Support System',
+    'bento.support.desc': 'Built-in ticketing with priority routing and SLA tracking.',
+    'code.label': 'Developer Experience',
+    'code.title': 'Built for developers,\nby developers.',
+    'code.desc': 'Clean APIs, comprehensive SDKs, and documentation that actually helps. Get started in under 5 minutes.',
+    'code.lang.python': 'Python',
+    'code.lang.nodejs': 'Node.js',
+    'code.lang.curl': 'cURL',
+    'code.lang.go': 'Go',
+    'stats.label': 'Scale',
+    'stats.title': 'Powering AI at any scale.',
+    'stats.desc': 'From hobby projects to enterprise deployments, we handle the complexity so you can focus on building.',
+    'stats.stat1': 'Uptime SLA',
+    'stats.stat2': 'API Requests Processed',
+    'stats.stat3': 'AI Models Available',
+    'stats.stat4': 'Avg. Latency Overhead',
+    'ecosystem.label': 'Model Ecosystem',
+    'ecosystem.title': 'One gateway.\nEvery model provider.',
+    'ecosystem.desc': 'Connect once, access all. glm aggregates every major AI provider into a single, unified API interface.',
+    'cta.title': 'Ready to ship\nfaster with AI?',
+    'cta.desc': 'Join thousands of developers building the next generation of AI-powered applications.',
+    'cta.btn': 'Get Started — It\'s Free',
+    'cta.subtle': 'No credit card required. Free tier includes 1M tokens/month.',
+    'footer.docs': 'Documentation',
+    'footer.status': 'Status',
+    'footer.github': 'GitHub',
+    'footer.twitter': 'Twitter',
+    'footer.discord': 'Discord'
+  },
+  zh: {
+    'nav.features': '功能',
+    'nav.models': '模型',
+    'nav.pricing': '定价',
+    'nav.docs': '文档',
+    'nav.signin': '登录',
+    'nav.getStarted': '免费开始',
+    'hero.badge': 'v{version} — 现已支持 GPT-5 和 Claude 4',
+    'hero.title1': '统一的 AI',
+    'hero.title2': '基础设施',
+    'hero.title3': '平台',
+    'hero.subtitle': '一个 API 网关，接入所有 AI 模型。管理密钥、追踪用量、优化成本，跨 OpenAI、Anthropic、Google 等轻松扩展。',
+    'hero.cta1': '免费开始构建',
+    'hero.cta2': '查看文档',
+    'hero.codeComment': '// 初始化 glm 客户端',
+    'mockup.sidebar.dashboard': '仪表盘',
+    'mockup.sidebar.channels': '渠道',
+    'mockup.sidebar.keys': '密钥',
+    'mockup.sidebar.logs': '日志',
+    'mockup.cardTitle': '今日 API 用量',
+    'mockup.stat.activeModels': '活跃模型',
+    'mockup.stat.tokens': 'Token',
+    'mockup.stat.vendors': '供应商',
+    'trusted.label': '深受前瞻团队信赖',
+    'features.label': '功能',
+    'features.title': '所需即所得。\n无需多余。',
+    'features.desc': '为重视简洁与强大的开发者打造的完整 AI 基础设施平台。',
+    'bento.channels.title': '多渠道路由',
+    'bento.channels.desc': '跨供应商智能负载均衡，支持自动故障转移和延迟路由。',
+    'bento.keys.title': 'API 密钥管理',
+    'bento.keys.desc': '为每个密钥提供细粒度权限、速率限制和用量配额。',
+    'bento.analytics.title': '用量分析',
+    'bento.analytics.desc': '实时仪表盘，支持 Token 级别粒度、成本预测和异常检测。',
+    'bento.billing.title': '智能计费',
+    'bento.billing.desc': '灵活计费，提供模型级别的成本明细。',
+    'bento.playground.title': 'Playground',
+    'bento.playground.desc': '在集成到应用前，交互式测试模型。',
+    'bento.support.title': '支持系统',
+    'bento.support.desc': '内置工单系统，支持优先级路由和 SLA 追踪。',
+    'code.label': '开发者体验',
+    'code.title': '为开发者而生，\n由开发者打造。',
+    'code.desc': '简洁的 API、全面的 SDK 和真正有用的文档。5 分钟即可上手。',
+    'code.lang.python': 'Python',
+    'code.lang.nodejs': 'Node.js',
+    'code.lang.curl': 'cURL',
+    'code.lang.go': 'Go',
+    'stats.label': '规模',
+    'stats.title': '驱动任意规模的 AI。',
+    'stats.desc': '从个人项目到企业部署，我们处理复杂性，让你专注构建。',
+    'stats.stat1': '可用性 SLA',
+    'stats.stat2': '已处理 API 请求',
+    'stats.stat3': '可用 AI 模型',
+    'stats.stat4': '平均延迟开销',
+    'ecosystem.label': '模型生态',
+    'ecosystem.title': '一个网关。\n所有模型供应商。',
+    'ecosystem.desc': '一次接入，全面可达。glm 将所有主要 AI 供应商聚合为统一的 API 接口。',
+    'cta.title': '准备好用 AI\n加速交付了吗？',
+    'cta.desc': '加入数千名正在构建下一代 AI 应用的开发者。',
+    'cta.btn': '免费开始',
+    'cta.subtle': '无需信用卡。免费层包含每月 100 万 Token。',
+    'footer.docs': '文档',
+    'footer.status': '状态',
+    'footer.github': 'GitHub',
+    'footer.twitter': 'Twitter',
+    'footer.discord': 'Discord'
+  }
+};
+
+// 全局变量，用于插值（如 {version}）
+window.i18nVars = { version: '2.0' };
+
+// 检测语言（与SPA共享localStorage key 'i18nextLng'）
+function detectLang() {
+  try {
+    const saved = localStorage.getItem('i18nextLng');
+    if (saved) {
+      return saved.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+    }
+  } catch (e) {}
+  return navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+}
+
+// 应用翻译：遍历所有 [data-i18n] 元素，用字典值替换文本
+function applyI18n(lang) {
+  const dict = I18N_DICT[lang] || I18N_DICT.en;
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    let text = dict[key];
+    if (text) {
+      // 支持 {version} 等插值
+      text = text.replace(/\{(\w+)\}/g, (_, k) => (window.i18nVars[k] != null ? window.i18nVars[k] : ''));
+      // 支持 \n 转换为 <br>（用于多行标题），用 innerHTML 安全渲染
+      if (text.indexOf('\n') >= 0) {
+        el.innerHTML = text.split('\n').map(function(seg) {
+          // 对每段做HTML转义，防止XSS
+          return String(seg).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }).join('<br>');
+      } else {
+        el.textContent = text;
+      }
+    }
+  });
+  // 切换语言按钮高亮
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === lang);
+  });
+}
+
+// 语言切换按钮事件
+document.querySelectorAll('.lang-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const lang = this.dataset.lang;
+    try {
+      localStorage.setItem('i18nextLng', lang === 'zh' ? 'zh-CN' : 'en');
+    } catch (e) {}
+    window.currentLang = lang;
+    applyI18n(lang);
+  });
+});
+
+// 初始化语言（页面加载时立即翻译，避免闪烁）
+window.currentLang = detectLang();
+applyI18n(window.currentLang);
+
 // ---- Navigation scroll behavior ----
 const nav = document.getElementById('nav');
 let lastScrollY = 0;
@@ -1740,6 +1944,14 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+// ---- 辅助函数：格式化token数量为K/M/B ----
+function formatTokenCount(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(Math.round(n));
+}
+
 // ---- 辅助函数：重新触发统计数字计数动画 ----
 function retriggerStatAnimation(el) {
   if (!el) return;
@@ -1783,11 +1995,13 @@ function retriggerStatAnimation(el) {
     }
   }
 
-  // 并行调用三个公开API，提高加载效率
-  const [statusRes, pricingRes, rankingsRes] = await Promise.all([
+  // 并行调用公开API，提高加载效率
+  // 注意：rankingsRes 使用默认 period=week，用于 stats 区域；todayRankingsRes 使用 period=today，用于 hero 卡片
+  const [statusRes, pricingRes, rankingsRes, todayRankingsRes] = await Promise.all([
     safeFetch('/api/status'),
     safeFetch('/api/pricing'),
-    safeFetch('/api/rankings')
+    safeFetch('/api/rankings'),
+    safeFetch('/api/rankings?period=today')
   ]);
 
   // ===== 1. 处理 /api/status：站点信息 =====
@@ -1821,12 +2035,10 @@ function retriggerStatAnimation(el) {
         footerCopy.innerHTML = status.footer_html;
       }
     }
-    // version：替换hero badge中的v2.0为v{version}
+    // version：更新i18n插值变量并重新翻译，使hero badge显示正确的版本号
     if (status.version) {
-      const badgeText = document.getElementById('heroBadgeText');
-      if (badgeText) {
-        badgeText.textContent = badgeText.textContent.replace('v2.0', 'v' + status.version);
-      }
+      window.i18nVars.version = status.version;
+      applyI18n(window.currentLang);
     }
     // docs_link：更新页脚Documentation和hero的View Documentation链接
     if (status.docs_link) {
@@ -1897,6 +2109,70 @@ function retriggerStatAnimation(el) {
         }
       });
     }
+
+    // sim-channels供应商节点：用vendors数组动态生成节点（不足或为空则保留原硬编码节点作为fallback）
+    if (vendors.length > 0) {
+      var simChannelsEl = document.getElementById('simChannels');
+      if (simChannelsEl) {
+        // 取前8个vendor
+        var simVendors = vendors.slice(0, 8);
+        var simN = simVendors.length;
+        if (simN > 0) {
+          // 上排显示ceil(N/2)个，下排显示floor(N/2)个
+          var topCount = Math.ceil(simN / 2);
+          var bottomCount = Math.floor(simN / 2);
+          var topVendors = simVendors.slice(0, topCount);
+          var bottomVendors = simVendors.slice(topCount);
+
+          // 生成供应商缩写：取name前3个字母（仅字母数字）大写，不足则取前2个
+          function getVendorAbbr(name) {
+            if (!name) return '';
+            var cleaned = String(name).replace(/[^a-zA-Z0-9]/g, '');
+            var abbr = cleaned.substring(0, 3).toUpperCase();
+            return abbr || String(name).substring(0, 2).toUpperCase();
+          }
+
+          // 生成节点HTML（中心primary节点 + 上下排供应商节点）
+          var nodesHtml = '<div class="sim-node primary" style="top: 60px; left: 50%; transform: translateX(-50%);">glm</div>';
+          topVendors.forEach(function(v, i) {
+            var leftPct = (i + 0.5) / topCount * 100;
+            nodesHtml += '<div class="sim-node" style="top: 20px; left: ' + leftPct.toFixed(1) + '%; transform: translateX(-50%);">' + escapeHtml(getVendorAbbr(v.name)) + '</div>';
+          });
+          if (bottomCount > 0) {
+            bottomVendors.forEach(function(v, i) {
+              var leftPct = (i + 0.5) / bottomCount * 100;
+              nodesHtml += '<div class="sim-node" style="top: 120px; left: ' + leftPct.toFixed(1) + '%; transform: translateX(-50%);">' + escapeHtml(getVendorAbbr(v.name)) + '</div>';
+            });
+          }
+
+          // 生成SVG连线（中心节点到各供应商节点）
+          var svgLines = '';
+          topVendors.forEach(function(v, i) {
+            var leftPct = (i + 0.5) / topCount * 100;
+            svgLines += '<line x1="50%" y1="80" x2="' + leftPct.toFixed(1) + '%" y2="40" stroke="oklch(0.75 0.25 140)" stroke-width="1" opacity="0.15"/>';
+          });
+          if (bottomCount > 0) {
+            bottomVendors.forEach(function(v, i) {
+              var leftPct = (i + 0.5) / bottomCount * 100;
+              svgLines += '<line x1="50%" y1="80" x2="' + leftPct.toFixed(1) + '%" y2="140" stroke="oklch(0.75 0.25 140)" stroke-width="1" opacity="0.15"/>';
+            });
+          }
+          // 生成脉冲动画圆点（从中心节点到各供应商节点）
+          var pulseDots = '';
+          var allVendors = topVendors.concat(bottomVendors);
+          allVendors.forEach(function(v, i) {
+            var dur = (2.5 + i * 0.3).toFixed(1);
+            var delay = (i * 0.5).toFixed(1);
+            var isTop = i < topCount;
+            var y2 = isTop ? 40 : 140;
+            pulseDots += '<circle r="2" fill="oklch(0.75 0.25 140)"><animateMotion dur="' + dur + 's" repeatCount="indefinite" path="M0,0 L0,' + (isTop ? '-40' : '60') + '" begin="' + delay + 's"/></circle>';
+          });
+          var svgHtml = '<svg class="ecosystem-lines-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;">' + svgLines + pulseDots + '</svg>';
+
+          simChannelsEl.innerHTML = nodesHtml + svgHtml;
+        }
+      }
+    }
   }
 
   // ===== 3. 处理 /api/rankings：统计数据 =====
@@ -1920,6 +2196,109 @@ function retriggerStatAnimation(el) {
         retriggerStatAnimation(reqStat);
       }
       // 若小于1e6，保留原硬编码2.4 B+ 作为fallback，不修改
+    }
+  }
+
+  // ===== 4. 处理 /api/rankings?period=today：hero卡片和Smart Billing今日top模型 =====
+  if (todayRankingsRes && todayRankingsRes.success && todayRankingsRes.data && Array.isArray(todayRankingsRes.data.models)) {
+    const todayModels = todayRankingsRes.data.models;
+    const todayVendors = todayRankingsRes.data.vendors || [];
+
+    // ---- hero卡片数据填充 ----
+    // Tokens：求和所有models的total_tokens，格式化为K/M/B
+    var todayTotalTokens = 0;
+    todayModels.forEach(function(m) {
+      todayTotalTokens += (m.total_tokens || 0);
+    });
+    var tokensValueEl = document.getElementById('mockupStatValue2');
+    if (tokensValueEl && todayTotalTokens > 0) {
+      tokensValueEl.textContent = formatTokenCount(todayTotalTokens);
+    }
+
+    // Active Models：今日有调用的模型数量（models数组长度）
+    var activeModelsEl = document.getElementById('mockupStatValue1');
+    if (activeModelsEl && todayModels.length > 0) {
+      activeModelsEl.textContent = String(todayModels.length);
+    }
+
+    // Vendors：供应商数量（vendors数组长度）
+    var vendorsCountEl = document.getElementById('mockupStatValue3');
+    if (vendorsCountEl && todayVendors.length > 0) {
+      vendorsCountEl.textContent = String(todayVendors.length);
+    }
+
+    // mockup-card-badge：今日top1模型的growth_pct，若为空则隐藏badge
+    var badgeEl = document.getElementById('mockupCardBadge');
+    if (badgeEl) {
+      var top1 = todayModels[0];
+      if (top1 && top1.growth_pct != null && top1.growth_pct !== '') {
+        var pct = parseFloat(top1.growth_pct);
+        if (!isNaN(pct)) {
+          badgeEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+          badgeEl.style.display = '';
+        } else {
+          badgeEl.style.display = 'none';
+        }
+      } else {
+        badgeEl.style.display = 'none';
+      }
+    }
+
+    // ---- Smart Billing：用today的top4模型 + pricing查找定价，覆盖pricing前4的fallback填充 ----
+    if (todayModels.length > 0 && pricingRes && pricingRes.success && Array.isArray(pricingRes.data)) {
+      var pricingModels = pricingRes.data;
+      var top4Names = todayModels.slice(0, 4).map(function(m) { return m.model_name; });
+      // 在pricing的data数组中查找对应model_name的定价信息
+      var top4Pricing = [];
+      top4Names.forEach(function(name) {
+        var found = pricingModels.find(function(p) { return p.model_name === name; });
+        if (found) top4Pricing.push(found);
+      });
+
+      // 若 top4Pricing 不足4个，用 pricing 中其他模型补足
+      if (top4Pricing.length > 0 && top4Pricing.length < 4 && pricingModels.length > top4Pricing.length) {
+        var existingNames = top4Pricing.map(function(m) { return m.model_name; });
+        var extras = pricingModels.filter(function(p) { return existingNames.indexOf(p.model_name) === -1; });
+        top4Pricing = top4Pricing.concat(extras.slice(0, 4 - top4Pricing.length));
+      }
+
+      if (top4Pricing.length > 0) {
+        var pricingContainer = document.querySelector('.sim-pricing');
+        if (pricingContainer) {
+          // 按 quota_type 分组计算 maxVal，避免跨计费类型无意义比较
+          var maxPrice = 0; // 按次计费组的最大值
+          var maxRatio = 0; // 按倍率计费组的最大值
+          top4Pricing.forEach(function(m) {
+            if (m.quota_type === 1) {
+              if ((m.model_price || 0) > maxPrice) maxPrice = m.model_price || 0;
+            } else {
+              if ((m.model_ratio || 0) > maxRatio) maxRatio = m.model_ratio || 0;
+            }
+          });
+          pricingContainer.innerHTML = top4Pricing.map(function(m) {
+            var costText, val, groupMax;
+            if (m.quota_type === 1) {
+              // 按次：显示 model_price（$，保留3位小数）
+              val = m.model_price || 0;
+              groupMax = maxPrice;
+              costText = '$' + val.toFixed(3) + '/call';
+            } else {
+              // 按倍率：显示 model_ratio
+              val = m.model_ratio || 0;
+              groupMax = maxRatio;
+              costText = val.toFixed(1) + 'x';
+            }
+            // 进度条宽度：相对同组最大值的百分比，最小10%避免太短
+            var widthPct = groupMax > 0 ? Math.max(10, (val / groupMax) * 100) : 10;
+            return '<div class="sim-price-row">' +
+              '<span class="sim-price-model">' + escapeHtml(m.model_name) + '</span>' +
+              '<div class="sim-price-bar-bg"><div class="sim-price-bar-fill" style="width:' + widthPct + '%;"></div></div>' +
+              '<span class="sim-price-cost">' + costText + '</span>' +
+              '</div>';
+          }).join('');
+        }
+      }
+      // 若 top4Pricing 为空，保留 pricingRes 处理块的 fallback 填充
     }
   }
 })().catch(err => console.warn('loadDynamicData failed:', err));
