@@ -19,6 +19,7 @@ type ThemeAssets struct {
 	DefaultIndexPage []byte
 	ClassicBuildFS   embed.FS
 	ClassicIndexPage []byte
+	LandingPage      []byte
 }
 
 func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
@@ -37,6 +38,11 @@ func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
 			return
 		}
 		c.Header("Cache-Control", "no-cache")
+		// 根路径返回 landing page
+		if c.Request.URL.Path == "/" {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", assets.LandingPage)
+			return
+		}
 		if common.GetTheme() == "classic" {
 			c.Data(http.StatusOK, "text/html; charset=utf-8", assets.ClassicIndexPage)
 		} else {

@@ -47,6 +47,9 @@ var classicBuildFS embed.FS
 //go:embed web/classic/dist/index.html
 var classicIndexPage []byte
 
+//go:embed landing.html
+var landingPage []byte
+
 func main() {
 	startTime := time.Now()
 
@@ -204,6 +207,7 @@ func main() {
 		DefaultIndexPage: indexPage,
 		ClassicBuildFS:   classicBuildFS,
 		ClassicIndexPage: classicIndexPage,
+		LandingPage:      landingPage,
 	})
 	var port = os.Getenv("PORT")
 	if port == "" {
