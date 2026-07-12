@@ -200,6 +200,8 @@ type RelayInfo struct {
 	ClaudeRpmQueueMergedThinking bool
 	ClaudeRpmQueueIndexOffset    int
 
+	VisionRouteTriggered bool `json:"-"` // 视觉路由已触发（图片自动路由到 kimi 描述）
+
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo

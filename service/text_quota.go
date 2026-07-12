@@ -362,13 +362,19 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 %s", decimal.NewFromFloat(summary.ImageGenerationCallPrice).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
 	}
 
+	// 视觉路由触发时，强制使用固定扣费金额（替换原 glm-5.2 计费）
+	if relayInfo.VisionRouteTriggered {
+		summary.Quota = CalcVisionRouteFeeQuota(relayInfo.PriceData.GroupRatioInfo.GroupRatio)
+		extraContent = append(extraContent, "包含视觉模型")
+	}
+
 	// 渠道调用次数：只要请求成功到达上游并返回响应就 +1，不依赖 usage（避免无 usage 时渠道配额漏扣）
 	callCount := relayInfo.ActualApiCallCount
 	if callCount < 1 {
 		callCount = 1
 	}
 	model.UpdateChannelCallCount(relayInfo.ChannelId, callCount)
-	if summary.TotalTokens == 0 {
+	if summary.TotalTokens == 0 && !relayInfo.VisionRouteTriggered {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
@@ -475,6 +481,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		if delays, ok := retryDelays.([]int); ok && len(delays) > 0 {
 			other["retry_delays"] = delays
 		}
+	}
+	if relayInfo.VisionRouteTriggered {
+		other["contains_vision_model"] = true
 	}
 
 	logId := model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{

@@ -292,6 +292,14 @@ const (
 	UserMessageSensitiveWords    = "有敏感词请切换模型或压缩上下文后再重试"
 )
 
+// 视觉路由相关常量
+const (
+	VisionRouteNotice      = "检测到图片已自动路由给视觉模型，请稍候"
+	VisionRouteTargetModel = "kimi-k2.6"
+	VisionRouteSourceModel = "glm-5.2"
+	VisionRouteFixedFee    = 2.5
+)
+
 // RPM Queue configuration
 var RpmQueueTimeout = 60 * time.Second // 排队等待超时时间
 

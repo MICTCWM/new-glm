@@ -190,10 +190,36 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	relayInfo.SetEstimatePromptTokens(tokens)
 
+	// 视觉路由：检测到图片时自动路由到视觉模型描述图片
+	if service.ShouldVisionRoute(relayFormat, relayInfo.OriginModelName, request) {
+		// 发送思考提示（流式请求才发送）
+		sendVisionRouteNotice(c, relayInfo)
+		// 执行视觉路由（调用 Kimi + 替换图片）
+		// 如果 Kimi 失败，降级为丢弃图片，仅保留文本
+		routedRequest, routeErr := service.ProcessVisionRoute(c, relayInfo, request)
+		if routeErr != nil {
+			logger.LogWarn(c, "vision route failed, falling back to text-only: "+routeErr.Error())
+			// 降级：丢弃图片，仅保留文本，按 glm-5.2 正常计费
+			request = service.StripImagesFromRequest(relayFormat, request)
+			relayInfo.Request = request
+		} else {
+			request = routedRequest
+			relayInfo.Request = request
+			relayInfo.VisionRouteTriggered = true
+		}
+	}
+
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 		return
+	}
+
+	// 视觉路由触发时，覆盖预扣费为固定金额
+	if relayInfo.VisionRouteTriggered {
+		feeQuota := service.CalcVisionRouteFeeQuota(priceData.GroupRatioInfo.GroupRatio)
+		priceData.QuotaToPreConsume = feeQuota
+		priceData.FreeModel = false
 	}
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
@@ -550,6 +576,111 @@ func sendClaudeRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInf
 		},
 	}); err != nil {
 		logger.LogWarn(c, "failed to send rpm queue claude thinking delta: "+err.Error())
+		return false
+	}
+	info.RpmQueueThinkingNoticeSent = true
+	info.ClaudeRpmQueueThinkingOpen = true
+	return true
+}
+
+// sendVisionRouteNotice 发送视觉路由思考提示（流式请求才发送）
+// 复用 RPM 排队提示机制，但使用视觉路由专用文案
+func sendVisionRouteNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	if info == nil || !info.IsStream {
+		return false
+	}
+	if info.ChannelMeta == nil {
+		info.InitChannelMeta(c)
+	}
+	if info.ChannelMeta == nil {
+		logger.LogWarn(c, "failed to send vision route notice: channel meta is nil")
+		return false
+	}
+	switch info.RelayFormat {
+	case types.RelayFormatClaude:
+		return sendClaudeVisionRouteNotice(c, info)
+	case types.RelayFormatOpenAI:
+		if info.RelayMode == relayconstant.RelayModeResponses || info.RelayMode == relayconstant.RelayModeResponsesCompact {
+			return false
+		}
+	}
+	if info.RelayMode != relayconstant.RelayModeChatCompletions {
+		return false
+	}
+	return sendOpenAIChatVisionRouteNotice(c, info)
+}
+
+// sendOpenAIChatVisionRouteNotice 发送 OpenAI 格式的视觉路由思考提示
+func sendOpenAIChatVisionRouteNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	notice := common.VisionRouteNotice + "\n"
+	chunk := &dto.ChatCompletionsStreamResponse{
+		Id:      helper.GetResponseID(c),
+		Object:  "chat.completion.chunk",
+		Created: time.Now().Unix(),
+		Model:   info.GetDisplayModelName(),
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Index: 0,
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					Role: "assistant",
+				},
+			},
+		},
+	}
+	chunk.Choices[0].Delta.SetReasoningContent(notice)
+
+	data, err := common.Marshal(chunk)
+	if err != nil {
+		logger.LogWarn(c, "failed to marshal vision route notice: "+err.Error())
+		return false
+	}
+	if err := openai.HandleStreamFormat(c, info, string(data), info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+		logger.LogWarn(c, "failed to send vision route notice: "+err.Error())
+		return false
+	}
+	info.RpmQueueThinkingNoticeSent = true
+	return flushRpmQueueThinkingNotice(c)
+}
+
+// sendClaudeVisionRouteNotice 发送 Claude 格式的视觉路由思考提示
+func sendClaudeVisionRouteNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	msg := &dto.ClaudeMediaMessage{
+		Id:    helper.GetResponseID(c),
+		Model: info.GetDisplayModelName(),
+		Type:  "message",
+		Role:  "assistant",
+		Usage: &dto.ClaudeUsage{
+			InputTokens:  info.GetEstimatePromptTokens(),
+			OutputTokens: 0,
+		},
+	}
+	msg.SetContent(make([]any, 0))
+	if err := helper.ClaudeData(c, dto.ClaudeResponse{Type: "message_start", Message: msg}); err != nil {
+		logger.LogWarn(c, "failed to send vision route claude message_start: "+err.Error())
+		return false
+	}
+	idx := 0
+	if err := helper.ClaudeData(c, dto.ClaudeResponse{
+		Type:  "content_block_start",
+		Index: &idx,
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Type:     "thinking",
+			Thinking: common.GetPointer(""),
+		},
+	}); err != nil {
+		logger.LogWarn(c, "failed to send vision route claude thinking start: "+err.Error())
+		return false
+	}
+	thinking := common.VisionRouteNotice + "\n"
+	if err := helper.ClaudeData(c, dto.ClaudeResponse{
+		Type:  "content_block_delta",
+		Index: &idx,
+		Delta: &dto.ClaudeMediaMessage{
+			Type:     "thinking_delta",
+			Thinking: &thinking,
+		},
+	}); err != nil {
+		logger.LogWarn(c, "failed to send vision route claude thinking delta: "+err.Error())
 		return false
 	}
 	info.RpmQueueThinkingNoticeSent = true
