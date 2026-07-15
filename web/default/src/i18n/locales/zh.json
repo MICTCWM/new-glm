@@ -3370,6 +3370,7 @@
     "Retain last N files": "保留最近 N 个文件",
     "Retention days": "保留天数",
     "Retry": "重试",
+    "Automatic Error Transfer": "自动错误转移",
     "Retry Chain": "重试链路",
     "Retry Count": "重试次数",
     "Retry Delays": "重试延迟",

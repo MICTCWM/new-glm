@@ -105,6 +105,28 @@ export function parseLogOther(other: string): LogOtherData | null {
   }
 }
 
+/**
+ * Format the automatic transfer chain shown to admins.
+ */
+export function formatChannelTransferChain(
+  channelIds: Array<string | number> | undefined,
+  channelNames?: string[] | undefined,
+  sensitiveVisible = false
+): string | null {
+  if (!channelIds || channelIds.length < 2) return null
+
+  return channelIds
+    .map((channelId, index) => {
+      const id = String(channelId)
+      const name = channelNames?.[index]?.trim()
+      if (sensitiveVisible && name) {
+        return `#${id} (${name})`
+      }
+      return `#${id}`
+    })
+    .join(' → ')
+}
+
 export type BillingSourceKind = 'wallet' | 'subscription' | 'gpt_wallet'
 
 export interface BillingSourceDisplay {

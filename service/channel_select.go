@@ -16,12 +16,13 @@ import (
 var ErrAllChannelsRpmFull = model.ErrAllChannelsRpmFull
 
 type RetryParam struct {
-	Ctx            *gin.Context
-	TokenGroup     string
-	ModelName      string
-	Retry          *int
-	resetNextTry   bool
-	UsedChannelIds []int // 已尝试过的渠道ID列表，重试时会排除这些渠道
+	Ctx                  *gin.Context
+	TokenGroup           string
+	ModelName            string
+	Retry                *int
+	resetNextTry         bool
+	InitialSelectionDone bool  // 首次预选渠道已消耗，后续 retry=0 不再回退到原始渠道
+	UsedChannelIds       []int // 已尝试过的渠道ID列表，重试时会排除这些渠道
 }
 
 func (p *RetryParam) GetRetry() int {

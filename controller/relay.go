@@ -318,6 +318,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = channelErr
 			break
 		}
+		retryParam.InitialSelectionDone = true
 
 		// GPT 专用渠道走原生模式：跳过重试和参数覆盖
 		if channelSetting := channel.GetSetting(); channelSetting.GptModeRequired && relayInfo.UserGptMode {
@@ -352,7 +353,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			acquiredTrackers = append(acquiredTrackers, tracker)
 		}
 
-		addUsedChannel(c, channel.Id)
+		addUsedChannel(c, channel)
 		// 将当前渠道ID添加到已使用列表，以便下次重试时排除
 		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
@@ -840,10 +841,17 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func addUsedChannel(c *gin.Context, channelId int) {
+func addUsedChannel(c *gin.Context, channel *model.Channel) {
+	if channel == nil {
+		return
+	}
 	useChannel := c.GetStringSlice("use_channel")
-	useChannel = append(useChannel, fmt.Sprintf("%d", channelId))
+	useChannel = append(useChannel, fmt.Sprintf("%d", channel.Id))
 	c.Set("use_channel", useChannel)
+
+	useChannelName := c.GetStringSlice("use_channel_name")
+	useChannelName = append(useChannelName, channel.Name)
+	c.Set("use_channel_name", useChannelName)
 }
 
 func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
@@ -901,7 +909,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			return channel, nil
 		}
 
-		if retryParam.GetRetry() == 0 {
+		if retryParam.GetRetry() == 0 && !retryParam.InitialSelectionDone {
 			// 首次调用：使用 distributor 预选的渠道
 			if channel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel); ok && channel != nil {
 				return channel, nil
@@ -1070,7 +1078,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["channel_name"] = c.GetString("channel_name")
 		other["channel_type"] = c.GetInt("channel_type")
 		adminInfo := make(map[string]interface{})
-		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
+		service.AppendChannelRetryAdminInfo(c, adminInfo)
 		adminInfo["detail_error"] = err.ErrorWithStatusCode()
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
 		if isMultiKey {
@@ -1257,8 +1265,9 @@ func RelayTask(c *gin.Context) {
 				break
 			}
 		}
+		retryParam.InitialSelectionDone = true
 
-		addUsedChannel(c, channel.Id)
+		addUsedChannel(c, channel)
 		// 将当前渠道ID添加到已使用列表，以便下次重试时排除
 		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)

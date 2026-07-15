@@ -238,6 +238,78 @@ func TestGetChannelRetriesSwitchChannelsAndDoNotReuseExhaustedOnes(t *testing.T)
 	require.Equal(t, []int{801, 802}, retryParam.UsedChannelIds)
 }
 
+func TestGetChannelSkipsSelectedChannelAfterInitialSelectionDone(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+	})
+
+	priority := int64(1)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:      811,
+		Name:    "initial-selected-channel",
+		Key:     "sk-initial",
+		Group:   "default",
+		Models:  "retry-model",
+		Status:  common.ChannelStatusEnabled,
+		AutoBan: common.GetPointer(1),
+	}).Error)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:      812,
+		Name:    "fallback-channel",
+		Key:     "sk-fallback",
+		Group:   "default",
+		Models:  "retry-model",
+		Status:  common.ChannelStatusEnabled,
+		AutoBan: common.GetPointer(1),
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "retry-model",
+		ChannelId: 811,
+		Enabled:   true,
+		Priority:  &priority,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "retry-model",
+		ChannelId: 812,
+		Enabled:   true,
+		Priority:  &priority,
+	}).Error)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	selected := &model.Channel{
+		Id:      811,
+		Name:    "initial-selected-channel",
+		Type:    1,
+		AutoBan: common.GetPointer(1),
+	}
+	common.SetContextKey(ctx, constant.ContextKeySelectedChannel, selected)
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "retry-model",
+		TokenGroup:      "default",
+	}
+	retryParam := &service.RetryParam{
+		Ctx:                  ctx,
+		TokenGroup:           "default",
+		ModelName:            "retry-model",
+		Retry:                common.GetPointer(0),
+		InitialSelectionDone: true,
+		UsedChannelIds:       []int{811},
+	}
+
+	channel, apiErr := getChannel(ctx, info, retryParam)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, channel)
+	require.Equal(t, 812, channel.Id)
+	require.Equal(t, "fallback-channel", channel.Name)
+}
+
 func TestSendRpmQueueThinkingNoticeByRelayFormat(t *testing.T) {
 	tests := []struct {
 		name        string

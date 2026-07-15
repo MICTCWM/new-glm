@@ -25,6 +25,7 @@ export {
   parseLogOther,
   getTimeColor,
   formatModelName,
+  formatChannelTransferChain,
   formatDuration,
   getParamOverrideActionLabel,
   parseAuditLine,

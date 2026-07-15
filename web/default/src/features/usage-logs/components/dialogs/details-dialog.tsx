@@ -72,6 +72,7 @@ import {
   getParamOverrideActionLabel,
   parseAuditLine,
   decodeBillingExprB64,
+  formatChannelTransferChain,
   getBillingSourceDisplay,
   getTieredBillingSummary,
   hasAnyCacheTokens,
@@ -810,8 +811,15 @@ export function DetailsDialog(props: DetailsDialogProps) {
     (other?.request_path || conversionChain.length > 0)
 
   const useChannel = other?.admin_info?.use_channel
-  const channelChain =
-    useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+  const useChannelName = other?.admin_info?.use_channel_name
+  const autoErrorTransfer =
+    Boolean(other?.admin_info?.auto_error_transfer) ||
+    (useChannel?.length ?? 0) > 1
+  const channelTransferChain = formatChannelTransferChain(
+    useChannel,
+    useChannelName,
+    true
+  )
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -874,8 +882,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 />
               )}
 
-              {channelChain && props.isAdmin && (
-                <DetailRow label={t('Retry Chain')} value={channelChain} mono />
+              {props.isAdmin && autoErrorTransfer && channelTransferChain && (
+                <DetailRow
+                  label={t('Automatic Error Transfer')}
+                  value={channelTransferChain}
+                  mono
+                />
               )}
 
               {props.log.token_name && (

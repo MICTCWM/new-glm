@@ -673,6 +673,20 @@ func AppendChannelAffinityAdminInfo(c *gin.Context, adminInfo map[string]interfa
 	adminInfo["channel_affinity"] = anyInfo
 }
 
+// AppendChannelRetryAdminInfo records the retry chain for admin-visible logs.
+func AppendChannelRetryAdminInfo(c *gin.Context, adminInfo map[string]interface{}) {
+	if c == nil || adminInfo == nil {
+		return
+	}
+	useChannel := c.GetStringSlice("use_channel")
+	adminInfo["use_channel"] = useChannel
+	useChannelName := c.GetStringSlice("use_channel_name")
+	adminInfo["use_channel_name"] = useChannelName
+	if len(useChannel) > 1 {
+		adminInfo["auto_error_transfer"] = true
+	}
+}
+
 func RecordChannelAffinity(c *gin.Context, channelID int) {
 	if channelID <= 0 {
 		return

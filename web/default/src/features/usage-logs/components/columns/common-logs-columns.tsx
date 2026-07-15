@@ -40,6 +40,7 @@ import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
+  formatChannelTransferChain,
   getFirstResponseTimeColor,
   getResponseTimeColor,
   getTieredBillingSummary,
@@ -320,10 +321,15 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           const other = parseLogOther(log.other)
           const affinity = other?.admin_info?.channel_affinity
           const useChannel = other?.admin_info?.use_channel
-          const channelChain =
-            useChannel && useChannel.length > 0
-              ? useChannel.join(' → ')
-              : undefined
+          const useChannelName = other?.admin_info?.use_channel_name
+          const autoErrorTransfer =
+            Boolean(other?.admin_info?.auto_error_transfer) ||
+            (useChannel?.length ?? 0) > 1
+          const channelChain = formatChannelTransferChain(
+            useChannel,
+            useChannelName,
+            sensitiveVisible
+          )
           const channelDisplay = log.channel_name
             ? `${log.channel_name} #${log.channel}`
             : `#${log.channel}`
@@ -338,34 +344,45 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     <div className='flex max-w-[160px] flex-col gap-0.5' />
                   }
                 >
-                  <div className='relative inline-flex w-fit'>
-                    <StatusBadge
-                      label={channelIdDisplay}
-                      autoColor={String(log.channel)}
-                      copyText={String(log.channel)}
-                      size='sm'
-                      className='font-mono'
-                    />
-                    {affinity && (
-                      <button
-                        type='button'
-                        className='absolute -top-1 -right-1 leading-none text-amber-500'
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setAffinityTarget({
-                            rule_name: affinity.rule_name || '',
-                            using_group:
-                              affinity.using_group ||
-                              affinity.selected_group ||
-                              '',
-                            key_hint: affinity.key_hint || '',
-                            key_fp: affinity.key_fp || '',
-                          })
-                          setAffinityDialogOpen(true)
-                        }}
-                      >
-                        <Sparkles className='size-3 fill-current' />
-                      </button>
+                  <div className='flex flex-wrap items-center gap-1'>
+                    <div className='relative inline-flex w-fit'>
+                      <StatusBadge
+                        label={channelIdDisplay}
+                        autoColor={String(log.channel)}
+                        copyText={String(log.channel)}
+                        size='sm'
+                        className='font-mono'
+                      />
+                      {affinity && (
+                        <button
+                          type='button'
+                          className='absolute -top-1 -right-1 leading-none text-amber-500'
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setAffinityTarget({
+                              rule_name: affinity.rule_name || '',
+                              using_group:
+                                affinity.using_group ||
+                                affinity.selected_group ||
+                                '',
+                              key_hint: affinity.key_hint || '',
+                              key_fp: affinity.key_fp || '',
+                            })
+                            setAffinityDialogOpen(true)
+                          }}
+                        >
+                          <Sparkles className='size-3 fill-current' />
+                        </button>
+                      )}
+                    </div>
+                    {autoErrorTransfer && (
+                      <StatusBadge
+                        label={t('Automatic Error Transfer')}
+                        variant='orange'
+                        size='sm'
+                        copyable={false}
+                        className='max-w-[7rem]'
+                      />
                     )}
                   </div>
                   {log.channel_name && (
@@ -379,9 +396,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     <p>
                       {sensitiveVisible ? channelDisplay : channelIdDisplay}
                     </p>
-                    {channelChain && (
+                    {autoErrorTransfer && channelChain && (
                       <p className='text-muted-foreground text-xs'>
-                        {t('Chain')}: {channelChain}
+                        {t('Automatic Error Transfer')}: {channelChain}
                       </p>
                     )}
                     {affinity && (
