@@ -982,8 +982,23 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.GetDisplayModelName(), err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
+	// 所有渠道已用完，清空 usedChannelIds 允许复用（与 ChannelMeta==nil 分支保持一致）
 	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.GetDisplayModelName()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		retryParam.UsedChannelIds = retryParam.UsedChannelIds[:0]
+		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+		if err != nil {
+			if errors.Is(err, model.ErrAllChannelsRpmFull) {
+				return nil, types.NewErrorWithStatusCode(
+					err,
+					types.ErrorCodeGetChannelFailed,
+					http.StatusTooManyRequests,
+				)
+			}
+			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %w", selectGroup, info.GetDisplayModelName(), err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if channel == nil {
+			return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 无可用渠道", selectGroup, info.GetDisplayModelName()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
 	}
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
