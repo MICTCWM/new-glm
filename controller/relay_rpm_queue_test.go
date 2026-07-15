@@ -157,6 +157,87 @@ func TestGetChannelUsesSelectedChannelForSpecificChannelRpm(t *testing.T) {
 	require.Equal(t, 1, channel.MaxRPM)
 }
 
+func TestGetChannelRetriesSwitchChannelsAndDoNotReuseExhaustedOnes(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+	})
+
+	highPriority := int64(2)
+	lowPriority := int64(1)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:      801,
+		Name:    "retry-high-channel",
+		Key:     "sk-high",
+		Group:   "default",
+		Models:  "retry-model",
+		Status:  common.ChannelStatusEnabled,
+		AutoBan: common.GetPointer(1),
+	}).Error)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:      802,
+		Name:    "retry-low-channel",
+		Key:     "sk-low",
+		Group:   "default",
+		Models:  "retry-model",
+		Status:  common.ChannelStatusEnabled,
+		AutoBan: common.GetPointer(1),
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "retry-model",
+		ChannelId: 801,
+		Enabled:   true,
+		Priority:  &highPriority,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "retry-model",
+		ChannelId: 802,
+		Enabled:   true,
+		Priority:  &lowPriority,
+	}).Error)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "retry-model",
+		TokenGroup:      "default",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	retryParam := &service.RetryParam{
+		Ctx:            ctx,
+		TokenGroup:     "default",
+		ModelName:      "retry-model",
+		Retry:          common.GetPointer(0),
+		UsedChannelIds: []int{},
+	}
+
+	channel, apiErr := getChannel(ctx, info, retryParam)
+	require.Nil(t, apiErr)
+	require.NotNil(t, channel)
+	require.Equal(t, 801, channel.Id)
+
+	retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
+	retryParam.SetRetry(1)
+
+	channel, apiErr = getChannel(ctx, info, retryParam)
+	require.Nil(t, apiErr)
+	require.NotNil(t, channel)
+	require.Equal(t, 802, channel.Id)
+
+	retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
+	retryParam.SetRetry(2)
+
+	channel, apiErr = getChannel(ctx, info, retryParam)
+	require.Nil(t, channel)
+	require.NotNil(t, apiErr)
+	require.Equal(t, types.ErrorCodeGetChannelFailed, apiErr.GetErrorCode())
+	require.Contains(t, apiErr.Error(), "无可用渠道")
+	require.Equal(t, []int{801, 802}, retryParam.UsedChannelIds)
+}
+
 func TestSendRpmQueueThinkingNoticeByRelayFormat(t *testing.T) {
 	tests := []struct {
 		name        string
