@@ -484,6 +484,8 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	return doRequest(c, req, info)
 }
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	// 确保 upstream request 携带 request context，使 RequestMaxDuration 等超时能真正中断上游请求
+	req = req.WithContext(c.Request.Context())
 	var client *http.Client
 	var err error
 	if info.ChannelSetting.Proxy != "" {
@@ -518,6 +520,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("请求超时，请稍后重试"))
+		}
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {

@@ -51,6 +51,7 @@ import {
   Settings,
   SlidersHorizontal,
   ShieldAlert,
+  LifeBuoy,
   Users,
   Wand2,
   X,
@@ -253,6 +254,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
   values.system_prompt_override ||
   values.claude_beta_query ||
   values.emergency_plan_enabled ||
+  values.fallback_model_enabled ||
   values.upstream_model_update_check_enabled ||
   values.upstream_model_update_auto_sync_enabled ||
   values.upstream_model_update_ignored_models?.trim()
@@ -430,6 +432,7 @@ export function ChannelMutateDrawer({
   const specialUserEnabled = form.watch('special_user_enabled')
   const specialUserIds = form.watch('special_user_ids')
   const emergencyPlanEnabled = form.watch('emergency_plan_enabled')
+  const fallbackModelEnabled = form.watch('fallback_model_enabled')
   const upstreamModelUpdateCheckEnabled = form.watch(
     'upstream_model_update_check_enabled'
   )
@@ -3799,6 +3802,53 @@ export function ChannelMutateDrawer({
                     </FormItem>
                   )}
                 />
+              </div>
+
+              {/* ── Fallback Model ── */}
+              <div className='flex flex-col gap-4 border-b px-4 py-4'>
+                <FormField
+                  control={form.control}
+                  name='fallback_model_enabled'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between gap-4'>
+                      <div className='flex items-start gap-2'>
+                        <LifeBuoy className='text-muted-foreground mt-0.5 size-4' />
+                        <div className='flex flex-col gap-1'>
+                          <FormLabel>{t('Fallback Mode')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza.'
+                            )}
+                          </FormDescription>
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                {fallbackModelEnabled && (
+                  <FormField
+                    control={form.control}
+                    name='fallback_model'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Fallback Model')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t('e.g. gpt-4o-mini')}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
               </div>
             </form>
           </Form>

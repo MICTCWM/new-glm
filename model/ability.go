@@ -44,6 +44,9 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 		if isEmergencyPlanEnabledSetting(ability.ChannelSetting) {
 			continue
 		}
+		if isFallbackModelEnabledSetting(ability.ChannelSetting) {
+			continue
+		}
 		filtered = append(filtered, ability)
 	}
 	return filtered, nil

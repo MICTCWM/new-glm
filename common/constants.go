@@ -189,6 +189,8 @@ var BatchUpdateInterval int
 
 var RelayTimeout int // unit is second
 
+var RequestMaxDuration int // unit is second, 0 means no limit
+
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
 

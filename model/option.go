@@ -166,6 +166,7 @@ func InitOptionMap() {
 	//common.OptionMap["ChatLink2"] = common.ChatLink2
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
 	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
+	common.OptionMap["RequestMaxDuration"] = strconv.Itoa(common.RequestMaxDuration)
 	common.OptionMap["UpstreamRetryTimes"] = strconv.Itoa(common.UpstreamRetryTimes)
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
 	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
@@ -507,6 +508,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)
+	case "RequestMaxDuration":
+		common.RequestMaxDuration, _ = strconv.Atoi(value)
 	case "UpstreamRetryTimes":
 		common.UpstreamRetryTimes, _ = strconv.Atoi(value)
 	case "DataExportInterval":

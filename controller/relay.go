@@ -2,10 +2,12 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -78,6 +80,13 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 }
 
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+	// 请求级别总超时保护：超过阈值自动断开，避免请求被无限拉长
+	// Realtime WebSocket 是长连接，不适用此超时
+	if common.RequestMaxDuration > 0 && relayFormat != types.RelayFormatOpenAIRealtime {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(common.RequestMaxDuration)*time.Second)
+		defer cancel()
+		c.Request = c.Request.WithContext(ctx)
+	}
 
 	requestId := c.GetString(common.RequestIdKey)
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
@@ -104,6 +113,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
 			// 使用用户友好的错误消息返回给客户端
 			userFriendlyMsg := newAPIError.GetUserFriendlyMessage()
+			// 请求总超时触发时返回友好提示（GetUserFriendlyMessage 不特判此错误码，需在此覆盖）
+			if errors.Is(newAPIError.Err, context.DeadlineExceeded) {
+				userFriendlyMsg = "请求超时，请稍后重试"
+			}
 			newAPIError.SetMessage(common.MessageWithRequestId(userFriendlyMsg, requestId))
 
 			// 如果已经开始流式输出（HTTP 响应头已发送），将错误信息发送到正文内容
@@ -884,6 +897,47 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
+	// 兜底模型逻辑：最后一次重试时，切换到配置了兜底模型的渠道（仅触发一次）
+	if !c.GetBool("fallback_triggered") && retryParam.GetRetry() > 0 && retryParam.GetRetry() >= common.RetryTimes {
+		fallbackChannels := model.GetFallbackChannels()
+		// 排除已使用的渠道
+		availableFallback := make([]*model.Channel, 0, len(fallbackChannels))
+		for _, ch := range fallbackChannels {
+			used := false
+			for _, usedId := range retryParam.UsedChannelIds {
+				if ch.Id == usedId {
+					used = true
+					break
+				}
+			}
+			if !used {
+				availableFallback = append(availableFallback, ch)
+			}
+		}
+		if len(availableFallback) > 0 {
+			// 随机选择一个可用的兜底渠道（跨分组）
+			fallbackChannel := availableFallback[rand.Intn(len(availableFallback))]
+			c.Set("fallback_triggered", true)
+			newAPIError := middleware.SetupContextForSelectedChannel(c, fallbackChannel, info.OriginModelName)
+			if newAPIError != nil {
+				return nil, newAPIError
+			}
+			// 复写上游模型名为兜底模型，保持 OriginModelName 不变
+			fallbackModel := fallbackChannel.GetSetting().FallbackModel
+			if fallbackModel != "" {
+				info.UpstreamModelName = fallbackModel
+				info.IsModelMapped = true
+				// 通过 context 传递兜底模型名，确保后续 InitChannelMeta 读取到正确的上游模型名
+				// （InitChannelMeta 会用 context 中的 original_model 重置 UpstreamModelName）
+				c.Set("original_model", fallbackModel)
+				// 清除 model_mapping，防止 ModelMappedHelper 覆盖兜底模型名（兜底模型名优先级最高）
+				c.Set("model_mapping", "")
+			}
+			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+			return fallbackChannel, nil
+		}
+	}
+
 	if info.ChannelMeta == nil {
 		// RPM 队列挂起时优先处理（即使是首次 retry==0）
 		if common.GetContextKeyBool(c, constant.ContextKeyRpmQueuePending) {
@@ -1062,7 +1116,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		tokenName := c.GetString("token_name")
 		modelName := common.GetContextKeyString(c, constant.ContextKeyDisplayModel)
 		if modelName == "" {
-			modelName = c.GetString("original_model")
+			modelName = relayInfo.GetDisplayModelName()
 		}
 		tokenId := c.GetInt("token_id")
 		userGroup := c.GetString("group")
@@ -1205,6 +1259,12 @@ func RelayTaskFetch(c *gin.Context) {
 }
 
 func RelayTask(c *gin.Context) {
+	// 请求级别总超时保护：超过阈值自动断开，避免请求被无限拉长
+	if common.RequestMaxDuration > 0 {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(common.RequestMaxDuration)*time.Second)
+		defer cancel()
+		c.Request = c.Request.WithContext(ctx)
+	}
 	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, &dto.TaskError{
@@ -1360,6 +1420,10 @@ func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *dto.TaskError, retryTimes int) bool {
 	if taskErr == nil {
+		return false
+	}
+	// 客户端已断开或请求总超时（RequestMaxDuration），不再重试
+	if c.Request != nil && c.Request.Context().Err() != nil {
 		return false
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {

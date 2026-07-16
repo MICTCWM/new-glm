@@ -229,6 +229,9 @@ func GetBoundChannelsByModelsMap(modelNames []string) (map[string][]BoundChannel
 		if isEmergencyPlanEnabledSetting(r.ChannelSetting) {
 			continue
 		}
+		if isFallbackModelEnabledSetting(r.ChannelSetting) {
+			continue
+		}
 		result[r.Model] = append(result[r.Model], BoundChannel{Name: r.Name, Type: r.Type})
 	}
 	return result, nil

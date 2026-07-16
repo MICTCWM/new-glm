@@ -17,7 +17,22 @@ import (
 
 var group2model2channels map[string]map[string][]int // enabled channel
 var channelsIDM map[int]*Channel                     // all channels include disabled
+var fallbackChannels []*Channel                      // 启用兜底模式的渠道（跨分组）
 var channelSyncLock sync.RWMutex
+
+// GetFallbackChannels 返回所有启用兜底模式的渠道（跨分组）
+func GetFallbackChannels() []*Channel {
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+
+	result := make([]*Channel, 0, len(fallbackChannels))
+	for _, ch := range fallbackChannels {
+		if ch.Status == common.ChannelStatusEnabled {
+			result = append(result, ch)
+		}
+	}
+	return result
+}
 
 // ErrAllChannelsRpmFull is returned when all matching channels have their RPM at max capacity.
 var ErrAllChannelsRpmFull = errors.New("all channels rpm full")
@@ -35,10 +50,14 @@ func InitChannelCache() {
 		return
 	}
 	newChannelId2channel := make(map[int]*Channel)
+	newFallbackChannels := make([]*Channel, 0)
 	var channels []*Channel
 	DB.Find(&channels)
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
+		if channel.GetSetting().FallbackModelEnabled {
+			newFallbackChannels = append(newFallbackChannels, channel)
+		}
 	}
 	var abilities []*Ability
 	DB.Find(&abilities)
@@ -93,6 +112,7 @@ func InitChannelCache() {
 		}
 	}
 	channelsIDM = newChannelId2channel
+	fallbackChannels = newFallbackChannels
 	channelSyncLock.Unlock()
 	common.SysLog("channels synced from database")
 }
@@ -193,6 +213,10 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 	}
 	for _, channelId := range availableChannels {
 		if channel, ok := channelsIDM[channelId]; ok {
+			// 跳过兜底模式渠道，不参与常规选择
+			if channel.GetSetting().FallbackModelEnabled {
+				continue
+			}
 			if !channel.AllowsSpecialUser(requestUserId) {
 				anySpecialUserRestricted = true
 				continue
