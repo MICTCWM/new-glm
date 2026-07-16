@@ -21,15 +21,18 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Main } from '@/components/layout'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Search } from 'lucide-react'
 import { getAllUserBalances, type UserBalance, type UserSubscriptionBrief } from './api'
 
 const QUOTA_PER_UNIT = 500000
 
+type FilterMode = 'all' | 'with_subscriptions'
+type SortMode = 'quota_desc' | 'quota_asc' | 'gpt_desc' | 'gpt_asc' | 'sub_duration_desc' | 'sub_duration_asc' | 'sub_remaining_desc' | 'sub_remaining_asc'
+
 function formatUSD(value: number): string {
   const usd = value / QUOTA_PER_UNIT
-  const str = usd.toFixed(5)
-  return str
+  return usd.toFixed(5)
 }
 
 function formatDaysLeft(endTime: number): string {
@@ -41,6 +44,24 @@ function formatDaysLeft(endTime: number): string {
   if (days >= 1) return `${days}d`
   const hours = Math.floor(secondsLeft / 3600)
   return `${hours}h`
+}
+
+function getMaxSubscriptionEndTime(subs: UserSubscriptionBrief[] | undefined): number {
+  if (!subs || subs.length === 0) return 0
+  let max = 0
+  for (const s of subs) {
+    if (s.end_time > max) max = s.end_time
+  }
+  return max
+}
+
+function getMinSubscriptionEndTime(subs: UserSubscriptionBrief[] | undefined): number {
+  if (!subs || subs.length === 0) return 0
+  let min = Infinity
+  for (const s of subs) {
+    if (s.end_time > 0 && s.end_time < min) min = s.end_time
+  }
+  return min === Infinity ? 0 : min
 }
 
 function SubscriptionTag({ sub }: { sub: UserSubscriptionBrief }) {
@@ -133,27 +154,77 @@ function BalanceCard({ user, maxQuota, maxGptQuota }: {
 export function Balances() {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<FilterMode>('all')
+  const [sort, setSort] = useState<SortMode>('quota_desc')
 
   const { data, isLoading } = useQuery({
     queryKey: ['user-balances'],
     queryFn: getAllUserBalances,
   })
 
-  const filtered = (data ?? []).filter(u => {
-    if (!search.trim()) return true
-    const q = search.trim().toLowerCase()
-    return (
-      u.username.toLowerCase().includes(q) ||
-      u.display_name?.toLowerCase().includes(q) ||
-      String(u.id).includes(q)
-    )
+  const now = Math.floor(Date.now() / 1000)
+
+  const processed = (data ?? []).filter(u => {
+    // 搜索过滤
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      if (!u.username.toLowerCase().includes(q) &&
+          !u.display_name?.toLowerCase().includes(q) &&
+          !String(u.id).includes(q)) {
+        return false
+      }
+    }
+    // 筛选过滤
+    if (filter === 'with_subscriptions') {
+      if (!u.subscriptions || u.subscriptions.length === 0) return false
+    }
+    return true
   })
 
-  const sorted = filtered.slice().sort((a, b) => {
-    const aHas = a.quota > 0 || a.gpt_quota > 0
-    const bHas = b.quota > 0 || b.gpt_quota > 0
-    if (aHas !== bHas) return aHas ? -1 : 1
-    return (b.quota + b.used_quota) - (a.quota + a.used_quota)
+  const sorted = processed.slice().sort((a, b) => {
+    const aHasBalance = a.quota > 0 || a.gpt_quota > 0
+    const bHasBalance = b.quota > 0 || b.gpt_quota > 0
+    const aHasSub = (a.subscriptions?.length ?? 0) > 0
+    const bHasSub = (b.subscriptions?.length ?? 0) > 0
+
+    switch (sort) {
+      case 'quota_desc': {
+        if (aHasBalance !== bHasBalance) return aHasBalance ? -1 : 1
+        return b.quota - a.quota
+      }
+      case 'quota_asc': {
+        return a.quota - b.quota
+      }
+      case 'gpt_desc': {
+        if (aHasBalance !== bHasBalance) return aHasBalance ? -1 : 1
+        return b.gpt_quota - a.gpt_quota
+      }
+      case 'gpt_asc': {
+        return a.gpt_quota - b.gpt_quota
+      }
+      case 'sub_duration_desc': {
+        if (aHasSub !== bHasSub) return aHasSub ? -1 : 1
+        return getMaxSubscriptionEndTime(b.subscriptions) - getMaxSubscriptionEndTime(a.subscriptions)
+      }
+      case 'sub_duration_asc': {
+        const aEnd = getMinSubscriptionEndTime(a.subscriptions)
+        const bEnd = getMinSubscriptionEndTime(b.subscriptions)
+        return aEnd - bEnd
+      }
+      case 'sub_remaining_desc': {
+        if (aHasSub !== bHasSub) return aHasSub ? -1 : 1
+        const aRemaining = getMaxSubscriptionEndTime(a.subscriptions) - now
+        const bRemaining = getMaxSubscriptionEndTime(b.subscriptions) - now
+        return bRemaining - aRemaining
+      }
+      case 'sub_remaining_asc': {
+        const aRemaining = getMinSubscriptionEndTime(a.subscriptions) - now
+        const bRemaining = getMinSubscriptionEndTime(b.subscriptions) - now
+        return aRemaining - bRemaining
+      }
+      default:
+        return 0
+    }
   })
 
   const maxQuota = Math.max(...(data ?? []).map(u => u.quota), 1)
@@ -162,8 +233,8 @@ export function Balances() {
   return (
     <Main>
       <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
-        <div className="mb-4">
-          <div className="relative max-w-md">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[200px] flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder={t('Search users...')}
@@ -172,6 +243,30 @@ export function Balances() {
               className="pl-9"
             />
           </div>
+          <Select value={filter} onValueChange={(v) => setFilter(v as FilterMode)}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('All')}</SelectItem>
+              <SelectItem value="with_subscriptions">{t('With Subscriptions')}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={(v) => setSort(v as SortMode)}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="quota_desc">{t('Quota (High to Low)')}</SelectItem>
+              <SelectItem value="quota_asc">{t('Quota (Low to High)')}</SelectItem>
+              <SelectItem value="gpt_desc">{t('GPT Quota (High to Low)')}</SelectItem>
+              <SelectItem value="gpt_asc">{t('GPT Quota (Low to High)')}</SelectItem>
+              <SelectItem value="sub_duration_desc">{t('Subscription Duration (Long to Short)')}</SelectItem>
+              <SelectItem value="sub_duration_asc">{t('Subscription Duration (Short to Long)')}</SelectItem>
+              <SelectItem value="sub_remaining_desc">{t('Subscription Remaining (Long to Short)')}</SelectItem>
+              <SelectItem value="sub_remaining_asc">{t('Subscription Remaining (Short to Long)')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
