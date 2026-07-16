@@ -47,10 +47,6 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
 	}
-	if relayInfo.IsModelMapped {
-		other["is_model_mapped"] = true
-		other["upstream_model_name"] = relayInfo.UpstreamModelName
-	}
 
 	isSystemPromptOverwritten := common.GetContextKeyBool(ctx, constant.ContextKeySystemPromptOverride)
 	if isSystemPromptOverwritten {
@@ -78,6 +74,24 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 		adminInfo["fallback_channel_id"] = ctx.GetInt("fallback_channel_id")
 		if fallbackModel := ctx.GetString("fallback_model"); fallbackModel != "" {
 			adminInfo["fallback_model"] = fallbackModel
+		}
+	}
+
+	// 应急预案渠道标记（管理员可见）
+	isEmergencyUsed := ctx.GetBool("emergency_used")
+	if isEmergencyUsed {
+		adminInfo["emergency_used"] = true
+		adminInfo["emergency_channel_id"] = ctx.GetInt("emergency_channel_id")
+	}
+
+	// 模型映射信息：应急/兜底场景仅管理员可见，普通场景所有用户可见
+	if relayInfo.IsModelMapped {
+		if isEmergencyUsed || ctx.GetBool("fallback_used") {
+			adminInfo["is_model_mapped"] = true
+			adminInfo["upstream_model_name"] = relayInfo.UpstreamModelName
+		} else {
+			other["is_model_mapped"] = true
+			other["upstream_model_name"] = relayInfo.UpstreamModelName
 		}
 	}
 

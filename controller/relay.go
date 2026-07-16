@@ -331,6 +331,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = channelErr
 			break
 		}
+		// 应急预案渠道标记
+		if channel != nil && channel.IsEmergencyPlanEnabled() {
+			c.Set("emergency_used", true)
+			c.Set("emergency_channel_id", channel.Id)
+		}
 		retryParam.InitialSelectionDone = true
 
 		// GPT 专用渠道走原生模式：跳过重试和参数覆盖
@@ -1148,6 +1153,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
+		// 应急预案渠道标记（管理员可见）
+		if c.GetBool("emergency_used") {
+			adminInfo["emergency_used"] = true
+			adminInfo["emergency_channel_id"] = c.GetInt("emergency_channel_id")
+		}
 		// 兜底模型标记（管理员可见）
 		if c.GetBool("fallback_used") {
 			adminInfo["fallback_used"] = true
@@ -1340,6 +1350,11 @@ func RelayTask(c *gin.Context) {
 				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
 				break
 			}
+		}
+		// 应急预案渠道标记
+		if channel != nil && channel.IsEmergencyPlanEnabled() {
+			c.Set("emergency_used", true)
+			c.Set("emergency_channel_id", channel.Id)
 		}
 		retryParam.InitialSelectionDone = true
 
