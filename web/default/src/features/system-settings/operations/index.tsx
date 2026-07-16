@@ -29,6 +29,7 @@ import {
 
 const defaultOperationsSettings: OperationsSettings = {
   RetryTimes: 0,
+  FailoverRetryTimes: 4,
   RequestMaxDuration: 0,
   DefaultCollapseSidebar: false,
   DemoSiteEnabled: false,

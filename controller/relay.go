@@ -415,8 +415,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
 		if !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
-			// 检查是否可以走兜底：还没触发过兜底，且有可用的兜底渠道
-			if !c.GetBool("fallback_triggered") && model.HasAvailableFallbackChannels() {
+			// 检查是否可以走兜底：还没触发过兜底，且重试次数已达到故障转移阈值，且有可用的兜底渠道
+			if !c.GetBool("fallback_triggered") && retryParam.GetRetry() >= common.FailoverRetryTimes && model.HasAvailableFallbackChannels() {
 				c.Set("fallback_force_next", true)
 				continue
 			}
@@ -903,7 +903,7 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	// 兜底模型逻辑：最后一次重试或 shouldRetry 返回 false 但有兜底渠道时触发（仅触发一次）
-	if !c.GetBool("fallback_triggered") && (c.GetBool("fallback_force_next") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= common.RetryTimes)) {
+	if !c.GetBool("fallback_triggered") && (c.GetBool("fallback_force_next") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= common.FailoverRetryTimes)) {
 		fallbackChannels := model.GetFallbackChannels()
 		// 排除已使用的渠道
 		availableFallback := make([]*model.Channel, 0, len(fallbackChannels))

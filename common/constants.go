@@ -153,6 +153,8 @@ var PreConsumedQuota = 500
 
 var RetryTimes = 5 // 重试次数，默认5次，每次尝试不同的渠道
 
+var FailoverRetryTimes = 4 // 故障转移重试次数，重试达到此次数后触发兜底，不能大于RetryTimes
+
 var UpstreamRetryTimes = 5
 
 // RetryDelays 定义每次重试前的等待时间
