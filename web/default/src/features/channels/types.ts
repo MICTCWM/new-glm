@@ -93,6 +93,7 @@ export interface ChannelSettings {
   special_user_enabled?: boolean
   special_user_ids?: number[]
   gpt_mode_required?: boolean
+  emergency_plan_enabled?: boolean
 }
 
 export interface ChannelOtherSettings {

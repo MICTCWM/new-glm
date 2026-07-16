@@ -210,13 +210,14 @@ func GetBoundChannelsByModelsMap(modelNames []string) (map[string][]BoundChannel
 		return result, nil
 	}
 	type row struct {
-		Model string
-		Name  string
-		Type  int
+		Model         string
+		Name          string
+		Type          int
+		ChannelSetting *string
 	}
 	var rows []row
 	err := DB.Table("channels").
-		Select("abilities.model as model, channels.name as name, channels.type as type").
+		Select("abilities.model as model, channels.name as name, channels.type as type, channels.setting as channel_setting").
 		Joins("JOIN abilities ON abilities.channel_id = channels.id").
 		Where("abilities.model IN ? AND abilities.enabled = ?", modelNames, true).
 		Distinct().
@@ -225,6 +226,9 @@ func GetBoundChannelsByModelsMap(modelNames []string) (map[string][]BoundChannel
 		return nil, err
 	}
 	for _, r := range rows {
+		if isEmergencyPlanEnabledSetting(r.ChannelSetting) {
+			continue
+		}
 		result[r.Model] = append(result[r.Model], BoundChannel{Name: r.Name, Type: r.Type})
 	}
 	return result, nil

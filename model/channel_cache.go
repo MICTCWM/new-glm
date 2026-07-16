@@ -139,6 +139,23 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 		return nil, nil
 	}
 
+	hasEmergency := false
+	for _, channelId := range channels {
+		if channel, ok := channelsIDM[channelId]; ok && channel.IsEmergencyPlanEnabled() {
+			hasEmergency = true
+			break
+		}
+	}
+	if hasEmergency {
+		emergencyChannels := make([]int, 0, len(channels))
+		for _, channelId := range channels {
+			if channel, ok := channelsIDM[channelId]; ok && channel.IsEmergencyPlanEnabled() {
+				emergencyChannels = append(emergencyChannels, channelId)
+			}
+		}
+		channels = emergencyChannels
+	}
+
 	// Filter out used channels and disabled channels (defensive check)
 	var availableChannels []int
 	for _, channelId := range channels {

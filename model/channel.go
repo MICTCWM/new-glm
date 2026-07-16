@@ -1044,6 +1044,13 @@ func (channel *Channel) AllowsGptMode(userGptMode bool) bool {
 	return userGptMode
 }
 
+func (channel *Channel) IsEmergencyPlanEnabled() bool {
+	if channel == nil {
+		return false
+	}
+	return channel.GetSetting().EmergencyPlanEnabled
+}
+
 func (channel *Channel) SetSetting(setting dto.ChannelSettings) {
 	settingBytes, err := common.Marshal(setting)
 	if err != nil {

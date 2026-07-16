@@ -64,6 +64,7 @@ export const channelFormSchema = z.object({
   special_user_enabled: z.boolean().optional(),
   special_user_ids: z.array(z.number()).optional(),
   gpt_mode_required: z.boolean().optional(),
+  emergency_plan_enabled: z.boolean().optional(),
   // Type-specific settings (stored in settings JSON)
   is_enterprise_account: z.boolean().optional(), // OpenRouter specific
   vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -131,6 +132,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   special_user_enabled: false,
   special_user_ids: [],
   gpt_mode_required: false,
+  emergency_plan_enabled: false,
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -174,6 +176,7 @@ export function transformChannelToFormDefaults(
     special_user_enabled: false,
     special_user_ids: [] as number[],
     gpt_mode_required: false,
+    emergency_plan_enabled: false,
   }
 
   if (channel.setting) {
@@ -193,6 +196,7 @@ export function transformChannelToFormDefaults(
               .filter((id: number) => Number.isInteger(id) && id > 0)
           : [],
         gpt_mode_required: parsed.gpt_mode_required === true,
+        emergency_plan_enabled: parsed.emergency_plan_enabled === true,
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -315,6 +319,7 @@ function buildSettingJSON(formData: ChannelFormValues): string {
           )
         : [],
     gpt_mode_required: formData.gpt_mode_required === true,
+    emergency_plan_enabled: formData.emergency_plan_enabled === true,
   }
   return JSON.stringify(settingObj)
 }

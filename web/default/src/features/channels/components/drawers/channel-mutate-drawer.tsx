@@ -50,6 +50,7 @@ import {
   Server,
   Settings,
   SlidersHorizontal,
+  ShieldAlert,
   Users,
   Wand2,
   X,
@@ -245,15 +246,16 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.priority ||
     values.weight ||
     values.proxy?.trim() ||
-    values.system_prompt?.trim() ||
-    values.force_format ||
-    values.thinking_to_content ||
-    values.pass_through_body_enabled ||
-    values.system_prompt_override ||
-    values.claude_beta_query ||
-    values.upstream_model_update_check_enabled ||
-    values.upstream_model_update_auto_sync_enabled ||
-    values.upstream_model_update_ignored_models?.trim()
+  values.system_prompt?.trim() ||
+  values.force_format ||
+  values.thinking_to_content ||
+  values.pass_through_body_enabled ||
+  values.system_prompt_override ||
+  values.claude_beta_query ||
+  values.emergency_plan_enabled ||
+  values.upstream_model_update_check_enabled ||
+  values.upstream_model_update_auto_sync_enabled ||
+  values.upstream_model_update_ignored_models?.trim()
   )
 }
 
@@ -427,6 +429,7 @@ export function ChannelMutateDrawer({
   const awsKeyType = form.watch('aws_key_type')
   const specialUserEnabled = form.watch('special_user_enabled')
   const specialUserIds = form.watch('special_user_ids')
+  const emergencyPlanEnabled = form.watch('emergency_plan_enabled')
   const upstreamModelUpdateCheckEnabled = form.watch(
     'upstream_model_update_check_enabled'
   )
@@ -2490,6 +2493,15 @@ export function ChannelMutateDrawer({
                       <FormDescription>
                         {t(FIELD_DESCRIPTIONS.MODEL_MAPPING)}
                       </FormDescription>
+                      {emergencyPlanEnabled && (
+                        <Alert className='mt-3 border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-50'>
+                          <AlertDescription>
+                            {t(
+                              'Emergency plan mode hides this channel from public model lists. When the channel is enabled, matching requests are routed here first and the original model name is still kept in logs.'
+                            )}
+                          </AlertDescription>
+                        </Alert>
+                      )}
                       {modelMappingGuardrail.invalidJson && (
                         <Alert variant='destructive' className='mt-3'>
                           <AlertDescription>
@@ -3746,6 +3758,34 @@ export function ChannelMutateDrawer({
                           <FormDescription>
                             {t(
                               'When enabled, only users with GPT mode turned on can use models from this channel'
+                            )}
+                          </FormDescription>
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className='flex flex-col gap-4 border-b px-4 py-4'>
+                <FormField
+                  control={form.control}
+                  name='emergency_plan_enabled'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between gap-4'>
+                      <div className='flex items-start gap-2'>
+                        <ShieldAlert className='text-muted-foreground mt-0.5 size-4' />
+                        <div className='flex flex-col gap-1'>
+                          <FormLabel>{t('Emergency Plan')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'Hide this channel from public model lists and let it take priority when the matching model is requested. New emergency plan channels are saved disabled by default.'
                             )}
                           </FormDescription>
                         </div>

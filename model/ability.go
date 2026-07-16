@@ -36,7 +36,17 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 		Joins("left join channels on abilities.channel_id = channels.id").
 		Where("abilities.enabled = ?", true).
 		Scan(&abilities).Error
-	return abilities, err
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]AbilityWithChannel, 0, len(abilities))
+	for _, ability := range abilities {
+		if isEmergencyPlanEnabledSetting(ability.ChannelSetting) {
+			continue
+		}
+		filtered = append(filtered, ability)
+	}
+	return filtered, nil
 }
 
 func GetGroupEnabledModels(group string) []string {
@@ -147,7 +157,8 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 		ability Ability
 		channel Channel
 	}
-	candidates := make([]abilityCandidate, 0, len(abilities))
+	emergencyCandidates := make([]abilityCandidate, 0, len(abilities))
+	normalCandidates := make([]abilityCandidate, 0, len(abilities))
 	anyRpmLimited := false
 	anySpecialUserRestricted := false
 	anySpecialUserAllowed := false
@@ -187,13 +198,23 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 				continue
 			}
 		}
-		candidates = append(candidates, abilityCandidate{
+		candidate := abilityCandidate{
 			ability: ability_,
 			channel: candidateChannel,
-		})
+		}
+		if candidateChannel.IsEmergencyPlanEnabled() {
+			emergencyCandidates = append(emergencyCandidates, candidate)
+		} else {
+			normalCandidates = append(normalCandidates, candidate)
+		}
 	}
 
-	if len(abilities) > 0 {
+	candidates := normalCandidates
+	if len(emergencyCandidates) > 0 {
+		candidates = emergencyCandidates
+	}
+
+	if len(candidates) > 0 {
 		weightSum := uint(0)
 		for _, candidate := range candidates {
 			weightSum += candidate.ability.Weight + 10

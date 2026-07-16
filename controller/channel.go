@@ -585,6 +585,10 @@ func AddChannel(c *gin.Context) {
 		return
 	}
 
+	if addChannelRequest.Channel.GetSetting().EmergencyPlanEnabled {
+		addChannelRequest.Channel.Status = common.ChannelStatusManuallyDisabled
+	}
+
 	addChannelRequest.Channel.CreatedTime = common.GetTimestamp()
 	keys := make([]string, 0)
 	switch addChannelRequest.Mode {

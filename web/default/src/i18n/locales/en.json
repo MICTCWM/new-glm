@@ -4636,6 +4636,9 @@
     "Will deduct GPT quota": "Will deduct GPT quota",
     "Will gain base balance": "Will gain base balance",
     "GPT Mode Required": "GPT Mode Required",
-    "When enabled, only users with GPT mode turned on can use models from this channel": "When enabled, only users with GPT mode turned on can use models from this channel"
+    "When enabled, only users with GPT mode turned on can use models from this channel": "When enabled, only users with GPT mode turned on can use models from this channel",
+    "Emergency Plan": "Emergency Plan",
+    "Hide this channel from public model lists and let it take priority when the matching model is requested. New emergency plan channels are saved disabled by default.": "Hide this channel from public model lists and let it take priority when the matching model is requested. New emergency plan channels are saved disabled by default.",
+    "Emergency plan mode hides this channel from public model lists. When the channel is enabled, matching requests are routed here first and the original model name is still kept in logs.": "Emergency plan mode hides this channel from public model lists. When the channel is enabled, matching requests are routed here first and the original model name is still kept in logs."
   }
 }

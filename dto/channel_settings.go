@@ -10,6 +10,7 @@ type ChannelSettings struct {
 	SpecialUserEnabled     bool   `json:"special_user_enabled,omitempty"`
 	SpecialUserIds         []int  `json:"special_user_ids,omitempty"`
 	GptModeRequired        bool   `json:"gpt_mode_required,omitempty"`
+	EmergencyPlanEnabled   bool   `json:"emergency_plan_enabled,omitempty"`
 }
 
 type VertexKeyType string
