@@ -27,7 +27,7 @@ import { getAllUserBalances, type UserBalance, type UserSubscriptionBrief } from
 
 const QUOTA_PER_UNIT = 500000
 
-type FilterMode = 'all' | 'with_subscriptions'
+type FilterMode = 'all' | 'with_subscriptions' | 'renew_potential' | 'regression'
 type SortMode = 'quota_desc' | 'quota_asc' | 'gpt_desc' | 'gpt_asc' | 'sub_duration_desc' | 'sub_duration_asc' | 'sub_remaining_desc' | 'sub_remaining_asc'
 
 function formatUSD(value: number): string {
@@ -102,6 +102,15 @@ function BalanceCard({ user, maxQuota, maxGptQuota }: {
 
   return (
     <div className="group relative rounded-xl border bg-card p-4 text-card-foreground shadow-sm transition-all duration-200 hover:z-10 hover:scale-105 hover:border-primary/30 hover:shadow-lg">
+      {user.renew_level && user.renew_level !== 'none' && (
+        <div className={`absolute left-0 top-0 z-10 rounded-tl-xl rounded-br-xl px-2 py-0.5 text-xs font-medium text-white ${
+          user.renew_level === 'high' ? 'bg-orange-500' :
+          user.renew_level === 'medium' ? 'bg-blue-500' :
+          'bg-gray-400'
+        }`}>
+          {user.renew_level === 'high' ? t('High') : user.renew_level === 'medium' ? t('Medium') : t('Low')}
+        </div>
+      )}
       <div className="mb-3 flex items-center justify-between gap-1">
         <span className="truncate text-sm font-medium">
           {user.display_name || user.username}
@@ -140,6 +149,38 @@ function BalanceCard({ user, maxQuota, maxGptQuota }: {
           </div>
         </div>
       </div>
+      <div className="mt-3 space-y-1 border-t pt-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">{t('Renew Score')}</span>
+          <span className="font-medium tabular-nums" title={`${user.renew_score}`}>
+            {user.renew_score > 99999999 ? '99999999…' : user.renew_score}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">{t('Daily Consume')}</span>
+          <span className="tabular-nums" title={`$${formatUSD(user.daily_consume)}`}>
+            ${formatUSD(user.daily_consume).length > 8 ? formatUSD(user.daily_consume).slice(0, 7) + '…' : formatUSD(user.daily_consume)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">{t('Remaining Ratio')}</span>
+          <span className="tabular-nums">
+            {(user.quota_remaining_ratio * 100).toFixed(1)}%
+          </span>
+        </div>
+        {user.regression_level && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">{t('Regression')}</span>
+            <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+              user.regression_level === 'high' ? 'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400' :
+              user.regression_level === 'medium' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400' :
+              'bg-gray-100 text-gray-600 dark:bg-gray-500/20 dark:text-gray-400'
+            }`}>
+              {user.regression_level === 'high' ? t('High') : user.regression_level === 'medium' ? t('Medium') : t('Low')}
+            </span>
+          </div>
+        )}
+      </div>
       {user.subscriptions && user.subscriptions.length > 0 && (
         <div className="mt-3 space-y-1.5">
           {user.subscriptions.map((sub, idx) => (
@@ -177,6 +218,12 @@ export function Balances() {
     // 筛选过滤
     if (filter === 'with_subscriptions') {
       if (!u.subscriptions || u.subscriptions.length === 0) return false
+    }
+    if (filter === 'renew_potential') {
+      if (u.renew_level === 'none' || u.renew_level === '') return false
+    }
+    if (filter === 'regression') {
+      if (!u.regression_level) return false
     }
     return true
   })
@@ -250,6 +297,8 @@ export function Balances() {
             <SelectContent>
               <SelectItem value="all">{t('All')}</SelectItem>
               <SelectItem value="with_subscriptions">{t('With Subscriptions')}</SelectItem>
+              <SelectItem value="renew_potential">{t('Renew Potential')}</SelectItem>
+              <SelectItem value="regression">{t('Regression Potential')}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={sort} onValueChange={(v) => setSort(v as SortMode)}>

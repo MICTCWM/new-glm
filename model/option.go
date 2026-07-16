@@ -167,6 +167,10 @@ func InitOptionMap() {
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
 	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
 	common.OptionMap["FailoverRetryTimes"] = strconv.Itoa(common.FailoverRetryTimes)
+	common.OptionMap["RenewPotentialPassScore"] = strconv.Itoa(common.RenewPotentialPassScore)
+	common.OptionMap["LowQuotaAlertPercent"] = strconv.Itoa(common.LowQuotaAlertPercent)
+	common.OptionMap["ShortExpiryDays"] = strconv.Itoa(common.ShortExpiryDays)
+	common.OptionMap["ConsumeStatPeriodDays"] = strconv.Itoa(common.ConsumeStatPeriodDays)
 	common.OptionMap["RequestMaxDuration"] = strconv.Itoa(common.RequestMaxDuration)
 	common.OptionMap["UpstreamRetryTimes"] = strconv.Itoa(common.UpstreamRetryTimes)
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
@@ -517,6 +521,14 @@ func updateOptionMap(key string, value string) (err error) {
 		if common.FailoverRetryTimes > common.RetryTimes {
 			common.FailoverRetryTimes = common.RetryTimes
 		}
+	case "RenewPotentialPassScore":
+		common.RenewPotentialPassScore, _ = strconv.Atoi(value)
+	case "LowQuotaAlertPercent":
+		common.LowQuotaAlertPercent, _ = strconv.Atoi(value)
+	case "ShortExpiryDays":
+		common.ShortExpiryDays, _ = strconv.Atoi(value)
+	case "ConsumeStatPeriodDays":
+		common.ConsumeStatPeriodDays, _ = strconv.Atoi(value)
 	case "RequestMaxDuration":
 		common.RequestMaxDuration, _ = strconv.Atoi(value)
 	case "UpstreamRetryTimes":

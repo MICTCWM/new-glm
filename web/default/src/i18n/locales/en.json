@@ -4656,6 +4656,23 @@
     "Search users...": "Search users...",
     "Fallback Mode": "Fallback Mode",
     "Fallback Model": "Fallback Model",
-    "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza.": "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza."
+    "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza.": "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza.",
+    "Renew Potential Pass Score": "Renew Potential Pass Score",
+    "Minimum score for a user to be considered a high-renewal-potential user (0-100)": "Minimum score for a user to be considered a high-renewal-potential user (0-100)",
+    "Low Quota Alert Percent": "Low Quota Alert Percent",
+    "Percentage threshold for low quota warning (0-100)": "Percentage threshold for low quota warning (0-100)",
+    "Short Expiry Days": "Short Expiry Days",
+    "Days threshold for short-term subscription expiry (1-365)": "Days threshold for short-term subscription expiry (1-365)",
+    "Consume Stat Period Days": "Consume Stat Period Days",
+    "Period in days for consumption statistics (1-365)": "Period in days for consumption statistics (1-365)",
+    "Renew Potential": "Renew Potential",
+    "Regression Potential": "Regression Potential",
+    "Renew Score": "Renew Score",
+    "Daily Consume": "Daily Consume",
+    "Remaining Ratio": "Remaining Ratio",
+    "Regression": "Regression",
+    "High": "High",
+    "Medium": "Medium",
+    "Low": "Low"
   }
 }

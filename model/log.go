@@ -550,3 +550,28 @@ func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64,
 
 	return total, nil
 }
+
+// SumUsedQuotaByUserIds 批量统计多个用户在指定时间范围内的消费总额
+func SumUsedQuotaByUserIds(userIds []int, startTimestamp int64) (map[int]int, error) {
+	if len(userIds) == 0 {
+		return make(map[int]int), nil
+	}
+	type result struct {
+		UserId int   `gorm:"column:user_id"`
+		Total  int64 `gorm:"column:total"`
+	}
+	var results []result
+	err := LOG_DB.Model(&Log{}).
+		Select("user_id, SUM(quota) as total").
+		Where("user_id IN ? AND type = ? AND created_at >= ?", userIds, LogTypeConsume, startTimestamp).
+		Group("user_id").
+		Find(&results).Error
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[int]int, len(results))
+	for _, r := range results {
+		m[r.UserId] = int(r.Total)
+	}
+	return m, nil
+}

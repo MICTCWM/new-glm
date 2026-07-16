@@ -39,6 +39,10 @@ import { useUpdateOption } from '../hooks/use-update-option'
 const behaviorSchema = z.object({
   RetryTimes: z.coerce.number().min(0).max(10),
   FailoverRetryTimes: z.coerce.number().min(0).max(10),
+  RenewPotentialPassScore: z.coerce.number().min(0).max(100),
+  LowQuotaAlertPercent: z.coerce.number().min(0).max(100),
+  ShortExpiryDays: z.coerce.number().min(1).max(365),
+  ConsumeStatPeriodDays: z.coerce.number().min(1).max(365),
   RequestMaxDuration: z.coerce.number().min(0).max(86400),
   DefaultCollapseSidebar: z.boolean(),
   DemoSiteEnabled: z.boolean(),
@@ -128,6 +132,107 @@ export function SystemBehaviorSection({
                 </FormControl>
                 <FormDescription>
                   {t('Number of retries before failover to fallback channels (0-10, must be <= retry times)')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='RenewPotentialPassScore'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Renew Potential Pass Score')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min='0'
+                    max='100'
+                    value={field.value as number}
+                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Minimum score for a user to be considered a high-renewal-potential user (0-100)')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='LowQuotaAlertPercent'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Low Quota Alert Percent')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min='0'
+                    max='100'
+                    value={field.value as number}
+                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Percentage threshold for low quota warning (0-100)')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='ShortExpiryDays'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Short Expiry Days')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min='1'
+                    max='365'
+                    value={field.value as number}
+                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Days threshold for short-term subscription expiry (1-365)')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name='ConsumeStatPeriodDays'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Consume Stat Period Days')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min='1'
+                    max='365'
+                    value={field.value as number}
+                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Period in days for consumption statistics (1-365)')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

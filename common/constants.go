@@ -311,3 +311,9 @@ var RpmQueueTimeout = 60 * time.Second // 排队等待超时时间
 // 500 基础余额 = 1.5 GPT 余额，即 250000000 内部额度 = 1.5 GPT。
 // 这里只描述“基础余额 <-> GPT 余额”的互转规则，不用于请求扣费换算。
 const GptQuotaExchangeRate = 0.003 / 500000.0
+
+// 续费潜力评估参数
+var RenewPotentialPassScore = 60 // 潜力合格分数线
+var LowQuotaAlertPercent = 20    // 低额度预警百分比
+var ShortExpiryDays = 7          // 短期到期临界天数
+var ConsumeStatPeriodDays = 30   // 消耗统计周期（天）

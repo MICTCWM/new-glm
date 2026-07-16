@@ -276,6 +276,10 @@ export type BillingSettings = {
 export type OperationsSettings = {
   RetryTimes: number
   FailoverRetryTimes: number
+  RenewPotentialPassScore: number
+  LowQuotaAlertPercent: number
+  ShortExpiryDays: number
+  ConsumeStatPeriodDays: number
   RequestMaxDuration: number
   DefaultCollapseSidebar: boolean
   DemoSiteEnabled: boolean

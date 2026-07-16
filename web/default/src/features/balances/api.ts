@@ -34,6 +34,13 @@ export interface UserBalance {
   gpt_quota: number
   used_quota: number
   subscriptions: UserSubscriptionBrief[]
+  renew_score: number
+  renew_level: 'high' | 'medium' | 'low' | 'none'
+  regression_level: 'high' | 'medium' | 'low' | ''
+  daily_consume: number
+  quota_remaining_ratio: number
+  last_login_at: number
+  last_sub_end_time: number
 }
 
 export async function getAllUserBalances(): Promise<UserBalance[]> {

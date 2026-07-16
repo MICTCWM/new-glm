@@ -36,6 +36,10 @@ const OPERATIONS_SECTIONS = [
         defaultValues={{
           RetryTimes: settings.RetryTimes,
           FailoverRetryTimes: settings.FailoverRetryTimes,
+          RenewPotentialPassScore: settings.RenewPotentialPassScore,
+          LowQuotaAlertPercent: settings.LowQuotaAlertPercent,
+          ShortExpiryDays: settings.ShortExpiryDays,
+          ConsumeStatPeriodDays: settings.ConsumeStatPeriodDays,
           RequestMaxDuration: settings.RequestMaxDuration,
           DefaultCollapseSidebar: settings.DefaultCollapseSidebar,
           DemoSiteEnabled: settings.DemoSiteEnabled,

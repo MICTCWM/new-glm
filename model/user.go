@@ -1415,6 +1415,13 @@ type UserBalanceInfo struct {
 	GptQuota      float64                 `json:"gpt_quota"`
 	UsedQuota     int                     `json:"used_quota"`
 	Subscriptions []UserSubscriptionBrief `json:"subscriptions"`
+	RenewScore            int                      `json:"renew_score"`           // 续费潜力评分 0-100
+	RenewLevel            RenewPotentialLevel      `json:"renew_level"`           // 续费潜力等级
+	RegressionLevel       RegressionPotentialLevel `json:"regression_level"`      // 回归潜力等级
+	DailyConsume          float64                  `json:"daily_consume"`         // 近N天日均消耗
+	QuotaRemainingRatio   float64                  `json:"quota_remaining_ratio"` // 剩余额度占比 (0-1)
+	LastLoginAt           int64                    `json:"last_login_at"`         // 最后登录时间
+	LastSubEndTime        int64                    `json:"last_sub_end_time"`     // 最后订阅过期时间
 }
 
 // GetAllUserBalances 获取所有用户的余额信息（仅返回余额相关字段，强制上限防止 OOM）
@@ -1429,12 +1436,14 @@ func GetAllUserBalances() ([]UserBalanceInfo, error) {
 		return nil, err
 	}
 
+	// 提前构建 userIds，供后续订阅查询、消费统计等复用
+	userIds := make([]int, len(balances))
+	for i, b := range balances {
+		userIds[i] = b.Id
+	}
+
 	// 批量查询活跃订阅，避免 N+1 问题
 	if len(balances) > 0 {
-		userIds := make([]int, len(balances))
-		for i, b := range balances {
-			userIds[i] = b.Id
-		}
 		now := common.GetTimestamp()
 		var subs []UserSubscription
 		err = DB.Where("user_id IN ? AND status = ? AND end_time > ?", userIds, "active", now).
@@ -1469,5 +1478,205 @@ func GetAllUserBalances() ([]UserBalanceInfo, error) {
 		}
 	}
 
+	// 批量查询近N天消费记录
+	now := common.GetTimestamp()
+	periodDays := common.ConsumeStatPeriodDays
+	if periodDays <= 0 {
+		periodDays = 30
+	}
+	startTime := now - int64(periodDays)*86400
+	consumeMap, err := SumUsedQuotaByUserIds(userIds, startTime)
+	if err != nil {
+		// 消费统计失败不影响余额返回
+		consumeMap = make(map[int]int)
+	}
+
+	// 批量查询 last_login_at（在评分之前查询，确保回归潜力计算可用）
+	loginMap := make(map[int]int64)
+	if len(userIds) > 0 {
+		var users []User
+		DB.Select("id, last_login_at").Where("id IN ?", userIds).Find(&users)
+		for _, u := range users {
+			loginMap[u.Id] = u.LastLoginAt
+		}
+	}
+
+	// 查询所有用户的订阅（含已过期，用于回归潜力判定）
+	var allSubs []UserSubscription
+	if len(userIds) > 0 {
+		DB.Where("user_id IN ?", userIds).Find(&allSubs)
+	}
+
+	// 按用户分组所有订阅
+	allSubsByUser := make(map[int][]UserSubscription)
+	for _, s := range allSubs {
+		allSubsByUser[s.UserId] = append(allSubsByUser[s.UserId], s)
+	}
+
+	// 计算每个用户的评分
+	for i := range balances {
+		b := &balances[i]
+		userConsume := consumeMap[b.Id]
+		b.DailyConsume = float64(userConsume) / float64(periodDays)
+		b.LastLoginAt = loginMap[b.Id]
+
+		// 获取该用户的所有订阅（含已过期）
+		userAllSubs := allSubsByUser[b.Id]
+
+		// 计算续费潜力评分
+		b.RenewScore, b.RenewLevel = calculateRenewPotential(b, userAllSubs, userConsume, periodDays, now)
+		// 计算回归潜力
+		b.RegressionLevel = calculateRegressionPotential(b, userAllSubs, now)
+	}
+
 	return balances, nil
+}
+
+// RenewPotentialLevel 续费潜力等级
+type RenewPotentialLevel string
+
+const (
+	RenewPotentialHigh   RenewPotentialLevel = "high"   // 高潜力 80-100
+	RenewPotentialMedium RenewPotentialLevel = "medium" // 中潜力 60-79
+	RenewPotentialLow    RenewPotentialLevel = "low"    // 低潜力 30-59
+	RenewPotentialNone   RenewPotentialLevel = "none"   // 无潜力 0-29
+)
+
+// RegressionPotentialLevel 回归潜力等级
+type RegressionPotentialLevel string
+
+const (
+	RegressionPotentialHigh   RegressionPotentialLevel = "high"   // 高回归潜力
+	RegressionPotentialMedium RegressionPotentialLevel = "medium" // 中回归潜力
+	RegressionPotentialLow    RegressionPotentialLevel = "low"    // 低回归潜力
+)
+
+// calculateRenewPotential 计算续费潜力评分和等级
+func calculateRenewPotential(b *UserBalanceInfo, allSubs []UserSubscription, consumeTotal int, periodDays int, now int64) (int, RenewPotentialLevel) {
+	// 无套餐或套餐过期 → 无潜力
+	activeSubs := make([]UserSubscription, 0)
+	for _, s := range allSubs {
+		if s.Status == "active" && s.EndTime > now {
+			activeSubs = append(activeSubs, s)
+		}
+	}
+	if len(activeSubs) == 0 {
+		return 0, RenewPotentialNone
+	}
+	// 零余额 → 无潜力
+	if b.Quota <= 0 && b.GptQuota <= 0 {
+		return 0, RenewPotentialNone
+	}
+
+	// 1. 消耗速率评分 (40分)
+	// 日均消耗越高分数越高，用对数缩放防止极端值
+	dailyConsume := float64(consumeTotal) / float64(periodDays)
+	// 假设日均消耗达到 1000000（约$2）为满分
+	consumeScore := 0.0
+	if dailyConsume > 0 {
+		consumeScore = math.Min(math.Log10(dailyConsume+1)/math.Log10(1000001)*40, 40)
+	}
+
+	// 2. 套餐剩余额度占比评分 (30分)
+	// 计算所有活跃订阅的总额度和剩余额度
+	var totalAmount, usedAmount int64
+	for _, s := range activeSubs {
+		totalAmount += s.AmountTotal
+		usedAmount += s.AmountUsed
+	}
+	remainingRatio := 1.0
+	if totalAmount > 0 {
+		remainingRatio = float64(totalAmount-usedAmount) / float64(totalAmount)
+	}
+	if remainingRatio < 0 {
+		remainingRatio = 0
+	}
+	b.QuotaRemainingRatio = remainingRatio
+	// 剩余比例越高分数越高
+	ratioScore := remainingRatio * 30
+
+	// 3. 订阅剩余有效天数评分 (30分)
+	// 取所有活跃订阅中最大的 end_time
+	var maxEndTime int64
+	for _, s := range activeSubs {
+		if s.EndTime > maxEndTime {
+			maxEndTime = s.EndTime
+		}
+	}
+	remainSeconds := maxEndTime - now
+	remainDays := float64(remainSeconds) / 86400.0
+	// 剩余天数越长分数越高，30天为满分
+	daysScore := math.Min(remainDays/30.0*30, 30)
+	if daysScore < 0 {
+		daysScore = 0
+	}
+
+	totalScore := int(consumeScore + ratioScore + daysScore)
+	if totalScore > 100 {
+		totalScore = 100
+	}
+	if totalScore < 0 {
+		totalScore = 0
+	}
+
+	// 判定等级
+	var level RenewPotentialLevel
+	switch {
+	case totalScore >= 80:
+		level = RenewPotentialHigh
+	case totalScore >= 60:
+		level = RenewPotentialMedium
+	case totalScore >= 30:
+		level = RenewPotentialLow
+	default:
+		level = RenewPotentialNone
+	}
+
+	return totalScore, level
+}
+
+// calculateRegressionPotential 计算回归潜力
+// 判定有过订阅但当前无活跃订阅的用户，根据上次登录和订阅过期时间推断回归潜力
+func calculateRegressionPotential(b *UserBalanceInfo, allSubs []UserSubscription, now int64) RegressionPotentialLevel {
+	// 有活跃订阅 → 不适用回归潜力
+	hasActive := false
+	var lastExpiredTime int64
+	for _, s := range allSubs {
+		if s.Status == "active" && s.EndTime > now {
+			hasActive = true
+		}
+		if s.Status != "active" || s.EndTime <= now {
+			if s.EndTime > lastExpiredTime {
+				lastExpiredTime = s.EndTime
+			}
+		}
+	}
+	b.LastSubEndTime = lastExpiredTime
+
+	if hasActive {
+		return ""
+	}
+	if lastExpiredTime == 0 {
+		return "" // 从未有过订阅
+	}
+
+	// 距订阅过期的时间（天）
+	daysSinceExpired := float64(now-lastExpiredTime) / 86400.0
+	// 距上次登录的时间（天）
+	daysSinceLogin := float64(0)
+	if b.LastLoginAt > 0 {
+		daysSinceLogin = float64(now-b.LastLoginAt) / 86400.0
+	}
+
+	// 综合评分：过期时间越近 + 最近登录过 → 回归潜力越高
+	// 过期7天内且30天内登录过 → 高
+	// 过期30天内且90天内登录过 → 中
+	// 其他 → 低
+	if daysSinceExpired <= 7 && daysSinceLogin <= 30 {
+		return RegressionPotentialHigh
+	}
+	if daysSinceExpired <= 30 && daysSinceLogin <= 90 {
+		return RegressionPotentialMedium
+	}
+	return RegressionPotentialLow
 }
