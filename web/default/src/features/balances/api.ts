@@ -18,6 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
+export interface UserSubscriptionBrief {
+  plan_id: number
+  plan_title: string
+  amount_total: number
+  amount_used: number
+  end_time: number
+}
+
 export interface UserBalance {
   id: number
   username: string
@@ -25,6 +33,7 @@ export interface UserBalance {
   quota: number
   gpt_quota: number
   used_quota: number
+  subscriptions: UserSubscriptionBrief[]
 }
 
 export async function getAllUserBalances(): Promise<UserBalance[]> {

@@ -1397,14 +1397,24 @@ func RootUserExists() bool {
 	return true
 }
 
+// UserSubscriptionBrief 用户订阅精简信息
+type UserSubscriptionBrief struct {
+	PlanId      int    `json:"plan_id"`
+	PlanTitle   string `json:"plan_title"`
+	AmountTotal int64  `json:"amount_total"`
+	AmountUsed  int64  `json:"amount_used"`
+	EndTime     int64  `json:"end_time"`
+}
+
 // UserBalanceInfo 用户余额精简信息
 type UserBalanceInfo struct {
-	Id          int     `json:"id"`
-	Username    string  `json:"username"`
-	DisplayName string  `json:"display_name"`
-	Quota       int     `json:"quota"`
-	GptQuota    float64 `json:"gpt_quota"`
-	UsedQuota   int     `json:"used_quota"`
+	Id            int                     `json:"id"`
+	Username      string                  `json:"username"`
+	DisplayName   string                  `json:"display_name"`
+	Quota         int                     `json:"quota"`
+	GptQuota      float64                 `json:"gpt_quota"`
+	UsedQuota     int                     `json:"used_quota"`
+	Subscriptions []UserSubscriptionBrief `json:"subscriptions"`
 }
 
 // GetAllUserBalances 获取所有用户的余额信息（仅返回余额相关字段，强制上限防止 OOM）
@@ -1418,5 +1428,46 @@ func GetAllUserBalances() ([]UserBalanceInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// 批量查询活跃订阅，避免 N+1 问题
+	if len(balances) > 0 {
+		userIds := make([]int, len(balances))
+		for i, b := range balances {
+			userIds[i] = b.Id
+		}
+		now := common.GetTimestamp()
+		var subs []UserSubscription
+		err = DB.Where("user_id IN ? AND status = ? AND end_time > ?", userIds, "active", now).
+			Find(&subs).Error
+		if err != nil {
+			return balances, nil // 订阅查询失败不影响余额返回
+		}
+		// 批量获取 plan title
+		planIds := make(map[int]bool)
+		for _, s := range subs {
+			planIds[s.PlanId] = true
+		}
+		planTitles := make(map[int]string)
+		for planId := range planIds {
+			if plan, err := GetSubscriptionPlanById(planId); err == nil && plan != nil {
+				planTitles[planId] = plan.Title
+			}
+		}
+		// 按用户分组
+		subsByUser := make(map[int][]UserSubscriptionBrief)
+		for _, s := range subs {
+			subsByUser[s.UserId] = append(subsByUser[s.UserId], UserSubscriptionBrief{
+				PlanId:      s.PlanId,
+				PlanTitle:   planTitles[s.PlanId],
+				AmountTotal: s.AmountTotal,
+				AmountUsed:  s.AmountUsed,
+				EndTime:     s.EndTime,
+			})
+		}
+		for i := range balances {
+			balances[i].Subscriptions = subsByUser[balances[i].Id]
+		}
+	}
+
 	return balances, nil
 }
