@@ -4646,6 +4646,7 @@
     "Emergency Plan": "应急预案",
     "Hide this channel from public model lists and let it take priority when the matching model is requested. New emergency plan channels are saved disabled by default.": "开启后，此渠道将从公开模型列表中隐藏，并在请求匹配模型时优先路由到该渠道。新增的应急预案渠道默认保存为禁用状态。",
     "Emergency plan mode hides this channel from public model lists. When the channel is enabled, matching requests are routed here first and the original model name is still kept in logs.": "应急预案模式会将该渠道从公开模型列表中隐藏。渠道启用后，匹配模型的请求会优先路由到这里，且日志中仍保留原始模型名称。",
+    "Fallback Model Used": "已使用兜底模型",
     "Fallback Mode": "兜底模式",
     "Fallback Model": "兜底模型",
     "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza.": "开启后，此渠道仅作为兜底使用。当其他渠道重试均失败后会切换到该渠道，其模型不会在模型广场展示。"

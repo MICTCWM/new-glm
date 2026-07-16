@@ -415,6 +415,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
 		if !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
+			// 检查是否可以走兜底：还没触发过兜底，且有可用的兜底渠道
+			if !c.GetBool("fallback_triggered") && model.HasAvailableFallbackChannels() {
+				c.Set("fallback_force_next", true)
+				continue
+			}
 			break
 		}
 
@@ -897,8 +902,8 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
-	// 兜底模型逻辑：最后一次重试时，切换到配置了兜底模型的渠道（仅触发一次）
-	if !c.GetBool("fallback_triggered") && retryParam.GetRetry() > 0 && retryParam.GetRetry() >= common.RetryTimes {
+	// 兜底模型逻辑：最后一次重试或 shouldRetry 返回 false 但有兜底渠道时触发（仅触发一次）
+	if !c.GetBool("fallback_triggered") && (c.GetBool("fallback_force_next") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= common.RetryTimes)) {
 		fallbackChannels := model.GetFallbackChannels()
 		// 排除已使用的渠道
 		availableFallback := make([]*model.Channel, 0, len(fallbackChannels))
@@ -918,6 +923,8 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			// 随机选择一个可用的兜底渠道（跨分组）
 			fallbackChannel := availableFallback[rand.Intn(len(availableFallback))]
 			c.Set("fallback_triggered", true)
+			c.Set("fallback_used", true)
+			c.Set("fallback_channel_id", fallbackChannel.Id)
 			newAPIError := middleware.SetupContextForSelectedChannel(c, fallbackChannel, info.OriginModelName)
 			if newAPIError != nil {
 				return nil, newAPIError
@@ -932,6 +939,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 				c.Set("original_model", fallbackModel)
 				// 清除 model_mapping，防止 ModelMappedHelper 覆盖兜底模型名（兜底模型名优先级最高）
 				c.Set("model_mapping", "")
+				c.Set("fallback_model", fallbackModel)
 			}
 			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 			return fallbackChannel, nil
@@ -1140,6 +1148,14 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
+		// 兜底模型标记（管理员可见）
+		if c.GetBool("fallback_used") {
+			adminInfo["fallback_used"] = true
+			adminInfo["fallback_channel_id"] = c.GetInt("fallback_channel_id")
+			if fallbackModel := c.GetString("fallback_model"); fallbackModel != "" {
+				adminInfo["fallback_model"] = fallbackModel
+			}
+		}
 		other["admin_info"] = adminInfo
 		if retryCount, exists := c.Get("upstream_retry_count"); exists {
 			other["upstream_retry_count"] = retryCount

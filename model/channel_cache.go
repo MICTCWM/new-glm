@@ -34,6 +34,18 @@ func GetFallbackChannels() []*Channel {
 	return result
 }
 
+// HasAvailableFallbackChannels 检查是否有可用的兜底渠道（跨分组）
+func HasAvailableFallbackChannels() bool {
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+	for _, ch := range fallbackChannels {
+		if ch.Status == common.ChannelStatusEnabled {
+			return true
+		}
+	}
+	return false
+}
+
 // ErrAllChannelsRpmFull is returned when all matching channels have their RPM at max capacity.
 var ErrAllChannelsRpmFull = errors.New("all channels rpm full")
 

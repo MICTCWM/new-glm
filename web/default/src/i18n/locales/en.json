@@ -4640,6 +4640,7 @@
     "Emergency Plan": "Emergency Plan",
     "Hide this channel from public model lists and let it take priority when the matching model is requested. New emergency plan channels are saved disabled by default.": "Hide this channel from public model lists and let it take priority when the matching model is requested. New emergency plan channels are saved disabled by default.",
     "Emergency plan mode hides this channel from public model lists. When the channel is enabled, matching requests are routed here first and the original model name is still kept in logs.": "Emergency plan mode hides this channel from public model lists. When the channel is enabled, matching requests are routed here first and the original model name is still kept in logs.",
+    "Fallback Model Used": "Fallback Model Used",
     "Fallback Mode": "Fallback Mode",
     "Fallback Model": "Fallback Model",
     "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza.": "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza."

@@ -111,6 +111,10 @@ export interface LogOtherData {
     // Manage audit fields (type=3, admin only)
     admin_username?: string
     admin_id?: number | string
+    // Fallback model (admin only)
+    fallback_used?: boolean
+    fallback_channel_id?: number
+    fallback_model?: string
     // Error detail (admin only)
     detail_error?: string
   }

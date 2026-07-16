@@ -72,6 +72,15 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 
+	// 兜底模型标记（管理员可见）
+	if ctx.GetBool("fallback_used") {
+		adminInfo["fallback_used"] = true
+		adminInfo["fallback_channel_id"] = ctx.GetInt("fallback_channel_id")
+		if fallbackModel := ctx.GetString("fallback_model"); fallbackModel != "" {
+			adminInfo["fallback_model"] = fallbackModel
+		}
+	}
+
 	other["admin_info"] = adminInfo
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)

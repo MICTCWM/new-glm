@@ -36,6 +36,7 @@ import {
   RotateCw,
   Eye,
   EyeOff,
+  LifeBuoy,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -1062,6 +1063,25 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 variant='danger'
               >
                 <p className='text-xs break-words'>{other.reject_reason}</p>
+              </DetailSection>
+            )}
+
+            {/* Fallback model (admin only) */}
+            {props.isAdmin && other?.admin_info?.fallback_used && (
+              <DetailSection
+                icon={<LifeBuoy className='size-3.5' aria-hidden='true' />}
+                label={t('Fallback Model Used')}
+              >
+                <div className='space-y-1'>
+                  <p className='text-xs'>
+                    {t('Channel')} #{other.admin_info.fallback_channel_id}
+                  </p>
+                  {other.admin_info.fallback_model && (
+                    <p className='text-xs'>
+                      {t('Fallback Model')}: {other.admin_info.fallback_model}
+                    </p>
+                  )}
+                </div>
               </DetailSection>
             )}
 
