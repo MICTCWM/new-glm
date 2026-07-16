@@ -1396,3 +1396,27 @@ func RootUserExists() bool {
 	}
 	return true
 }
+
+// UserBalanceInfo 用户余额精简信息
+type UserBalanceInfo struct {
+	Id          int     `json:"id"`
+	Username    string  `json:"username"`
+	DisplayName string  `json:"display_name"`
+	Quota       int     `json:"quota"`
+	GptQuota    float64 `json:"gpt_quota"`
+	UsedQuota   int     `json:"used_quota"`
+}
+
+// GetAllUserBalances 获取所有用户的余额信息（仅返回余额相关字段，强制上限防止 OOM）
+func GetAllUserBalances() ([]UserBalanceInfo, error) {
+	var balances []UserBalanceInfo
+	err := DB.Model(&User{}).
+		Select("id, username, display_name, quota, gpt_quota, used_quota").
+		Order("id desc").
+		Limit(10000).
+		Find(&balances).Error
+	if err != nil {
+		return nil, err
+	}
+	return balances, nil
+}

@@ -258,6 +258,15 @@ func GetAllUsers(c *gin.Context) {
 	return
 }
 
+func GetAllUserBalances(c *gin.Context) {
+	balances, err := model.GetAllUserBalances()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, balances)
+}
+
 func SearchUsers(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")

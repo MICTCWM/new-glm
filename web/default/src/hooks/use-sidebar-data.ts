@@ -148,6 +148,11 @@ export function useSidebarData(): SidebarData {
             icon: Users,
           },
           {
+            title: t('User Balances'),
+            url: '/balances',
+            icon: Wallet,
+          },
+          {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
             icon: Ticket,
