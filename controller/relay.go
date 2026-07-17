@@ -494,14 +494,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// 处理 break 退出（如所有正常渠道用完、getChannel 返回错误、shouldRetry=false）导致 fallback_triggered=false 的情况。
 	// 循环内已处理 shouldRetry=false 时立即检查兜底的路径，但 break 退出场景下兜底可能仍未触发
 	// （如 getChannel 返回错误时 retry=0 < FailoverRetryTimes，循环内条件不满足但循环外应补救）。
-	// 这里补一次兜底执行（仅触发一次，不重试），去掉 retry>=FailoverRetryTimes 限制，
-	// 因为 break 退出时 retry 可能很小（如首次 getChannel 错误）。
-	// 使用 for 循环：兜底渠道 RPM 满 或 SetupContext 失败时，清除 fallback_triggered，
-	// 将该渠道加入 UsedChannelIds 后继续尝试其他兜底渠道，直到成功或无可用兜底渠道。
-	// 每次迭代都会将失败渠道加入 UsedChannelIds，HasAvailableFallbackChannelsExcludingUsed 最终返回 false，不会死循环。
-	for !c.GetBool("fallback_triggered") &&
-		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
-		common.SysLog(fmt.Sprintf("主循环退出后兜底检查触发: retry=%d, FailoverRetryTimes=%d, 有可用兜底渠道(排除已使用)", retryParam.GetRetry(), common.FailoverRetryTimes))
+	// 这里补一次兜底执行（去掉 retry>=FailoverRetryTimes 限制，因为 break 退出时 retry 可能很小）。
+	// 使用 for 循环：依次尝试所有未使用的兜底渠道，每个渠道内部最多重试 fallbackMaxRetries 次。
+	// 每次失败的兜底渠道都加入 UsedChannelIds，HasAvailableFallbackChannelsExcludingUsed 最终返回 false，不会死循环。
+	for model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+		common.SysLog(fmt.Sprintf("主循环退出后兜底检查: retry=%d, 剩余可用兜底渠道(排除已使用)", retryParam.GetRetry()))
 		c.Set("fallback_force_next", true)
 		fallbackChannel, fallbackErr := getChannel(c, relayInfo, retryParam)
 		if fallbackErr != nil || fallbackChannel == nil {
@@ -539,24 +536,44 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, fallbackChannel.Id)
 		// 与循环内 313 行写法保持一致，确保上游请求的 is_retry 标记准确
 		relayInfo.RetryIndex = retryParam.GetRetry()
-		bodyStorage, bodyErr := common.GetBodyStorage(c)
-		if bodyErr != nil {
-			// bodyStorage 读取失败时记录日志，避免静默跳过
-			common.SysLog(fmt.Sprintf("主循环退出后兜底 bodyStorage 读取失败: fallback_channel_id=%d, err=%v", fallbackChannel.Id, bodyErr))
-			break
+		// 兜底渠道内部重试：每渠道最多 3 次请求（1次初始 + 2次重试）
+		const fallbackMaxRetries = 2
+		fallbackSuccess := false
+		for fallbackAttempt := 0; fallbackAttempt <= fallbackMaxRetries; fallbackAttempt++ {
+			if fallbackAttempt > 0 {
+				common.SysLog(fmt.Sprintf("兜底渠道内部重试: fallback_channel_id=%d, attempt=%d/%d", fallbackChannel.Id, fallbackAttempt, fallbackMaxRetries))
+			}
+			bodyStorage, bodyErr := common.GetBodyStorage(c)
+			if bodyErr != nil {
+				common.SysLog(fmt.Sprintf("主循环退出后兜底 bodyStorage 读取失败: fallback_channel_id=%d, err=%v", fallbackChannel.Id, bodyErr))
+				break
+			}
+			c.Request.Body = io.NopCloser(bodyStorage)
+			switch relayFormat {
+			case types.RelayFormatOpenAIRealtime:
+				newAPIError = relay.WssHelper(c, relayInfo)
+			case types.RelayFormatClaude:
+				newAPIError = relay.ClaudeHelper(c, relayInfo)
+			case types.RelayFormatGemini:
+				newAPIError = geminiRelayHandler(c, relayInfo)
+			default:
+				newAPIError = relayHandler(c, relayInfo)
+			}
+			if newAPIError == nil {
+				fallbackSuccess = true
+				break
+			}
+			// 最后一次重试失败，不重试了
+			if fallbackAttempt >= fallbackMaxRetries {
+				break
+			}
+			// 判断是否值得重试（网络错误/5xx等重试才有意义）
+			if !shouldRetry(c, newAPIError, 1) {
+				common.SysLog(fmt.Sprintf("兜底渠道内部重试跳过: fallback_channel_id=%d, status_code=%d, error_code=%v", fallbackChannel.Id, newAPIError.StatusCode, newAPIError.GetErrorCode()))
+				break
+			}
 		}
-		c.Request.Body = io.NopCloser(bodyStorage)
-		switch relayFormat {
-		case types.RelayFormatOpenAIRealtime:
-			newAPIError = relay.WssHelper(c, relayInfo)
-		case types.RelayFormatClaude:
-			newAPIError = relay.ClaudeHelper(c, relayInfo)
-		case types.RelayFormatGemini:
-			newAPIError = geminiRelayHandler(c, relayInfo)
-		default:
-			newAPIError = relayHandler(c, relayInfo)
-		}
-		if newAPIError == nil {
+		if fallbackSuccess {
 			relayInfo.LastError = nil
 			if len(retryDelays) > 0 {
 				c.Set("retry_delays", retryDelays)
@@ -576,8 +593,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// 兜底失败也是重试过程的一部分，不记录错误日志
 		c.Set("is_retry_attempt", true)
 		processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), newAPIError, relayInfo)
-		// handler 已实际调用上游，不能 continue 尝试其他兜底渠道，break 退出走错误处理
-		break
+		// 兜底渠道重试全部失败，清除 fallback_triggered，继续尝试其他兜底渠道
+		common.SysLog(fmt.Sprintf("兜底渠道 %d 全部重试失败，尝试下一个兜底渠道", fallbackChannel.Id))
+		c.Set("fallback_triggered", false)
+		c.Set("fallback_used", false)
 	}
 
 	if len(retryDelays) > 0 {
