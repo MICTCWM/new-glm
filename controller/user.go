@@ -30,6 +30,9 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// RegisterEntryCode 注册进入码（硬编码），新用户注册时必须填写正确才能通过
+const RegisterEntryCode = "035725"
+
 func Login(c *gin.Context) {
 	if !common.PasswordLoginEnabled {
 		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
@@ -162,6 +165,11 @@ func Register(c *gin.Context) {
 	}
 	if err := common.Validate.Struct(&user); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
+		return
+	}
+	// 注册进入码校验：必须填写正确的进入码，已注册用户不受影响
+	if user.EntryCode != RegisterEntryCode {
+		common.ApiErrorI18n(c, i18n.MsgUserEntryCodeInvalid)
 		return
 	}
 	if common.EmailVerificationEnabled {

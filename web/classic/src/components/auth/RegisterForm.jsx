@@ -41,6 +41,7 @@ import {
   Form,
   Icon,
   Modal,
+  Tooltip,
 } from '@douyinfe/semi-ui';
 import Title from '@douyinfe/semi-ui/lib/es/typography/title';
 import Text from '@douyinfe/semi-ui/lib/es/typography/text';
@@ -80,6 +81,7 @@ const RegisterForm = () => {
     email: '',
     verification_code: '',
     wechat_verification_code: '',
+    entry_code: '',
   });
   const { username, password, password2 } = inputs;
   const [userState, userDispatch] = useContext(UserContext);
@@ -96,6 +98,7 @@ const RegisterForm = () => {
   const [linuxdoLoading, setLinuxdoLoading] = useState(false);
   const [emailRegisterLoading, setEmailRegisterLoading] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
+  const [showEntryCodeHelp, setShowEntryCodeHelp] = useState(false);
   const [verificationCodeLoading, setVerificationCodeLoading] = useState(false);
   const [otherRegisterOptionsLoading, setOtherRegisterOptionsLoading] =
     useState(false);
@@ -222,6 +225,10 @@ const RegisterForm = () => {
     }
     if (password !== password2) {
       showInfo('两次输入的密码不一致');
+      return;
+    }
+    if (!inputs.entry_code) {
+      showInfo('请输入进入码，进入码请在 QQ 群（1094345790）群公告中获取');
       return;
     }
     if (username && password) {
@@ -602,6 +609,34 @@ const RegisterForm = () => {
                   prefix={<IconLock />}
                 />
 
+                <Form.Input
+                  field='entry_code'
+                  label={
+                    <div className='flex w-full items-center justify-between'>
+                      <span>{t('进入码')}</span>
+                      <span className='flex items-center gap-2'>
+                        <Button
+                          type='button'
+                          theme='borderless'
+                          size='small'
+                          onClick={() => setShowEntryCodeHelp(true)}
+                        >
+                          {t('如何获取进入码')}
+                        </Button>
+                        <Tooltip content='因为很多用户都不主动进入 QQ 群，导致很多信息都无法及时同步，我得一个一个通知。'>
+                          <span className='cursor-help text-blue-600 text-sm'>
+                            {t('详情')}
+                          </span>
+                        </Tooltip>
+                      </span>
+                    </div>
+                  }
+                  placeholder={t('请输入进入码')}
+                  name='entry_code'
+                  onChange={(value) => handleChange('entry_code', value)}
+                  prefix={<IconKey />}
+                />
+
                 {showEmailVerification && (
                   <>
                     <Form.Input
@@ -786,6 +821,22 @@ const RegisterForm = () => {
           ? renderEmailRegisterForm()
           : renderOAuthOptions()}
         {renderWeChatLoginModal()}
+
+        <Modal
+          title={t('如何获取进入码')}
+          visible={showEntryCodeHelp}
+          maskClosable={true}
+          footer={null}
+          centered={true}
+          onCancel={() => setShowEntryCodeHelp(false)}
+        >
+          <div className='flex flex-col items-center gap-2 py-2'>
+            <p>{t('进入 QQ 群群公告中自取。')}</p>
+            <p className='text-2xl font-semibold tracking-widest'>
+              QQ 群：1094345790
+            </p>
+          </div>
+        </Modal>
 
         {turnstileEnabled && (
           <div className='flex justify-center mt-6'>

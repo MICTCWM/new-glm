@@ -44,6 +44,8 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { PasswordInput } from '@/components/password-input'
 import { Turnstile } from '@/components/turnstile'
 import { register, wechatLoginByCode } from '@/features/auth/api'
@@ -66,6 +68,7 @@ export function SignUpForm({
   const [wechatCode, setWeChatCode] = useState('')
   const [isWeChatDialogOpen, setIsWeChatDialogOpen] = useState(false)
   const [isWeChatSubmitting, setIsWeChatSubmitting] = useState(false)
+  const [isEntryCodeHelpOpen, setIsEntryCodeHelpOpen] = useState(false)
   const legalConsentErrorMessage = t('Please agree to the legal terms first')
 
   const { status } = useStatus()
@@ -94,6 +97,7 @@ export function SignUpForm({
       email: '',
       password: '',
       confirmPassword: '',
+      entryCode: '',
     },
   })
 
@@ -155,6 +159,7 @@ export function SignUpForm({
         password: data.password,
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
+        entry_code: data.entryCode || undefined,
         aff: getAffiliateCode(),
         turnstile: turnstileToken,
       })
@@ -263,6 +268,44 @@ export function SignUpForm({
               <FormLabel>{t('Confirm password')}</FormLabel>
               <FormControl>
                 <PasswordInput placeholder={t('Confirm password')} {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Entry Code Field */}
+        <FormField
+          control={form.control}
+          name='entryCode'
+          render={({ field }) => (
+            <FormItem>
+              <div className='flex items-center justify-between'>
+                <FormLabel>{t('Entry code')}</FormLabel>
+                <div className='flex items-center gap-2'>
+                  <button
+                    type='button'
+                    onClick={() => setIsEntryCodeHelpOpen(true)}
+                    className='text-muted-foreground text-xs underline-offset-2 hover:underline'
+                  >
+                    {t('How to get the entry code')}
+                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Badge variant='outline' className='cursor-help text-xs' />
+                      }
+                    >
+                      {t('Details')}
+                    </TooltipTrigger>
+                    <TooltipContent className='max-w-xs'>
+                      {t('Entry code reason')}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
+              <FormControl>
+                <Input placeholder={t('Please enter the entry code')} {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -426,6 +469,24 @@ export function SignUpForm({
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Entry code help dialog */}
+      <Dialog open={isEntryCodeHelpOpen} onOpenChange={setIsEntryCodeHelpOpen}>
+        <DialogContent className='max-w-sm'>
+          <DialogHeader className='text-left'>
+            <DialogTitle>{t('How to get the entry code')}</DialogTitle>
+            <DialogDescription>
+              {t('Get the entry code from the QQ group announcement')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='flex flex-col items-center gap-1 py-2'>
+            <span className='text-muted-foreground text-sm'>{t('QQ group')}</span>
+            <span className='text-2xl font-semibold tracking-widest'>
+              1094345790
+            </span>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Form>
   )
 }
