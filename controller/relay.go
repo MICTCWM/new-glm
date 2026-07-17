@@ -427,6 +427,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 
+		// 客户端已断开连接：保留第一条真正的上游错误，不用断开导致的错误覆盖
+		if c.Request != nil && c.Request.Context().Err() != nil && relayInfo.LastError != nil {
+			common.SysLog("客户端已断开连接，保留之前的错误不覆盖")
+			newAPIError = relayInfo.LastError
+			break
+		}
+
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
 		relayInfo.LastError = newAPIError
@@ -576,6 +583,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				fallbackSuccess = true
 				break
 			}
+			// 客户端已断开连接：保留第一条真正的上游错误，不用断开导致的错误覆盖
+			if c.Request != nil && c.Request.Context().Err() != nil && relayInfo.LastError != nil {
+				common.SysLog("兜底阶段客户端已断开连接，保留之前的错误")
+				newAPIError = relayInfo.LastError
+				break
+			}
 			// 最后一次重试失败，不重试了
 			if fallbackAttempt >= fallbackMaxRetries {
 				break
@@ -595,6 +608,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 		// 兜底 handler 执行失败，更新错误状态并走原有错误处理
+		// 客户端已断开连接：保留第一条错误，不用断开错误覆盖，并退出兜底循环
+		if c.Request != nil && c.Request.Context().Err() != nil && relayInfo.LastError != nil {
+			common.SysLog("兜底失败阶段客户端已断开连接，保留之前的错误，退出兜底循环")
+			newAPIError = relayInfo.LastError
+			break
+		}
 		relayInfo.LastError = newAPIError
 		// 与循环内 411-420 行写法保持一致：扣减渠道配额、记录错误日志字段、走渠道错误处理流程
 		// 渠道已被上游实际调用但请求失败，扣减渠道配额（重试失败补偿，避免配额漏扣）
