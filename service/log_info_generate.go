@@ -68,8 +68,11 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 
-	// 兜底模型标记（管理员可见）
+	// 兜底模型标记
 	if ctx.GetBool("fallback_used") {
+		// 用户可见：仅告知被自动错误转移，不暴露渠道信息
+		other["fallback_used"] = true
+		// 管理员可见：包含渠道ID等详细信息
 		adminInfo["fallback_used"] = true
 		adminInfo["fallback_channel_id"] = ctx.GetInt("fallback_channel_id")
 		if fallbackModel := ctx.GetString("fallback_model"); fallbackModel != "" {
