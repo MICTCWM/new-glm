@@ -419,22 +419,39 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
-		if !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
-			// 检查是否可以走兜底：还没触发过兜底，且重试次数已达到故障转移阈值，且有可用的兜底渠道
-			// 注意：必须排除已使用渠道，与 getChannel 内部的 availableFallback 判断口径保持一致（根因5），
-			// 否则主循环认为有可用兜底渠道，但 getChannel 实际无法选出兜底渠道，导致兜底永远不触发。
-			if !c.GetBool("fallback_triggered") && retryParam.GetRetry() >= common.FailoverRetryTimes {
-				if model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
-					common.SysLog(fmt.Sprintf("兜底检查触发: retry=%d, FailoverRetryTimes=%d, 有可用兜底渠道(排除已使用)", retryParam.GetRetry(), common.FailoverRetryTimes))
-					c.Set("fallback_force_next", true)
-					// 根因4（方案A）：重置 retry 为 maxRetryTimes-1，使 IncreaseRetry 后 retry=maxRetryTimes，
-					// 循环条件 retry<=maxRetryTimes 成立，继续执行 getChannel 触发兜底。
-					// 避免直接 continue 导致 IncreaseRetry 后 retry=maxRetryTimes+1 退出循环、getChannel 永不被调用。
-					retryParam.SetRetry(maxRetryTimes - 1)
-					continue
-				}
-				common.SysLog(fmt.Sprintf("兜底未触发: 无可用兜底渠道(排除已使用), retry=%d, FailoverRetryTimes=%d, used_channel_ids=%v", retryParam.GetRetry(), common.FailoverRetryTimes, retryParam.UsedChannelIds))
+		// 重试判断（缓存结果避免重复调用，shouldRetry 是纯函数无副作用）
+		shouldRetryResult := shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry())
+		common.SysLog(fmt.Sprintf("重试迭代失败: retry=%d, shouldRetry=%v, status_code=%d, error_code=%v, FailoverRetryTimes=%d, maxRetryTimes=%d, used_channel_ids=%v",
+			retryParam.GetRetry(), shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode(), common.FailoverRetryTimes, maxRetryTimes, retryParam.UsedChannelIds))
+
+		// 兜底检查：retry >= FailoverRetryTimes 时，无论 shouldRetry 返回什么，都检查并触发兜底
+		// 修复缺陷1：原代码 shouldRetry=false 时兜底检查在 if !shouldRetry 块内，受 retry>=FailoverRetryTimes 限制，
+		//           但 shouldRetry=false 时往往 retry=0，条件不满足直接 break，导致 400 等错误无法触发兜底。
+		// 修复缺陷2：原代码 shouldRetry=true 时整个兜底检查块被跳过，即使 retry>=FailoverRetryTimes 也无法触发兜底。
+		// 修复方案：将兜底检查从 if !shouldRetry 块内移出，放在 shouldRetry 检查之前，每次迭代失败后都检查。
+		// 注意：必须排除已使用渠道，与 getChannel 内部的 availableFallback 判断口径保持一致（根因5），
+		// 否则主循环认为有可用兜底渠道，但 getChannel 实际无法选出兜底渠道，导致兜底永远不触发。
+		if !c.GetBool("fallback_triggered") && retryParam.GetRetry() >= common.FailoverRetryTimes {
+			if model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+				common.SysLog(fmt.Sprintf("兜底检查触发: retry=%d, FailoverRetryTimes=%d, shouldRetry=%v, status_code=%d, error_code=%v, 有可用兜底渠道(排除已使用)",
+					retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode()))
+				c.Set("fallback_force_next", true)
+				// 重置 retry 为 maxRetryTimes-1，使 IncreaseRetry 后 retry=maxRetryTimes，
+				// 循环条件 retry<=maxRetryTimes 成立，继续执行 getChannel 触发兜底。
+				// 避免直接 continue 导致 IncreaseRetry 后 retry=maxRetryTimes+1 退出循环、getChannel 永不被调用。
+				retryParam.SetRetry(maxRetryTimes - 1)
+				continue
 			}
+			common.SysLog(fmt.Sprintf("兜底未触发: 无可用兜底渠道(排除已用), retry=%d, FailoverRetryTimes=%d, shouldRetry=%v, used_channel_ids=%v",
+				retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, retryParam.UsedChannelIds))
+		} else if c.GetBool("fallback_triggered") {
+			common.SysLog(fmt.Sprintf("兜底未触发: 已触发过兜底, retry=%d, shouldRetry=%v", retryParam.GetRetry(), shouldRetryResult))
+		} else {
+			common.SysLog(fmt.Sprintf("兜底未触发: retry(%d) < FailoverRetryTimes(%d), shouldRetry=%v, status_code=%d, error_code=%v",
+				retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode()))
+		}
+
+		if !shouldRetryResult {
 			break
 		}
 
