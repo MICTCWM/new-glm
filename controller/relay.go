@@ -428,6 +428,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		model.UpdateChannelCallCount(channel.Id, callCount)
 
 		c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
+		// 重试过程中不记录错误日志，避免兜底成功后仍残留错误日志影响错误率
+		c.Set("is_retry_attempt", true)
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
 		// 重试判断（缓存结果避免重复调用，shouldRetry 是纯函数无副作用）
@@ -445,7 +447,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// 注意：必须排除已使用渠道，与 getChannel 内部的 availableFallback 判断口径保持一致（根因5），
 		// 否则主循环认为有可用兜底渠道，但 getChannel 实际无法选出兜底渠道，导致兜底永远不触发。
 		if !c.GetBool("fallback_triggered") {
-			shouldCheckFallback := !shouldRetryResult || retryParam.GetRetry() >= common.FailoverRetryTimes
+			// 硬编码故障转移阈值=2，不受系统设置影响
+			shouldCheckFallback := !shouldRetryResult || retryParam.GetRetry() >= 2
 			if shouldCheckFallback && model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
 				common.SysLog(fmt.Sprintf("兜底检查触发: retry=%d, FailoverRetryTimes=%d, shouldRetry=%v, status_code=%d, error_code=%v, 有可用兜底渠道(排除已使用)",
 					retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode()))
@@ -570,6 +573,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		model.UpdateChannelCallCount(fallbackChannel.Id, callCount)
 		c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
+		// 兜底失败也是重试过程的一部分，不记录错误日志
+		c.Set("is_retry_attempt", true)
 		processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), newAPIError, relayInfo)
 		// handler 已实际调用上游，不能 continue 尝试其他兜底渠道，break 退出走错误处理
 		break
@@ -585,6 +590,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
+		// 最终失败：清除重试标志，记录一条最终错误日志（避免重试过程中的中间错误污染错误率）
+		c.Set("is_retry_attempt", false)
+		if selectedChannel != nil && constant.ErrorLogEnabled && types.IsRecordErrorLog(newAPIError) {
+			processChannelError(c, *types.NewChannelError(selectedChannel.Id, selectedChannel.Type, selectedChannel.Name, selectedChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), selectedChannel.GetAutoBan()), newAPIError, relayInfo)
+		}
 		// Only return "hard inference failed" for requests that went through the queue
 		// AND exhausted all retries. Normal (non-queued) failures preserve their original error.
 		if wasQueued && newAPIError.GetErrorCode() != types.ErrorCodeRpmQueueTimeout {
@@ -1039,7 +1049,7 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	// 兜底模型逻辑：最后一次重试或 shouldRetry 返回 false 但有兜底渠道时触发（仅触发一次）
-	if !c.GetBool("fallback_triggered") && (c.GetBool("fallback_force_next") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= common.FailoverRetryTimes)) {
+	if !c.GetBool("fallback_triggered") && (c.GetBool("fallback_force_next") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= 2)) {
 		fallbackChannels := model.GetFallbackChannels()
 		// 排除已使用的渠道
 		availableFallback := make([]*model.Channel, 0, len(fallbackChannels))
@@ -1282,7 +1292,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		}
 	}
 
-	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
+	// 重试过程中的错误不记录错误日志，避免兜底成功后仍残留错误日志影响错误率
+	// 最终失败时会清除 is_retry_attempt 标志后记录一条错误日志
+	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) && !c.GetBool("is_retry_attempt") {
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
 		tokenName := c.GetString("token_name")
