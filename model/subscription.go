@@ -1363,3 +1363,74 @@ func ReduceSubscriptionDays(tx *gorm.DB, subscriptionId, userId int, days int) (
 	}
 	return newEndTime, nil
 }
+
+// PostponeUserSubscriptions postpones all active subscriptions of a user by the given number of days.
+// It extends end_time, next_reset_time and weekly_period_end by days*86400 seconds.
+// Returns the number of affected subscriptions.
+func PostponeUserSubscriptions(userId int, days int) (int, error) {
+	if userId <= 0 {
+		return 0, errors.New("invalid userId")
+	}
+	if days <= 0 {
+		return 0, errors.New("days must be > 0")
+	}
+	postponeSeconds := int64(days) * 86400
+	affected := 0
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// Lock active subscriptions for this user (FOR UPDATE)
+		var subs []UserSubscription
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Where("user_id = ? AND status = ?", userId, "active").
+			Find(&subs).Error; err != nil {
+			return err
+		}
+		if len(subs) == 0 {
+			return nil
+		}
+		now := common.GetTimestamp()
+		result := tx.Model(&UserSubscription{}).
+			Where("user_id = ? AND status = ?", userId, "active").
+			Updates(map[string]interface{}{
+				"end_time":            gorm.Expr("end_time + ?", postponeSeconds),
+				"next_reset_time":     gorm.Expr("next_reset_time + ?", postponeSeconds),
+				"weekly_period_start": gorm.Expr("weekly_period_start + ?", postponeSeconds),
+				"weekly_period_end":   gorm.Expr("weekly_period_end + ?", postponeSeconds),
+				"updated_at":          now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		affected = int(result.RowsAffected)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+// PostponeSubscriptionsForUsers postpones subscriptions for multiple users.
+// Each user is handled in its own transaction so a single failure does not roll back others.
+// Returns a map of userId -> affected subscription count (0 means no active subscription or error).
+func PostponeSubscriptionsForUsers(userIds []int, days int) (map[int]int, error) {
+	results := make(map[int]int, len(userIds))
+	if len(userIds) == 0 {
+		return results, errors.New("no user ids provided")
+	}
+	if days <= 0 {
+		return results, errors.New("days must be > 0")
+	}
+	for _, userId := range userIds {
+		if userId <= 0 {
+			results[userId] = 0
+			continue
+		}
+		count, err := PostponeUserSubscriptions(userId, days)
+		if err != nil {
+			results[userId] = 0
+			continue
+		}
+		results[userId] = count
+	}
+	return results, nil
+}

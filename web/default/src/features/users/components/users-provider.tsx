@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import React, { useState } from 'react'
+import { type RowSelectionState } from '@tanstack/react-table'
 import useDialogState from '@/hooks/use-dialog'
 import { type User, type UsersDialogType } from '../types'
 
@@ -27,6 +28,10 @@ type UsersContextType = {
   setCurrentRow: React.Dispatch<React.SetStateAction<User | null>>
   refreshTrigger: number
   triggerRefresh: () => void
+  selectedUsers: User[]
+  setSelectedUsers: React.Dispatch<React.SetStateAction<User[]>>
+  rowSelection: RowSelectionState
+  setRowSelection: React.Dispatch<React.SetStateAction<RowSelectionState>>
 }
 
 const UsersContext = React.createContext<UsersContextType | null>(null)
@@ -35,6 +40,8 @@ export function UsersProvider({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useDialogState<UsersDialogType>(null)
   const [currentRow, setCurrentRow] = useState<User | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
+  const [selectedUsers, setSelectedUsers] = useState<User[]>([])
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 
   const triggerRefresh = () => setRefreshTrigger((prev) => prev + 1)
 
@@ -47,6 +54,10 @@ export function UsersProvider({ children }: { children: React.ReactNode }) {
         setCurrentRow,
         refreshTrigger,
         triggerRefresh,
+        selectedUsers,
+        setSelectedUsers,
+        rowSelection,
+        setRowSelection,
       }}
     >
       {children}

@@ -16,18 +16,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Plus } from 'lucide-react'
+import { CalendarClock, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { useUsers } from './users-provider'
 
 export function UsersPrimaryButtons() {
   const { t } = useTranslation()
-  const { setOpen, setCurrentRow } = useUsers()
+  const { setOpen, setCurrentRow, selectedUsers } = useUsers()
 
   const handleCreate = () => {
     setCurrentRow(null)
     setOpen('create')
+  }
+
+  const handlePostpone = () => {
+    setOpen('postpone-subscription')
   }
 
   return (
@@ -35,6 +39,15 @@ export function UsersPrimaryButtons() {
       <Button size='sm' onClick={handleCreate}>
         <Plus className='h-4 w-4' />
         {t('Add User')}
+      </Button>
+      <Button
+        size='sm'
+        variant='outline'
+        onClick={handlePostpone}
+        disabled={selectedUsers.length === 0}
+      >
+        <CalendarClock className='h-4 w-4' />
+        {t('Postpone Subscriptions')}
       </Button>
     </div>
   )

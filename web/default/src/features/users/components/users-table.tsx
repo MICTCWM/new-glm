@@ -60,9 +60,9 @@ function isDisabledUserRow(user: User) {
 export function UsersTable() {
   const { t } = useTranslation()
   const columns = useUsersColumns()
-  const { refreshTrigger } = useUsers()
+  const { refreshTrigger, setSelectedUsers, rowSelection, setRowSelection } =
+    useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
-  const [rowSelection, setRowSelection] = useState({})
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
 
@@ -168,6 +168,11 @@ export function UsersTable() {
   useEffect(() => {
     ensurePageInRange(pageCount)
   }, [pageCount, ensurePageInRange])
+
+  // Sync selected rows to the provider for cross-component access (e.g. postpone dialog)
+  useEffect(() => {
+    setSelectedUsers(table.getSelectedRowModel().rows.map((r) => r.original))
+  }, [rowSelection, table, setSelectedUsers])
 
   return (
     <DataTablePage

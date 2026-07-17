@@ -416,3 +416,32 @@ func AdminDeleteUserSubscription(c *gin.Context) {
 	}
 	common.ApiSuccess(c, nil)
 }
+
+type AdminPostponeSubscriptionsRequest struct {
+	UserIds []int `json:"user_ids" binding:"required"`
+	Days    int   `json:"days" binding:"required,min=1"`
+}
+
+// AdminPostponeUserSubscriptions postpones all active subscriptions for the given users.
+func AdminPostponeUserSubscriptions(c *gin.Context) {
+	var req AdminPostponeSubscriptionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.UserIds) == 0 || req.Days <= 0 {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+	results, err := model.PostponeSubscriptionsForUsers(req.UserIds, req.Days)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	skipped := make([]int, 0)
+	for _, userId := range req.UserIds {
+		if results[userId] == 0 {
+			skipped = append(skipped, userId)
+		}
+	}
+	common.ApiSuccess(c, gin.H{
+		"results": results,
+		"skipped": skipped,
+	})
+}

@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { UsersDeleteDialog } from './components/users-delete-dialog'
 import { UsersMutateDrawer } from './components/users-mutate-drawer'
+import { UsersPostponeSubscriptionDialog } from './components/users-postpone-subscription-dialog'
 import { UsersPrimaryButtons } from './components/users-primary-buttons'
 import { UsersProvider, useUsers } from './components/users-provider'
 import { UsersTable } from './components/users-table'
@@ -49,6 +50,7 @@ function UsersContent() {
         currentRow={open === 'update' ? currentRow || undefined : undefined}
       />
       <UsersDeleteDialog />
+      <UsersPostponeSubscriptionDialog />
     </>
   )
 }

@@ -181,3 +181,23 @@ export async function adminUnbindCustomOAuth(
   )
   return res.data
 }
+
+// ============================================================================
+// Admin Subscription Postpone API
+// ============================================================================
+
+/**
+ * Postpone subscriptions for multiple users (admin)
+ */
+export async function postponeUserSubscriptions(
+  userIds: number[],
+  days: number
+): Promise<
+  ApiResponse<{ results: Record<string, number>; skipped: number[] }>
+> {
+  const res = await api.post('/api/subscription/admin/users/postpone', {
+    user_ids: userIds,
+    days,
+  })
+  return res.data
+}
