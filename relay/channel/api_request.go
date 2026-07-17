@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -483,6 +485,41 @@ func sendPingData(c *gin.Context, mutex *sync.Mutex) error {
 func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	return doRequest(c, req, info)
 }
+
+// classifyDoRequestError 对 client.Do(req) 返回的错误进行粗略分类，
+// 帮助运维快速判断 upstream error: do request failed 的根因（DNS/连接/TLS/代理/超时等）。
+func classifyDoRequestError(err error) string {
+	if err == nil {
+		return "nil"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Timeout() {
+		return "timeout"
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "dns"
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if opErr.Op == "dial" {
+			return "connection"
+		}
+		return "network"
+	}
+	errStr := strings.ToLower(err.Error())
+	if strings.Contains(errStr, "tls") || strings.Contains(errStr, "x509") {
+		return "tls"
+	}
+	if strings.Contains(errStr, "proxy") {
+		return "proxy"
+	}
+	return "unknown"
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	// 确保 upstream request 携带 request context，使 RequestMaxDuration 等超时能真正中断上游请求
 	req = req.WithContext(c.Request.Context())
@@ -520,6 +557,16 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
+		// 失败时关闭请求体，避免底层连接/Goroutine泄漏；
+		// 当前请求体由 http.NewRequest 包装为 NopCloser，不会关闭可复用的 BodyStorage。
+		_ = req.Body.Close()
+		errorCategory := classifyDoRequestError(err)
+		proxyInfo := info.ChannelSetting.Proxy
+		if proxyInfo == "" {
+			proxyInfo = "none"
+		}
+		common2.SysLog(fmt.Sprintf("upstream request failed: url=%s, category=%s, proxy=%s, err=%v",
+			req.URL.String(), errorCategory, proxyInfo, err))
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("请求超时，请稍后重试"))
 		}

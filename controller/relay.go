@@ -1277,36 +1277,47 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	}
 	// 客户端已断开连接，无需重试
 	if c.Request != nil && c.Request.Context().Err() != nil {
+		common.SysLog(fmt.Sprintf("shouldRetry=false: request context cancelled, error_code=%v", openaiErr.GetErrorCode()))
 		return false
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+		common.SysLog(fmt.Sprintf("shouldRetry=false: channel affinity failure skip, error_code=%v", openaiErr.GetErrorCode()))
 		return false
 	}
 	// 注意：retryTimes <= 0 检查必须放在 IsChannelError 之前，否则渠道错误时
 	// shouldRetry 会一直返回 true，主循环兜底检查永远不执行。
 	if retryTimes <= 0 {
+		common.SysLog(fmt.Sprintf("shouldRetry=false: no remaining retry times, status_code=%d, error_code=%v", openaiErr.StatusCode, openaiErr.GetErrorCode()))
 		return false
 	}
 	if types.IsChannelError(openaiErr) {
+		common.SysLog(fmt.Sprintf("shouldRetry=true: channel error, status_code=%d, error_code=%v", openaiErr.StatusCode, openaiErr.GetErrorCode()))
 		return true
 	}
 	if types.IsSkipRetryError(openaiErr) {
+		common.SysLog(fmt.Sprintf("shouldRetry=false: skip retry error, status_code=%d, error_code=%v", openaiErr.StatusCode, openaiErr.GetErrorCode()))
 		return false
 	}
 	if _, ok := c.Get("specific_channel_id"); ok {
+		common.SysLog(fmt.Sprintf("shouldRetry=false: specific channel id set, status_code=%d, error_code=%v", openaiErr.StatusCode, openaiErr.GetErrorCode()))
 		return false
 	}
 	code := openaiErr.StatusCode
 	if code >= 200 && code < 300 {
+		common.SysLog(fmt.Sprintf("shouldRetry=false: 2xx status code, status_code=%d, error_code=%v", openaiErr.StatusCode, openaiErr.GetErrorCode()))
 		return false
 	}
 	if code < 100 || code > 599 {
+		common.SysLog(fmt.Sprintf("shouldRetry=true: non-http status code, status_code=%d, error_code=%v", openaiErr.StatusCode, openaiErr.GetErrorCode()))
 		return true
 	}
 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
+		common.SysLog(fmt.Sprintf("shouldRetry=false: always skip retry code, status_code=%d, error_code=%v", openaiErr.StatusCode, openaiErr.GetErrorCode()))
 		return false
 	}
-	return operation_setting.ShouldRetryByStatusCode(code)
+	result := operation_setting.ShouldRetryByStatusCode(code)
+	common.SysLog(fmt.Sprintf("shouldRetry=%v: status code range check, status_code=%d, error_code=%v, retryTimes=%d", result, openaiErr.StatusCode, openaiErr.GetErrorCode(), retryTimes))
+	return result
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
