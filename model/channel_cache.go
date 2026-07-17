@@ -22,6 +22,16 @@ var channelSyncLock sync.RWMutex
 
 // GetFallbackChannels 返回所有启用兜底模式的渠道（跨分组）
 func GetFallbackChannels() []*Channel {
+	// 当内存缓存未启用时，直接走数据库回退查询，保证兜底功能可用
+	if !common.MemoryCacheEnabled {
+		channels, err := GetFallbackChannelsFromDB()
+		if err != nil {
+			common.SysError(fmt.Sprintf("GetFallbackChannels 数据库回退查询失败: %v", err))
+			return make([]*Channel, 0)
+		}
+		return channels
+	}
+
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
@@ -36,6 +46,16 @@ func GetFallbackChannels() []*Channel {
 
 // HasAvailableFallbackChannels 检查是否有可用的兜底渠道（跨分组）
 func HasAvailableFallbackChannels() bool {
+	// 当内存缓存未启用时，直接走数据库回退查询，保证兜底功能可用
+	if !common.MemoryCacheEnabled {
+		channels, err := GetFallbackChannelsFromDB()
+		if err != nil {
+			common.SysError(fmt.Sprintf("HasAvailableFallbackChannels 数据库回退查询失败: %v", err))
+			return false
+		}
+		return len(channels) > 0
+	}
+
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 	for _, ch := range fallbackChannels {
@@ -44,6 +64,44 @@ func HasAvailableFallbackChannels() bool {
 		}
 	}
 	return false
+}
+
+// HasAvailableFallbackChannelsExcludingUsed 检查是否存在尚未被使用过的可用兜底渠道。
+// 主循环兜底检查与 getChannel 兜底选择使用一致的判断口径（均排除已使用渠道），
+// 避免主循环认为有可用兜底渠道但 getChannel 实际无法选出兜底渠道的不一致问题。
+func HasAvailableFallbackChannelsExcludingUsed(usedChannelIds []int) bool {
+	channels := GetFallbackChannels()
+	for _, ch := range channels {
+		used := false
+		for _, usedId := range usedChannelIds {
+			if ch.Id == usedId {
+				used = true
+				break
+			}
+		}
+		if !used {
+			return true
+		}
+	}
+	return false
+}
+
+// GetFallbackChannelsFromDB 从数据库查询所有启用兜底模式且状态为启用的渠道。
+// 用于 MemoryCacheEnabled=false 时的兜底渠道查询回退路径。
+func GetFallbackChannelsFromDB() ([]*Channel, error) {
+	var channels []*Channel
+	if err := DB.Where("status = ?", common.ChannelStatusEnabled).Find(&channels).Error; err != nil {
+		return nil, err
+	}
+	result := make([]*Channel, 0, len(channels))
+	for _, ch := range channels {
+		// 使用纯函数 isFallbackModelEnabledSetting 替代 ch.GetSetting().FallbackModelEnabled，
+		// 避免 GetSetting() 在 JSON 反序列化失败时执行 Save() 写回 DB 引发高并发竞态写。
+		if isFallbackModelEnabledSetting(ch.Setting) {
+			result = append(result, ch)
+		}
+	}
+	return result, nil
 }
 
 // ErrAllChannelsRpmFull is returned when all matching channels have their RPM at max capacity.

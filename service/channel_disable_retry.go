@@ -69,7 +69,7 @@ func IsChannelDisableRetryRunning(channelID int) bool {
 	return state.inRetry
 }
 
-// StartRetryCheck starts the delayed disable confirmation flow (triggered by 429 or "invalid token").
+// StartRetryCheck starts the delayed disable confirmation flow (triggered by 429, 503, or "invalid token").
 // The first triggering error only schedules checks. Three delayed checks must all keep returning
 // the triggering error before the channel is auto-disabled, and duplicate schedules are ignored.
 func StartRetryCheck(channelError types.ChannelError, reason string, testFn func(channelError types.ChannelError) *types.NewAPIError) {
@@ -109,7 +109,7 @@ func StartRetryCheck(channelError types.ChannelError, reason string, testFn func
 				common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测恢复正常，无需禁用", channelError.ChannelName, channelError.ChannelId, i+1))
 				return
 			}
-			if errResult.StatusCode != 429 && errResult.StatusCode != 401 && !strings.Contains(strings.ToLower(errResult.Error()), "invalid token") {
+			if errResult.StatusCode != 429 && errResult.StatusCode != 401 && errResult.StatusCode != 503 && !strings.Contains(strings.ToLower(errResult.Error()), "invalid token") {
 				common.SysLog(fmt.Sprintf("通道「%s」（#%d）第 %d 轮检测返回非禁用触发错误（StatusCode=%d），中断检测", channelError.ChannelName, channelError.ChannelId, i+1, errResult.StatusCode))
 				return
 			}

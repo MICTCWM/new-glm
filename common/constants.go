@@ -288,6 +288,7 @@ const (
 // User-friendly error messages for API errors
 const (
 	UserMessage429               = "上游已饱和，请稍后再重试"
+	UserMessage503               = "mac超负荷运载，应该是挂了"
 	UserMessageOther             = "参数有问题，可以继续重试或等待"
 	UserMessageRpmQueue          = "请求可能较复杂已经自动路由到硬推理模型（low），时间可能较长请耐心等待"
 	UserMessageRpmFailed         = "硬推理失败，请重试"

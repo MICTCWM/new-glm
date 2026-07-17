@@ -88,6 +88,8 @@ func HardDisableChannel(channelError types.ChannelError, err *types.NewAPIError)
 	reason := model.ChannelStatusReasonRateLimit
 	if err.StatusCode == 401 {
 		reason = model.ChannelStatusReasonAuthError
+	} else if err.StatusCode == 503 {
+		reason = model.ChannelStatusReasonServiceUnavailable
 	}
 	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason)
 	if success {
@@ -101,8 +103,8 @@ func ShouldDelayDisableChannel(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
-	// 401/429/invalid token 都走延迟禁用复测
-	return err.StatusCode == 401 || is429OrInvalidTokenError(err)
+	// 401/429/503/invalid token 都走延迟禁用复测
+	return err.StatusCode == 401 || err.StatusCode == 503 || is429OrInvalidTokenError(err)
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {

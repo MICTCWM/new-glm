@@ -421,9 +421,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		if !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
 			// 检查是否可以走兜底：还没触发过兜底，且重试次数已达到故障转移阈值，且有可用的兜底渠道
-			if !c.GetBool("fallback_triggered") && retryParam.GetRetry() >= common.FailoverRetryTimes && model.HasAvailableFallbackChannels() {
-				c.Set("fallback_force_next", true)
-				continue
+			// 注意：必须排除已使用渠道，与 getChannel 内部的 availableFallback 判断口径保持一致（根因5），
+			// 否则主循环认为有可用兜底渠道，但 getChannel 实际无法选出兜底渠道，导致兜底永远不触发。
+			if !c.GetBool("fallback_triggered") && retryParam.GetRetry() >= common.FailoverRetryTimes {
+				if model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+					common.SysLog(fmt.Sprintf("兜底检查触发: retry=%d, FailoverRetryTimes=%d, 有可用兜底渠道(排除已使用)", retryParam.GetRetry(), common.FailoverRetryTimes))
+					c.Set("fallback_force_next", true)
+					// 根因4（方案A）：重置 retry 为 maxRetryTimes-1，使 IncreaseRetry 后 retry=maxRetryTimes，
+					// 循环条件 retry<=maxRetryTimes 成立，继续执行 getChannel 触发兜底。
+					// 避免直接 continue 导致 IncreaseRetry 后 retry=maxRetryTimes+1 退出循环、getChannel 永不被调用。
+					retryParam.SetRetry(maxRetryTimes - 1)
+					continue
+				}
+				common.SysLog(fmt.Sprintf("兜底未触发: 无可用兜底渠道(排除已使用), retry=%d, FailoverRetryTimes=%d, used_channel_ids=%v", retryParam.GetRetry(), common.FailoverRetryTimes, retryParam.UsedChannelIds))
 			}
 			break
 		}
@@ -441,6 +451,75 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				retryDelays = append(retryDelays, int(delay.Seconds()))
 				relay.WaitBeforeRetry(c, relayInfo, delay, currentRetry, "Relay retry")
 			}
+		}
+	}
+
+	// 根因3：主循环退出后兜底检查
+	// 处理 break 退出（如所有正常渠道用完、getChannel 返回错误）导致 fallback_triggered=false 的情况。
+	// 循环内根因4 已处理 retry=maxRetryTimes 且 shouldRetry=false 的兜底触发路径，
+	// 但 break 退出场景下兜底永远不会被检查。这里补一次兜底执行（仅触发一次，不重试）。
+	if !c.GetBool("fallback_triggered") && retryParam.GetRetry() >= common.FailoverRetryTimes &&
+		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+		common.SysLog(fmt.Sprintf("主循环退出后兜底检查触发: retry=%d, FailoverRetryTimes=%d, 有可用兜底渠道(排除已使用)", retryParam.GetRetry(), common.FailoverRetryTimes))
+		c.Set("fallback_force_next", true)
+		fallbackChannel, fallbackErr := getChannel(c, relayInfo, retryParam)
+		if fallbackErr == nil && fallbackChannel != nil {
+			// RPM tracker 资源管理（与循环内逻辑保持一致，defer 会统一释放 acquiredTrackers）
+			// 若兜底渠道 RPM 已满，则不执行 handler，直接走原有错误处理
+			rpmAcquired := true
+			if fallbackChannel.MaxRPM > 0 {
+				tracker := service.GetRpmTracker(fallbackChannel.Id, fallbackChannel.MaxRPM)
+				if tracker.TryIncrement() {
+					selectedChannel = fallbackChannel
+					acquiredTrackers = append(acquiredTrackers, tracker)
+				} else {
+					rpmAcquired = false
+					common.SysLog(fmt.Sprintf("主循环退出后兜底渠道 RPM 已满: fallback_channel_id=%d", fallbackChannel.Id))
+				}
+			}
+			if rpmAcquired {
+				addUsedChannel(c, fallbackChannel)
+				retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, fallbackChannel.Id)
+				// 与循环内 313 行写法保持一致，确保上游请求的 is_retry 标记准确
+				relayInfo.RetryIndex = retryParam.GetRetry()
+				bodyStorage, bodyErr := common.GetBodyStorage(c)
+				if bodyErr == nil {
+					c.Request.Body = io.NopCloser(bodyStorage)
+					switch relayFormat {
+					case types.RelayFormatOpenAIRealtime:
+						newAPIError = relay.WssHelper(c, relayInfo)
+					case types.RelayFormatClaude:
+						newAPIError = relay.ClaudeHelper(c, relayInfo)
+					case types.RelayFormatGemini:
+						newAPIError = geminiRelayHandler(c, relayInfo)
+					default:
+						newAPIError = relayHandler(c, relayInfo)
+					}
+					if newAPIError == nil {
+						relayInfo.LastError = nil
+						if len(retryDelays) > 0 {
+							c.Set("retry_delays", retryDelays)
+						}
+						return
+					}
+					// 兜底 handler 执行失败，更新错误状态并走原有错误处理
+					relayInfo.LastError = newAPIError
+					// 与循环内 411-420 行写法保持一致：扣减渠道配额、记录错误日志字段、走渠道错误处理流程
+					// 渠道已被上游实际调用但请求失败，扣减渠道配额（重试失败补偿，避免配额漏扣）
+					callCount := 1
+					if relayInfo.UpstreamRetryCount > 0 {
+						callCount = relayInfo.UpstreamRetryCount + 1
+					}
+					model.UpdateChannelCallCount(fallbackChannel.Id, callCount)
+					c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
+					processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), newAPIError, relayInfo)
+				} else {
+					// bodyStorage 读取失败时记录日志，避免静默跳过
+					common.SysLog(fmt.Sprintf("主循环退出后兜底 bodyStorage 读取失败: fallback_channel_id=%d, err=%v", fallbackChannel.Id, bodyErr))
+				}
+			}
+		} else if fallbackErr != nil {
+			common.SysLog(fmt.Sprintf("主循环退出后兜底 getChannel 失败: %v", fallbackErr.Error()))
 		}
 	}
 
@@ -930,6 +1009,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			c.Set("fallback_triggered", true)
 			c.Set("fallback_used", true)
 			c.Set("fallback_channel_id", fallbackChannel.Id)
+			common.SysLog(fmt.Sprintf("兜底被触发: fallback_channel_id=%d, retry=%d, 可用兜底渠道数=%d, used_channel_ids=%v", fallbackChannel.Id, retryParam.GetRetry(), len(availableFallback), retryParam.UsedChannelIds))
 			newAPIError := middleware.SetupContextForSelectedChannel(c, fallbackChannel, info.OriginModelName)
 			if newAPIError != nil {
 				return nil, newAPIError
@@ -949,6 +1029,15 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 			return fallbackChannel, nil
 		}
+		// 区分两种情况：无兜底渠道配置 vs 兜底渠道已全部使用
+		if len(fallbackChannels) == 0 {
+			common.SysLog(fmt.Sprintf("兜底未触发: 无兜底渠道配置, retry=%d, used_channel_ids=%v", retryParam.GetRetry(), retryParam.UsedChannelIds))
+		} else {
+			// 兜底渠道存在但全部已被使用过，无法选出可用兜底渠道
+			common.SysLog(fmt.Sprintf("兜底未触发: 兜底渠道已全部使用, retry=%d, fallback_channels=%d, used_channel_ids=%v", retryParam.GetRetry(), len(fallbackChannels), retryParam.UsedChannelIds))
+		}
+		// 清理 fallback_force_next 标志，避免下次调用 getChannel 重复进入兜底逻辑分支
+		c.Set("fallback_force_next", false)
 	}
 
 	if info.ChannelMeta == nil {
@@ -1082,13 +1171,15 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
+	// 注意：retryTimes <= 0 检查必须放在 IsChannelError 之前，否则渠道错误时
+	// shouldRetry 会一直返回 true，主循环兜底检查永远不执行。
+	if retryTimes <= 0 {
+		return false
+	}
 	if types.IsChannelError(openaiErr) {
 		return true
 	}
 	if types.IsSkipRetryError(openaiErr) {
-		return false
-	}
-	if retryTimes <= 0 {
 		return false
 	}
 	if _, ok := c.Get("specific_channel_id"); ok {
@@ -1113,7 +1204,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 
 	if channelError.AutoBan {
-		// 401/429/invalid token 错误先经过 3 轮复测确认，全部失败才禁用
+		// 401/429/503/invalid token 错误先经过 3 轮复测确认，全部失败才禁用
 		if service.ShouldDelayDisableChannel(err) {
 			service.StartRetryCheck(channelError, err.ErrorWithStatusCode(), nil)
 		} else if service.ShouldDisableChannel(err) {

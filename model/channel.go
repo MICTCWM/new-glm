@@ -22,6 +22,7 @@ import (
 const ChannelStatusReasonQuotaExhausted = "quota_exhausted"
 const ChannelStatusReasonAuthError = "401"
 const ChannelStatusReasonRateLimit = "429"
+const ChannelStatusReasonServiceUnavailable = "503"
 
 type Channel struct {
 	Id                 int     `json:"id"`
@@ -768,7 +769,8 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 func IsAutoRecoverableReason(reason string) bool {
 	return reason == ChannelStatusReasonQuotaExhausted ||
 		reason == ChannelStatusReasonAuthError ||
-		reason == ChannelStatusReasonRateLimit
+		reason == ChannelStatusReasonRateLimit ||
+		reason == ChannelStatusReasonServiceUnavailable
 }
 
 func EnableChannelByTag(tag string) error {
