@@ -401,6 +401,10 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	logContent := strings.Join(extraContent, ", ")
 	logContent = PrefixBillingLogContent(relayInfo.BillingSource, logContent)
+	// 兜底请求在日志 content 前标注"自动错误转移"，便于用户识别
+	if ctx.GetBool("fallback_used") {
+		logContent = "自动错误转移，" + logContent
+	}
 	var other map[string]interface{}
 	if summary.IsClaudeUsageSemantic {
 		other = GenerateClaudeOtherInfo(ctx, relayInfo,
