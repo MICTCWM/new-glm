@@ -556,11 +556,21 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const useTime = row.getValue('use_time') as number
         const other = parseLogOther(log.other)
         const frt = other?.frt
+        // 流式请求：扣除首字延迟得到真实输出时间（frt 为毫秒，useTime 为秒）
+        const effectiveTime =
+          log.is_stream && frt != null && frt > 0
+            ? Math.max(useTime - frt / 1000, 0.001)
+            : useTime
         const tokensPerSecond =
-          useTime > 0 && log.completion_tokens > 0
-            ? log.completion_tokens / useTime
+          effectiveTime > 0 && log.completion_tokens > 0
+            ? log.completion_tokens / effectiveTime
             : null
-        const timeVariant = getResponseTimeColor(useTime, log.completion_tokens)
+        const timeVariant = getResponseTimeColor(
+          useTime,
+          log.completion_tokens,
+          log.is_stream,
+          frt ?? 0
+        )
         const frtVariant = frt ? getFirstResponseTimeColor(frt / 1000) : null
 
         const pillBg: Record<string, string> = {

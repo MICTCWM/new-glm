@@ -209,10 +209,15 @@ export function getThroughputColor(
  */
 export function getResponseTimeColor(
   seconds: number,
-  completionTokens: number
+  completionTokens: number,
+  isStream: boolean = false,
+  frtMs: number = 0
 ): 'success' | 'warning' | 'danger' {
   if (completionTokens < 100 || seconds <= 0) return getTimeColor(seconds)
-  return getThroughputColor(completionTokens / seconds)
+  // 流式请求：扣除首字延迟得到真实输出时间
+  const effectiveSeconds =
+    isStream && frtMs > 0 ? Math.max(seconds - frtMs / 1000, 0.001) : seconds
+  return getThroughputColor(completionTokens / effectiveSeconds)
 }
 
 /**
