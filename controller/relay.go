@@ -292,6 +292,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	queueDeadline := time.Time{}
 	queueNoticeSent := false
 	runtimeRpmFull := false
+	var firstSpecificError *types.NewAPIError // 第一条非网络层错误（更具体的上游错误），用于最终返回时替代 do_request_failed
 
 	defer func() {
 		// Release the RPM slot and wake one queued request when a request completes.
@@ -437,6 +438,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
 		relayInfo.LastError = newAPIError
+		// 记录第一条非网络层错误，用于最终返回时替代 do_request_failed
+		if firstSpecificError == nil && newAPIError.GetErrorCode() != types.ErrorCodeDoRequestFailed {
+			firstSpecificError = newAPIError
+		}
 
 		// 渠道已被上游实际调用但请求失败，扣减渠道配额（重试失败补偿，避免配额漏扣）
 		// 使用 UpstreamRetryCount（内部重试次数）+ 本次失败 = 总调用次数
@@ -615,6 +620,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		relayInfo.LastError = newAPIError
+		// 记录第一条非网络层错误，用于最终返回时替代 do_request_failed
+		if firstSpecificError == nil && newAPIError.GetErrorCode() != types.ErrorCodeDoRequestFailed {
+			firstSpecificError = newAPIError
+		}
 		// 与循环内 411-420 行写法保持一致：扣减渠道配额、记录错误日志字段、走渠道错误处理流程
 		// 渠道已被上游实际调用但请求失败，扣减渠道配额（重试失败补偿，避免配额漏扣）
 		callCount := 1
@@ -642,6 +651,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
+		// 保护：如果最终错误是网络层错误(do_request_failed)，但之前有更具体的上游错误，返回之前的错误
+		if newAPIError.GetErrorCode() == types.ErrorCodeDoRequestFailed && firstSpecificError != nil {
+			common.SysLog(fmt.Sprintf("最终错误为网络层错误，使用之前的上游错误: prev_error_code=%v", firstSpecificError.GetErrorCode()))
+			newAPIError = firstSpecificError
+		}
 		// 最终失败：清除重试标志，记录一条最终错误日志（避免重试过程中的中间错误污染错误率）
 		c.Set("is_retry_attempt", false)
 		if selectedChannel != nil && constant.ErrorLogEnabled && types.IsRecordErrorLog(newAPIError) {

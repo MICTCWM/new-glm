@@ -567,10 +567,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 		common2.SysLog(fmt.Sprintf("upstream request failed: url=%s, category=%s, proxy=%s, err=%v",
 			req.URL.String(), errorCategory, proxyInfo, err))
-		if errors.Is(err, context.DeadlineExceeded) {
+		// 根据错误分类返回更友好的提示，避免向用户暴露技术性错误信息
+		switch errorCategory {
+		case "timeout":
 			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("请求超时，请稍后重试"))
+		default:
+			return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("上游服务连接失败，请稍后重试"))
 		}
-		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {
 		return nil, errors.New("resp is nil")
