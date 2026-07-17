@@ -115,6 +115,7 @@ export interface LogOtherData {
     fallback_used?: boolean
     fallback_channel_id?: number
     fallback_model?: string
+    fallback_retry_count?: number
     // Error detail (admin only)
     detail_error?: string
   }

@@ -4672,6 +4672,7 @@
     "Subscription Remaining (Short to Long)": "订阅剩余（少→多）",
     "Fallback Mode": "兜底模式",
     "Fallback Model": "兜底模型",
+    "Fallback Retry Count": "兜底重试次数",
     "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza.": "开启后，此渠道仅作为兜底使用。当其他渠道重试均失败后会切换到该渠道，其模型不会在模型广场展示。",
     "Renew Potential Pass Score": "潜力合格分数线",
     "Minimum score for a user to be considered a high-renewal-potential user (0-100)": "用户被视为高续费潜力的最低分数（0-100）",

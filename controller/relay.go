@@ -382,6 +382,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			acquiredTrackers = append(acquiredTrackers, tracker)
 		}
 
+		if c.GetBool("fallback_triggered") {
+			if channel.MaxRPM > 0 && len(acquiredTrackers) > 0 {
+				tracker := acquiredTrackers[len(acquiredTrackers)-1]
+				tracker.Decrement()
+				acquiredTrackers = acquiredTrackers[:len(acquiredTrackers)-1]
+				selectedChannel = nil
+			}
+			c.Set("fallback_triggered", false)
+			c.Set("fallback_used", false)
+			common.SysLog(fmt.Sprintf("主循环内选中兜底渠道，转交循环外兜底检查处理: fallback_channel_id=%d", channel.Id))
+			break
+		}
 		addUsedChannel(c, channel)
 		// 将当前渠道ID添加到已使用列表，以便下次重试时排除
 		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
@@ -539,7 +551,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// 兜底渠道内部重试：每渠道最多 3 次请求（1次初始 + 2次重试）
 		const fallbackMaxRetries = 2
 		fallbackSuccess := false
-		for fallbackAttempt := 0; fallbackAttempt <= fallbackMaxRetries; fallbackAttempt++ {
+		fallbackAttempt := 0
+		for ; fallbackAttempt <= fallbackMaxRetries; fallbackAttempt++ {
 			if fallbackAttempt > 0 {
 				common.SysLog(fmt.Sprintf("兜底渠道内部重试: fallback_channel_id=%d, attempt=%d/%d", fallbackChannel.Id, fallbackAttempt, fallbackMaxRetries))
 			}
@@ -575,6 +588,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		if fallbackSuccess {
 			relayInfo.LastError = nil
+			c.Set("fallback_retry_count", fallbackAttempt)
 			if len(retryDelays) > 0 {
 				c.Set("retry_delays", retryDelays)
 			}

@@ -1074,16 +1074,23 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 icon={<LifeBuoy className='size-3.5' aria-hidden='true' />}
                 label={t('Fallback Model Used')}
               >
-                <div className='space-y-1'>
-                  <p className='text-xs'>
-                    {t('Channel')} #{other.admin_info.fallback_channel_id}
-                  </p>
-                  {other.admin_info.fallback_model && (
-                    <p className='text-xs'>
-                      {t('Fallback Model')}: {other.admin_info.fallback_model}
-                    </p>
-                  )}
-                </div>
+                <DetailRow
+                  label={t('Channel')}
+                  value={`#${other.admin_info.fallback_channel_id}`}
+                  mono
+                />
+                {other.admin_info.fallback_model && (
+                  <DetailRow
+                    label={t('Fallback Model')}
+                    value={other.admin_info.fallback_model}
+                  />
+                )}
+                {other.admin_info.fallback_retry_count && other.admin_info.fallback_retry_count > 0 && (
+                  <DetailRow
+                    label={t('Fallback Retry Count')}
+                    value={`${other.admin_info.fallback_retry_count} ${t('times')}`}
+                  />
+                )}
               </DetailSection>
             )}
 

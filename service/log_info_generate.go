@@ -78,6 +78,10 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 		if fallbackModel := ctx.GetString("fallback_model"); fallbackModel != "" {
 			adminInfo["fallback_model"] = fallbackModel
 		}
+		fallbackRetryCount := ctx.GetInt("fallback_retry_count")
+		if fallbackRetryCount > 0 {
+			adminInfo["fallback_retry_count"] = fallbackRetryCount
+		}
 	}
 
 	// 应急预案渠道标记（管理员可见）
