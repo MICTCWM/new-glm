@@ -37,6 +37,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const HiddenUpstreamModelID = "gpt-5.4-mini"
+
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	switch info.RelayMode {
@@ -113,6 +115,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
 			// 使用用户友好的错误消息返回给客户端
 			userFriendlyMsg := newAPIError.GetUserFriendlyMessage()
+			// 如果错误信息中包含上游内部模型 ID，则替换为用户实际请求的原始模型名
+			if relayInfo != nil && relayInfo.OriginModelName != "" {
+				userFriendlyMsg = strings.ReplaceAll(userFriendlyMsg, HiddenUpstreamModelID, relayInfo.OriginModelName)
+			}
 			// 请求总超时触发时返回友好提示（GetUserFriendlyMessage 不特判此错误码，需在此覆盖）
 			if errors.Is(newAPIError.Err, context.DeadlineExceeded) {
 				userFriendlyMsg = "请求超时，请稍后重试"
