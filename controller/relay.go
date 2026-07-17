@@ -424,15 +424,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		common.SysLog(fmt.Sprintf("重试迭代失败: retry=%d, shouldRetry=%v, status_code=%d, error_code=%v, FailoverRetryTimes=%d, maxRetryTimes=%d, used_channel_ids=%v",
 			retryParam.GetRetry(), shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode(), common.FailoverRetryTimes, maxRetryTimes, retryParam.UsedChannelIds))
 
-		// 兜底检查：retry >= FailoverRetryTimes 时，无论 shouldRetry 返回什么，都检查并触发兜底
-		// 修复缺陷1：原代码 shouldRetry=false 时兜底检查在 if !shouldRetry 块内，受 retry>=FailoverRetryTimes 限制，
+		// 兜底检查：shouldRetry=false 或 retry >= FailoverRetryTimes 时检查并触发兜底
+		// 修复缺陷1：原代码 shouldRetry=false 时兜底检查受 retry>=FailoverRetryTimes 限制，
 		//           但 shouldRetry=false 时往往 retry=0，条件不满足直接 break，导致 400 等错误无法触发兜底。
 		// 修复缺陷2：原代码 shouldRetry=true 时整个兜底检查块被跳过，即使 retry>=FailoverRetryTimes 也无法触发兜底。
-		// 修复方案：将兜底检查从 if !shouldRetry 块内移出，放在 shouldRetry 检查之前，每次迭代失败后都检查。
+		// 修复方案：
+		//   - shouldRetry=false：立即检查兜底（否则循环 break，兜底永远不触发）
+		//   - shouldRetry=true：retry >= FailoverRetryTimes 时触发兜底（达到故障转移阈值）
 		// 注意：必须排除已使用渠道，与 getChannel 内部的 availableFallback 判断口径保持一致（根因5），
 		// 否则主循环认为有可用兜底渠道，但 getChannel 实际无法选出兜底渠道，导致兜底永远不触发。
-		if !c.GetBool("fallback_triggered") && retryParam.GetRetry() >= common.FailoverRetryTimes {
-			if model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+		if !c.GetBool("fallback_triggered") {
+			shouldCheckFallback := !shouldRetryResult || retryParam.GetRetry() >= common.FailoverRetryTimes
+			if shouldCheckFallback && model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
 				common.SysLog(fmt.Sprintf("兜底检查触发: retry=%d, FailoverRetryTimes=%d, shouldRetry=%v, status_code=%d, error_code=%v, 有可用兜底渠道(排除已使用)",
 					retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode()))
 				c.Set("fallback_force_next", true)
@@ -442,13 +445,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				retryParam.SetRetry(maxRetryTimes - 1)
 				continue
 			}
-			common.SysLog(fmt.Sprintf("兜底未触发: 无可用兜底渠道(排除已用), retry=%d, FailoverRetryTimes=%d, shouldRetry=%v, used_channel_ids=%v",
-				retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, retryParam.UsedChannelIds))
-		} else if c.GetBool("fallback_triggered") {
-			common.SysLog(fmt.Sprintf("兜底未触发: 已触发过兜底, retry=%d, shouldRetry=%v", retryParam.GetRetry(), shouldRetryResult))
+			if !shouldCheckFallback {
+				common.SysLog(fmt.Sprintf("兜底未触发: retry(%d) < FailoverRetryTimes(%d) 且 shouldRetry=%v, status_code=%d, error_code=%v",
+					retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode()))
+			} else {
+				common.SysLog(fmt.Sprintf("兜底未触发: 无可用兜底渠道(排除已用), retry=%d, FailoverRetryTimes=%d, shouldRetry=%v, used_channel_ids=%v",
+					retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, retryParam.UsedChannelIds))
+			}
 		} else {
-			common.SysLog(fmt.Sprintf("兜底未触发: retry(%d) < FailoverRetryTimes(%d), shouldRetry=%v, status_code=%d, error_code=%v",
-				retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode()))
+			common.SysLog(fmt.Sprintf("兜底未触发: 已触发过兜底, retry=%d, shouldRetry=%v", retryParam.GetRetry(), shouldRetryResult))
 		}
 
 		if !shouldRetryResult {
@@ -472,10 +477,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	// 根因3：主循环退出后兜底检查
-	// 处理 break 退出（如所有正常渠道用完、getChannel 返回错误）导致 fallback_triggered=false 的情况。
-	// 循环内根因4 已处理 retry=maxRetryTimes 且 shouldRetry=false 的兜底触发路径，
-	// 但 break 退出场景下兜底永远不会被检查。这里补一次兜底执行（仅触发一次，不重试）。
-	if !c.GetBool("fallback_triggered") && retryParam.GetRetry() >= common.FailoverRetryTimes &&
+	// 处理 break 退出（如所有正常渠道用完、getChannel 返回错误、shouldRetry=false）导致 fallback_triggered=false 的情况。
+	// 循环内已处理 shouldRetry=false 时立即检查兜底的路径，但 break 退出场景下兜底可能仍未触发
+	// （如 getChannel 返回错误时 retry=0 < FailoverRetryTimes，循环内条件不满足但循环外应补救）。
+	// 这里补一次兜底执行（仅触发一次，不重试），去掉 retry>=FailoverRetryTimes 限制，
+	// 因为 break 退出时 retry 可能很小（如首次 getChannel 错误）。
+	if !c.GetBool("fallback_triggered") &&
 		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
 		common.SysLog(fmt.Sprintf("主循环退出后兜底检查触发: retry=%d, FailoverRetryTimes=%d, 有可用兜底渠道(排除已使用)", retryParam.GetRetry(), common.FailoverRetryTimes))
 		c.Set("fallback_force_next", true)
@@ -1042,6 +1049,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 				// 清除 model_mapping，防止 ModelMappedHelper 覆盖兜底模型名（兜底模型名优先级最高）
 				c.Set("model_mapping", "")
 				c.Set("fallback_model", fallbackModel)
+				// 修复计费：用兜底模型名重新计算 PriceData 的各项倍率（ModelRatio/CompletionRatio 等），
+				// 否则兜底模型会按原模型计费（PriceData 在主循环前已按 OriginModelName 计算）。
+				// 注意：preConsumedQuota 不重算（预扣费已按原模型完成），最终结算会用新倍率。
+				helper.RecalcPriceDataForFallbackModel(info, fallbackModel)
 			}
 			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 			return fallbackChannel, nil
