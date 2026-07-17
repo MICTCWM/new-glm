@@ -152,8 +152,8 @@ func (e *NewAPIError) ErrorWithStatusCode() string {
 }
 
 // GetUserFriendlyMessage returns a user-friendly error message based on the status code.
-// For 429 errors, it returns a message about upstream saturation.
-// For other errors, it returns a generic parameter error message.
+// For 429 errors, it returns a message about upstream saturation (parameter override).
+// For all other errors, it returns the real error message so users can see what actually went wrong.
 func (e *NewAPIError) GetUserFriendlyMessage() string {
 	if e == nil {
 		return ""
@@ -169,6 +169,10 @@ func (e *NewAPIError) GetUserFriendlyMessage() string {
 	}
 	if e.StatusCode == 429 {
 		return common.UserMessage429
+	}
+	// 对于 429 以外的所有错误码，返回真实错误信息（敏感信息会被脱敏）
+	if e.Err != nil {
+		return common.MaskSensitiveInfo(e.Err.Error())
 	}
 	return common.UserMessageOther
 }
