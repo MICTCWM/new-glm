@@ -4456,6 +4456,8 @@
     "operation and charging behavior": "operation and charging behavior",
     "，": ", ",
     "，and ": ", and ",
-    "、": ", "
+    "、": ", ",
+    "Support Fallback": "Поддержка резервирования",
+    "When enabled, requests on this channel that fail will be automatically transferred to fallback channels. When disabled, failures on this channel will return errors directly without fallback transfer.": "Если включено, неудачные запросы на этом канале будут автоматически перенаправлены на резервные каналы. Если отключено, ошибки на этом канале будут возвращаться напрямую без резервного перенаправления."
   }
 }

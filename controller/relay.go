@@ -477,8 +477,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// 注意：必须排除已使用渠道，与 getChannel 内部的 availableFallback 判断口径保持一致（根因5），
 		// 否则主循环认为有可用兜底渠道，但 getChannel 实际无法选出兜底渠道，导致兜底永远不触发。
 		if !c.GetBool("fallback_triggered") {
-			// 硬编码故障转移阈值=2，不受系统设置影响
-			shouldCheckFallback := !shouldRetryResult || retryParam.GetRetry() >= 2
+			// 记录当前失败源渠道是否支持错误转移，供 getChannel 和主循环退出后兜底检查使用
+			sourceSupportsFallback := channel.IsSupportFallback()
+			c.Set("source_channel_supports_fallback", sourceSupportsFallback)
+			// 只有当源渠道支持错误转移时，才检查兜底触发条件
+			shouldCheckFallback := sourceSupportsFallback && (!shouldRetryResult || retryParam.GetRetry() >= 2)
 			if shouldCheckFallback && model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
 				common.SysLog(fmt.Sprintf("兜底检查触发: retry=%d, FailoverRetryTimes=%d, shouldRetry=%v, status_code=%d, error_code=%v, 有可用兜底渠道(排除已使用)",
 					retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode()))
@@ -489,7 +492,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				retryParam.SetRetry(maxRetryTimes - 1)
 				continue
 			}
-			if !shouldCheckFallback {
+			if !sourceSupportsFallback {
+				common.SysLog(fmt.Sprintf("兜底未触发: 当前源渠道 %d 未开启错误转移支持, retry=%d, shouldRetry=%v, status_code=%d",
+					channel.Id, retryParam.GetRetry(), shouldRetryResult, newAPIError.StatusCode))
+			} else if !shouldCheckFallback {
 				common.SysLog(fmt.Sprintf("兜底未触发: retry(%d) < FailoverRetryTimes(%d) 且 shouldRetry=%v, status_code=%d, error_code=%v",
 					retryParam.GetRetry(), common.FailoverRetryTimes, shouldRetryResult, newAPIError.StatusCode, newAPIError.GetErrorCode()))
 			} else {
@@ -527,7 +533,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// 这里补一次兜底执行（去掉 retry>=FailoverRetryTimes 限制，因为 break 退出时 retry 可能很小）。
 	// 使用 for 循环：依次尝试所有未使用的兜底渠道，每个渠道内部最多重试 fallbackMaxRetries 次。
 	// 每次失败的兜底渠道都加入 UsedChannelIds，HasAvailableFallbackChannelsExcludingUsed 最终返回 false，不会死循环。
-	for model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+	for c.GetBool("source_channel_supports_fallback") && model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
 		common.SysLog(fmt.Sprintf("主循环退出后兜底检查: retry=%d, 剩余可用兜底渠道(排除已使用)", retryParam.GetRetry()))
 		c.Set("fallback_force_next", true)
 		fallbackChannel, fallbackErr := getChannel(c, relayInfo, retryParam)
@@ -1121,7 +1127,7 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	// 兜底模型逻辑：最后一次重试或 shouldRetry 返回 false 但有兜底渠道时触发（仅触发一次）
-	if !c.GetBool("fallback_triggered") && (c.GetBool("fallback_force_next") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= 2)) {
+	if !c.GetBool("fallback_triggered") && c.GetBool("source_channel_supports_fallback") && (c.GetBool("fallback_force_next") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= 2)) {
 		fallbackChannels := model.GetFallbackChannels()
 		// 排除已使用的渠道
 		availableFallback := make([]*model.Channel, 0, len(fallbackChannels))
@@ -1640,6 +1646,8 @@ func RelayTask(c *gin.Context) {
 				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
 					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
 				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode), relayInfo)
+			// 记录当前失败源渠道是否支持错误转移，供 getChannel 兜底分支判断使用（与主 relay 路径保持一致）
+			c.Set("source_channel_supports_fallback", channel.IsSupportFallback())
 		}
 
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {

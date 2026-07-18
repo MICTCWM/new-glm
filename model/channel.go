@@ -1053,6 +1053,13 @@ func (channel *Channel) IsEmergencyPlanEnabled() bool {
 	return channel.GetSetting().EmergencyPlanEnabled
 }
 
+func (channel *Channel) IsSupportFallback() bool {
+	if channel == nil {
+		return false
+	}
+	return isSupportFallbackSetting(channel.Setting)
+}
+
 func (channel *Channel) SetSetting(setting dto.ChannelSettings) {
 	settingBytes, err := common.Marshal(setting)
 	if err != nil {

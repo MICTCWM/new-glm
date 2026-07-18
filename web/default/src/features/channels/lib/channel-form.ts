@@ -67,6 +67,7 @@ export const channelFormSchema = z.object({
   emergency_plan_enabled: z.boolean().optional(),
   fallback_model_enabled: z.boolean().optional(),
   fallback_model: z.string().optional(),
+  support_fallback: z.boolean().optional(),
   // Type-specific settings (stored in settings JSON)
   is_enterprise_account: z.boolean().optional(), // OpenRouter specific
   vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -137,6 +138,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   emergency_plan_enabled: false,
   fallback_model_enabled: false,
   fallback_model: '',
+  support_fallback: false,
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -183,6 +185,7 @@ export function transformChannelToFormDefaults(
     emergency_plan_enabled: false,
     fallback_model_enabled: false,
     fallback_model: '',
+    support_fallback: false,
   }
 
   if (channel.setting) {
@@ -205,6 +208,7 @@ export function transformChannelToFormDefaults(
         emergency_plan_enabled: parsed.emergency_plan_enabled === true,
         fallback_model_enabled: parsed.fallback_model_enabled === true,
         fallback_model: parsed.fallback_model || '',
+        support_fallback: parsed.support_fallback === true,
       }
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -330,6 +334,7 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     emergency_plan_enabled: formData.emergency_plan_enabled === true,
     fallback_model_enabled: formData.fallback_model_enabled === true,
     fallback_model: formData.fallback_model || '',
+    support_fallback: formData.support_fallback === true,
   }
   return JSON.stringify(settingObj)
 }

@@ -4456,6 +4456,8 @@
     "operation and charging behavior": "operation and charging behavior",
     "，": ", ",
     "，and ": ", and ",
-    "、": ", "
+    "、": ", ",
+    "Support Fallback": "フォールバックサポート",
+    "When enabled, requests on this channel that fail will be automatically transferred to fallback channels. When disabled, failures on this channel will return errors directly without fallback transfer.": "有効にすると、このチャネルで失敗したリクエストは自動的にフォールバックチャネルに転送されます。無効の場合、このチャネルでの失敗はエラーを直接返し、転送されません。"
   }
 }

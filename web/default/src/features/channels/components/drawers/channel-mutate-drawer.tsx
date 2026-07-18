@@ -255,6 +255,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
   values.claude_beta_query ||
   values.emergency_plan_enabled ||
   values.fallback_model_enabled ||
+  values.support_fallback ||
   values.upstream_model_update_check_enabled ||
   values.upstream_model_update_auto_sync_enabled ||
   values.upstream_model_update_ignored_models?.trim()
@@ -3789,6 +3790,35 @@ export function ChannelMutateDrawer({
                           <FormDescription>
                             {t(
                               'Hide this channel from public model lists and let it take priority when the matching model is requested. New emergency plan channels are saved disabled by default.'
+                            )}
+                          </FormDescription>
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* ── Support Fallback ── */}
+              <div className='flex flex-col gap-4 border-b px-4 py-4'>
+                <FormField
+                  control={form.control}
+                  name='support_fallback'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between gap-4'>
+                      <div className='flex items-start gap-2'>
+                        <Route className='text-muted-foreground mt-0.5 size-4' />
+                        <div className='flex flex-col gap-1'>
+                          <FormLabel>{t('Support Fallback')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'When enabled, requests on this channel that fail will be automatically transferred to fallback channels. When disabled, failures on this channel will return errors directly without fallback transfer.'
                             )}
                           </FormDescription>
                         </div>

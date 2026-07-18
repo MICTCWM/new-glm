@@ -4682,6 +4682,8 @@
     "Fallback Model": "兜底模型",
     "Fallback Retry Count": "兜底重试次数",
     "When enabled, this channel is only used as a fallback. It will be switched to when all other channels fail after retries, and its models will not be shown in the model plaza.": "开启后，此渠道仅作为兜底使用。当其他渠道重试均失败后会切换到该渠道，其模型不会在模型广场展示。",
+    "Support Fallback": "支持错误转移",
+    "When enabled, requests on this channel that fail will be automatically transferred to fallback channels. When disabled, failures on this channel will return errors directly without fallback transfer.": "开启后，该渠道请求失败时会自动转移到兜底渠道；关闭后，该渠道失败直接返回错误，不进行转移。",
     "Renew Potential Pass Score": "潜力合格分数线",
     "Minimum score for a user to be considered a high-renewal-potential user (0-100)": "用户被视为高续费潜力的最低分数（0-100）",
     "Low Quota Alert Percent": "低额度预警百分比",
