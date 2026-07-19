@@ -9,29 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestShouldChatCompletionsUseResponsesForChannelAutoDetectsCodex(t *testing.T) {
-	got := ShouldChatCompletionsUseResponsesForChannel(
-		dto.ChannelSettings{UpstreamProtocol: "chat"},
-		123,
-		constant.ChannelTypeCodex,
-		"gpt-5",
-	)
-	require.True(t, got, "Responses-only fallback channels must not receive Chat payloads")
-}
-
-func TestShouldChatCompletionsUseResponsesForChannelHonorsExplicitProtocol(t *testing.T) {
-	require.True(t, ShouldChatCompletionsUseResponsesForChannel(
-		dto.ChannelSettings{UpstreamProtocol: "responses"},
-		123,
-		constant.ChannelTypeOpenAI,
-		"gpt-5",
-	))
-	require.False(t, ShouldChatCompletionsUseResponsesForChannel(
-		dto.ChannelSettings{UpstreamProtocol: "chat"},
-		123,
-		constant.ChannelTypeOpenAI,
-		"gpt-5",
-	))
+func TestShouldChatCompletionsUseResponsesForChannelRequiresExplicitOptIn(t *testing.T) {
+	for _, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeCodex} {
+		require.False(t, ShouldChatCompletionsUseResponsesForChannel(
+			dto.ChannelSettings{}, 123, channelType, "gpt-5"),
+			"channel type must not implicitly select Responses",
+		)
+		require.True(t, ShouldChatCompletionsUseResponsesForChannel(
+			dto.ChannelSettings{ResponsesProtocol: true}, 123, channelType, "gpt-5"),
+		)
+	}
 }
 
 func TestShouldChatCompletionsUseResponsesPolicyStillSupportsLegacyMatching(t *testing.T) {
@@ -42,10 +29,24 @@ func TestShouldChatCompletionsUseResponsesPolicyStillSupportsLegacyMatching(t *t
 	}
 	require.True(t, ShouldChatCompletionsUseResponsesPolicy(policy, 123, constant.ChannelTypeOpenAI, "gpt-5.4"))
 	require.False(t, ShouldChatCompletionsUseResponsesPolicy(policy, 456, constant.ChannelTypeOpenAI, "gpt-5.4"))
+	// The legacy global policy is no longer consulted for channel routing.
+	require.False(t, ShouldChatCompletionsUseResponsesForChannel(
+		dto.ChannelSettings{}, 123, constant.ChannelTypeOpenAI, "gpt-5.4"),
+	)
+	require.False(t, ShouldChatCompletionsUseResponsesGlobal(123, constant.ChannelTypeOpenAI, "gpt-5.4"))
 }
 
-func TestResponsesProtocolRequiredForChannelOverridesPassThroughForCodex(t *testing.T) {
-	require.True(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{PassThroughBodyEnabled: true}, constant.ChannelTypeCodex))
-	require.True(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{UpstreamProtocol: "responses"}, constant.ChannelTypeOpenAI))
-	require.False(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{UpstreamProtocol: "chat"}, constant.ChannelTypeOpenAI))
+func TestAnthropicChannelNeverUsesResponsesProtocol(t *testing.T) {
+	require.False(t, ShouldChatCompletionsUseResponsesForChannel(
+		dto.ChannelSettings{ResponsesProtocol: true}, 123, constant.ChannelTypeAnthropic, "claude"),
+	)
+	require.False(t, ResponsesProtocolRequiredForChannel(
+		dto.ChannelSettings{ResponsesProtocol: true}, constant.ChannelTypeAnthropic),
+	)
+}
+
+func TestResponsesProtocolRequiredForChannelOnlyUsesExplicitSwitch(t *testing.T) {
+	require.False(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{PassThroughBodyEnabled: true}, constant.ChannelTypeCodex))
+	require.True(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{ResponsesProtocol: true}, constant.ChannelTypeOpenAI))
+	require.False(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{}, constant.ChannelTypeOpenAI))
 }

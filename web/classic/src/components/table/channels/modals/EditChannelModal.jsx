@@ -200,6 +200,7 @@ const EditChannelModal = (props) => {
     tag: '',
     multi_key_mode: 'random',
     // 渠道额外设置的默认值
+    responses_protocol: false,
     force_format: false,
     thinking_to_content: false,
     proxy: '',
@@ -526,6 +527,7 @@ const EditChannelModal = (props) => {
 
   // 渠道额外设置状态
   const [channelSettings, setChannelSettings] = useState({
+    responses_protocol: false,
     force_format: false,
     thinking_to_content: false,
     proxy: '',
@@ -882,6 +884,7 @@ const EditChannelModal = (props) => {
       if (data.setting) {
         try {
           const parsedSettings = JSON.parse(data.setting);
+          data.responses_protocol = parsedSettings.responses_protocol === true;
           data.force_format = parsedSettings.force_format || false;
           data.thinking_to_content =
             parsedSettings.thinking_to_content || false;
@@ -896,6 +899,7 @@ const EditChannelModal = (props) => {
             parsedSettings.emergency_plan_enabled || false;
         } catch (error) {
           console.error('解析渠道设置失败:', error);
+          data.responses_protocol = false;
           data.force_format = false;
           data.thinking_to_content = false;
           data.proxy = '';
@@ -906,6 +910,7 @@ const EditChannelModal = (props) => {
           data.emergency_plan_enabled = false;
         }
       } else {
+        data.responses_protocol = false;
         data.force_format = false;
         data.thinking_to_content = false;
         data.proxy = '';
@@ -1017,6 +1022,7 @@ const EditChannelModal = (props) => {
       setBasicModels(getChannelModels(data.type));
       // 同步更新channelSettings状态显示
       setChannelSettings({
+        responses_protocol: data.responses_protocol === true,
         force_format: data.force_format,
         thinking_to_content: data.thinking_to_content,
         proxy: data.proxy,
@@ -1453,6 +1459,7 @@ const EditChannelModal = (props) => {
     formApiRef.current?.reset();
     // 重置渠道设置状态
     setChannelSettings({
+      responses_protocol: false,
       force_format: false,
       thinking_to_content: false,
       proxy: '',
@@ -2772,6 +2779,21 @@ const EditChannelModal = (props) => {
                       }
                       extraText={t(
                         '开启后，该渠道请求 Claude 时将强制追加 ?beta=true（无需客户端手动传参）',
+                      )}
+                    />
+                  )}
+
+                  {inputs.type === 1 && (
+                    <Form.Switch
+                      field='responses_protocol'
+                      label={t('Responses/RE 协议渠道')}
+                      checkedText={t('开')}
+                      uncheckedText={t('关')}
+                      onChange={(value) =>
+                        handleChannelSettingsChange('responses_protocol', value)
+                      }
+                      extraText={t(
+                        '勾选后将 Chat 请求转换为 Responses API 并请求 /v1/responses；未勾选时默认请求 /v1/chat/completions。协议按渠道选择，不会自动推断。',
                       )}
                     />
                   )}

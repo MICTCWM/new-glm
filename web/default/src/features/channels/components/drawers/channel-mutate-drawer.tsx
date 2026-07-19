@@ -248,6 +248,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.weight ||
     values.proxy?.trim() ||
   values.system_prompt?.trim() ||
+  values.responses_protocol ||
   values.force_format ||
   values.thinking_to_content ||
   values.pass_through_body_enabled ||
@@ -3220,6 +3221,33 @@ export function ChannelMutateDrawer({
                     )}
 
                     <div className='divide-border space-y-0 divide-y border-y'>
+                      {currentType === 1 && (
+                        <FormField
+                          control={form.control}
+                          name='responses_protocol'
+                          render={({ field }) => (
+                            <FormItem className='flex items-center justify-between px-4 py-3'>
+                              <div className='space-y-0.5'>
+                                <FormLabel>
+                                  {t('Responses/RE Protocol Channel')}
+                                </FormLabel>
+                                <FormDescription>
+                                  {t(
+                                    'Use Responses API (/v1/responses) for this channel. When disabled, use Chat Completions (/v1/chat/completions). Protocol is selected per channel and is never inferred automatically.'
+                                  )}
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value === true}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      )}
+
                       {currentType === 1 && (
                         <FormField
                           control={form.control}

@@ -127,6 +127,9 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	}
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
+	if c.GetBool("fallback_triggered") {
+		upstreamRetryTimes = 0
+	}
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
 	var upstreamBuf *bytes.Buffer

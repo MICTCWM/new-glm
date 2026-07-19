@@ -84,3 +84,33 @@ func TestOaiResponsesStreamHandlerForwardsOutputEvents(t *testing.T) {
 		t.Fatalf("upstream model leaked to downstream, body = %q", got)
 	}
 }
+
+func TestOpenAIAdaptorUsesConfiguredChatOrResponsesPath(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelBaseUrl: "https://upstream.example",
+			ChannelType:    constant.ChannelTypeOpenAI,
+		},
+		RequestURLPath: "/v1/chat/completions",
+		RelayMode:      relayconstant.RelayModeChatCompletions,
+	}
+
+	chatURL, err := adaptor.GetRequestURL(info)
+	if err != nil {
+		t.Fatalf("chat URL error = %v", err)
+	}
+	if chatURL != "https://upstream.example/v1/chat/completions" {
+		t.Fatalf("chat URL = %q", chatURL)
+	}
+
+	info.RelayMode = relayconstant.RelayModeResponses
+	info.RequestURLPath = "/v1/responses"
+	responsesURL, err := adaptor.GetRequestURL(info)
+	if err != nil {
+		t.Fatalf("responses URL error = %v", err)
+	}
+	if responsesURL != "https://upstream.example/v1/responses" {
+		t.Fatalf("responses URL = %q", responsesURL)
+	}
+}

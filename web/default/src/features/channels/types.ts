@@ -84,6 +84,7 @@ export type Channel = z.infer<typeof channelSchema>
 // ============================================================================
 
 export interface ChannelSettings {
+  responses_protocol?: boolean
   force_format?: boolean
   thinking_to_content?: boolean
   proxy?: string

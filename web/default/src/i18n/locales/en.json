@@ -4698,5 +4698,7 @@
     "High": "High",
     "Medium": "Medium",
     "Low": "Low"
-  }
+  },
+  "Responses/RE Protocol Channel": "Responses/RE Protocol Channel",
+  "Use Responses API (/v1/responses) for this channel. When disabled, use Chat Completions (/v1/chat/completions). Protocol is selected per channel and is never inferred automatically.": "Use Responses API (/v1/responses) for this channel. When disabled, use Chat Completions (/v1/chat/completions). Protocol is selected per channel and is never inferred automatically."
 }

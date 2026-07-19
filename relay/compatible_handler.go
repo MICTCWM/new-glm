@@ -200,6 +200,9 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
+	if c.GetBool("fallback_triggered") {
+		upstreamRetryTimes = 0
+	}
 	// 原生模式：GPT 专用渠道跳过上游重试
 	if info.NativeMode {
 		upstreamRetryTimes = 0

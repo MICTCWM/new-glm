@@ -546,7 +546,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// 循环内已处理 shouldRetry=false 时立即检查兜底的路径，但 break 退出场景下兜底可能仍未触发
 	// （如 getChannel 返回错误时 retry=0 < FailoverRetryTimes，循环内条件不满足但循环外应补救）。
 	// 这里补一次兜底执行（去掉 retry>=FailoverRetryTimes 限制，因为 break 退出时 retry 可能很小）。
-	// 使用 for 循环：依次尝试所有未使用的兜底渠道，每个渠道内部最多重试 fallbackMaxRetries 次。
+	// 使用 for 循环：依次尝试所有未使用的兜底渠道。每个兜底渠道只发起一次上游请求；
+	// 不再叠加“主循环重试 × 上游重试 × 兜底内部重试”，避免一次用户请求放大成几十次上游请求。
 	// 每次失败的兜底渠道都加入 UsedChannelIds，HasAvailableFallbackChannelsExcludingUsed 最终返回 false，不会死循环。
 	for (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) && model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
 		common.SysLog(fmt.Sprintf("主循环退出后兜底检查: retry=%d, 剩余可用兜底渠道(排除已使用)", retryParam.GetRetry()))
@@ -587,8 +588,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, fallbackChannel.Id)
 		// 与循环内 313 行写法保持一致，确保上游请求的 is_retry 标记准确
 		relayInfo.RetryIndex = retryParam.GetRetry()
-		// 兜底渠道内部重试：每渠道最多 3 次请求（1次初始 + 2次重试）
-		const fallbackMaxRetries = 2
+		// 兜底渠道只执行一次。上游重试也会在 fallback handler 中关闭，
+		// 失败后由外层循环尝试下一个明确配置的兜底渠道。
+		const fallbackMaxRetries = 0
 		fallbackSuccess := false
 		fallbackAttempt := 0
 		for ; fallbackAttempt <= fallbackMaxRetries; fallbackAttempt++ {
@@ -621,15 +623,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				newAPIError = relayInfo.LastError
 				break
 			}
-			// 最后一次重试失败，不重试了
+			// 兜底渠道只允许一次请求，不再重试同一渠道
 			if fallbackAttempt >= fallbackMaxRetries {
 				break
 			}
 			// 判断是否值得重试（网络错误/5xx等重试才有意义）
-			if !shouldRetry(c, newAPIError, 1) {
-				common.SysLog(fmt.Sprintf("兜底渠道内部重试跳过: fallback_channel_id=%d, status_code=%d, error_code=%v", fallbackChannel.Id, newAPIError.StatusCode, newAPIError.GetErrorCode()))
-				break
-			}
+			// fallbackMaxRetries 为 0，此处仅保留防御性日志。
+			common.SysLog(fmt.Sprintf("兜底渠道请求失败，不再对同一渠道重试: fallback_channel_id=%d, status_code=%d, error_code=%v", fallbackChannel.Id, newAPIError.StatusCode, newAPIError.GetErrorCode()))
+			break
 		}
 		if fallbackSuccess {
 			relayInfo.LastError = nil

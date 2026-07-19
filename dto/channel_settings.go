@@ -1,10 +1,11 @@
 package dto
 
 type ChannelSettings struct {
-	// UpstreamProtocol explicitly declares the protocol required by this channel.
-	// Supported values are "chat" and "responses". Responses-only channel types
-	// such as Codex are detected automatically as well.
-	UpstreamProtocol       string `json:"upstream_protocol,omitempty"`
+	// ResponsesProtocol explicitly selects the OpenAI Responses (RE) protocol
+	// for this channel. When false, OpenAI-compatible channels use Chat
+	// Completions by default. Protocol selection is never inferred from the
+	// channel type.
+	ResponsesProtocol      bool   `json:"responses_protocol,omitempty"`
 	ForceFormat            bool   `json:"force_format,omitempty"`
 	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
 	Proxy                  string `json:"proxy"`
