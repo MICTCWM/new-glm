@@ -39,6 +39,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 const behaviorSchema = z.object({
   RetryTimes: z.coerce.number().min(0).max(10),
   FailoverRetryTimes: z.coerce.number().min(0).max(10),
+  OverloadProtectionRPM: z.coerce.number().int().min(0).max(100000),
   RenewPotentialPassScore: z.coerce.number().min(0).max(100),
   LowQuotaAlertPercent: z.coerce.number().min(0).max(100),
   ShortExpiryDays: z.coerce.number().min(1).max(365),
@@ -132,6 +133,32 @@ export function SystemBehaviorSection({
                 </FormControl>
                 <FormDescription>
                   {t('Number of retries before failover to fallback channels (0-10, must be <= retry times)')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='OverloadProtectionRPM'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Overload Protection RPM')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min='0'
+                    max='100000'
+                    value={field.value as number}
+                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('Route requests above this global RPM threshold to fallback channels (0 = disabled, default 30)')}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

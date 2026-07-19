@@ -52,6 +52,7 @@ export default function GeneralSettings(props) {
     'general_setting.custom_currency_exchange_rate': '',
     QuotaPerUnit: '',
     RetryTimes: '',
+    OverloadProtectionRPM: '',
     USDExchangeRate: '',
     DisplayTokenStatEnabled: false,
     DefaultCollapseSidebar: false,
@@ -271,6 +272,16 @@ export default function GeneralSettings(props) {
                   initValue={''}
                   placeholder={t('失败重试次数')}
                   onChange={handleFieldChange('RetryTimes')}
+                  showClear
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Input
+                  field={'OverloadProtectionRPM'}
+                  label={t('防超载全局 RPM')}
+                  initValue={''}
+                  placeholder={t('默认 30，设置为 0 可关闭')}
+                  onChange={handleFieldChange('OverloadProtectionRPM')}
                   showClear
                 />
               </Col>

@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -20,11 +21,101 @@ type RpmTracker struct {
 
 // Global tracker map: channelId -> *RpmTracker
 var (
-	rpmTrackers   = make(map[int]*RpmTracker)
-	rpmTrackerMu  sync.RWMutex
+	rpmTrackers  = make(map[int]*RpmTracker)
+	rpmTrackerMu sync.RWMutex
 )
 
 const RpmWindowSize = 60 * time.Second
+
+// GlobalRpmTracker tracks requests across all channels for overload
+// protection. Unlike a channel tracker it does not have its own limit; the
+// limit is read from common.OverloadProtectionRPM so changes in System
+// Behavior take effect immediately.
+type GlobalRpmTracker struct {
+	mu         sync.Mutex
+	timestamps []time.Time
+	windowSize time.Duration
+	currentRPM atomic.Int64
+}
+
+var globalRpmTracker = &GlobalRpmTracker{
+	timestamps: make([]time.Time, 0, 128),
+	windowSize: RpmWindowSize,
+}
+
+func GetGlobalRpmTracker() *GlobalRpmTracker {
+	return globalRpmTracker
+}
+
+// IsOverloaded reports whether the next request would exceed the configured
+// global RPM threshold. A non-positive threshold disables the feature.
+func (t *GlobalRpmTracker) IsOverloaded() bool {
+	limit := common.OverloadProtectionRPM
+	if limit <= 0 {
+		return false
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cleanupExpired()
+	return len(t.timestamps) >= limit
+}
+
+// TryAcquire records a request and reports whether it was above the
+// configured threshold. The check and increment are atomic, so concurrent
+// requests cannot all observe the same available slot.
+func (t *GlobalRpmTracker) TryAcquire() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cleanupExpired()
+	overloaded := common.OverloadProtectionRPM > 0 && len(t.timestamps) >= common.OverloadProtectionRPM
+	t.timestamps = append(t.timestamps, time.Now())
+	t.currentRPM.Store(int64(len(t.timestamps)))
+	return overloaded
+}
+
+// TryIncrement records an admitted request in the global sliding window.
+// Deprecated: use TryAcquire so the threshold check and increment are atomic.
+func (t *GlobalRpmTracker) TryIncrement() {
+	_ = t.TryAcquire()
+}
+
+// Decrement releases a request when its relay attempt completes. This keeps
+// the global tracker consistent with the existing per-channel RPM tracker.
+func (t *GlobalRpmTracker) Decrement() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cleanupExpired()
+	if len(t.timestamps) > 0 {
+		t.timestamps = t.timestamps[1:]
+	}
+	t.currentRPM.Store(int64(len(t.timestamps)))
+}
+
+func (t *GlobalRpmTracker) GetCurrentRPM() int {
+	return int(t.currentRPM.Load())
+}
+
+func (t *GlobalRpmTracker) cleanupExpired() {
+	cutoff := time.Now().Add(-t.windowSize)
+	validIdx := 0
+	for validIdx < len(t.timestamps) && t.timestamps[validIdx].Before(cutoff) {
+		validIdx++
+	}
+	if validIdx > 0 {
+		n := copy(t.timestamps, t.timestamps[validIdx:])
+		t.timestamps = t.timestamps[:n]
+	}
+}
+
+// ResetGlobalRpmTracker clears global state. It is primarily useful for
+// tests and for process-level maintenance operations.
+func ResetGlobalRpmTracker() {
+	globalRpmTracker.mu.Lock()
+	defer globalRpmTracker.mu.Unlock()
+	globalRpmTracker.timestamps = globalRpmTracker.timestamps[:0]
+	globalRpmTracker.currentRPM.Store(0)
+}
 
 // GetRpmTracker returns or creates the RpmTracker for a given channel.
 func GetRpmTracker(channelId int, maxRPM int) *RpmTracker {

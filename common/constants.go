@@ -155,6 +155,12 @@ var RetryTimes = 5 // 重试次数，默认5次，每次尝试不同的渠道
 
 var FailoverRetryTimes = 4 // 故障转移重试次数，重试达到此次数后触发兜底，不能大于RetryTimes
 
+// OverloadProtectionRPM is the global request threshold for overload protection.
+// Once the current global request rate reaches this value, new requests are
+// routed to fallback channels when any are available. A value <= 0 disables
+// overload protection.
+var OverloadProtectionRPM = 30
+
 var UpstreamRetryTimes = 5
 
 // RetryDelays 定义每次重试前的等待时间

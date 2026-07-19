@@ -30,6 +30,7 @@ import {
 const defaultOperationsSettings: OperationsSettings = {
   RetryTimes: 0,
   FailoverRetryTimes: 4,
+  OverloadProtectionRPM: 30,
   RenewPotentialPassScore: 60,
   LowQuotaAlertPercent: 20,
   ShortExpiryDays: 7,

@@ -276,6 +276,7 @@ export type BillingSettings = {
 export type OperationsSettings = {
   RetryTimes: number
   FailoverRetryTimes: number
+  OverloadProtectionRPM: number
   RenewPotentialPassScore: number
   LowQuotaAlertPercent: number
   ShortExpiryDays: number

@@ -36,6 +36,7 @@ const OPERATIONS_SECTIONS = [
         defaultValues={{
           RetryTimes: settings.RetryTimes,
           FailoverRetryTimes: settings.FailoverRetryTimes,
+          OverloadProtectionRPM: settings.OverloadProtectionRPM,
           RenewPotentialPassScore: settings.RenewPotentialPassScore,
           LowQuotaAlertPercent: settings.LowQuotaAlertPercent,
           ShortExpiryDays: settings.ShortExpiryDays,

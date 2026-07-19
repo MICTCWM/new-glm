@@ -294,6 +294,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var retryDelays []int
 	var selectedChannel *model.Channel // track selected channel for RPM management
 	acquiredTrackers := make([]*service.RpmTracker, 0)
+	globalRpmAcquired := false
 	wasQueued := false // track whether request ever entered the RPM queue
 	queueDeadline := time.Time{}
 	queueNoticeSent := false
@@ -304,6 +305,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Release the RPM slot and wake one queued request when a request completes.
 		for _, tracker := range acquiredTrackers {
 			tracker.Decrement()
+		}
+		if globalRpmAcquired {
+			service.GetGlobalRpmTracker().Decrement()
 		}
 		if selectedChannel != nil || len(acquiredTrackers) > 0 {
 			service.GetRpmQueue().NotifyRpmRelease()
@@ -318,6 +322,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		// Atomically count this relay request before selecting a channel. Once
+		// the global threshold is reached, prefer a channel with the fallback
+		// switch enabled. The normal route remains available when no fallback
+		// channel is configured.
+		if !globalRpmAcquired {
+			globalRpmAcquired = true
+			if service.GetGlobalRpmTracker().TryAcquire() && model.HasAvailableFallbackChannels() {
+				c.Set("overload_protection_triggered", true)
+				c.Set("fallback_force_next", true)
+			}
+		}
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			// Check if all channels are RPM-full -> enter queue
@@ -389,7 +404,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			acquiredTrackers = append(acquiredTrackers, tracker)
 		}
 
-		if c.GetBool("fallback_triggered") {
+		if c.GetBool("fallback_triggered") && !c.GetBool("overload_protection_triggered") {
 			if channel.MaxRPM > 0 && len(acquiredTrackers) > 0 {
 				tracker := acquiredTrackers[len(acquiredTrackers)-1]
 				tracker.Decrement()
@@ -533,7 +548,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// 这里补一次兜底执行（去掉 retry>=FailoverRetryTimes 限制，因为 break 退出时 retry 可能很小）。
 	// 使用 for 循环：依次尝试所有未使用的兜底渠道，每个渠道内部最多重试 fallbackMaxRetries 次。
 	// 每次失败的兜底渠道都加入 UsedChannelIds，HasAvailableFallbackChannelsExcludingUsed 最终返回 false，不会死循环。
-	for c.GetBool("source_channel_supports_fallback") && model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+	for (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) && model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
 		common.SysLog(fmt.Sprintf("主循环退出后兜底检查: retry=%d, 剩余可用兜底渠道(排除已使用)", retryParam.GetRetry()))
 		c.Set("fallback_force_next", true)
 		fallbackChannel, fallbackErr := getChannel(c, relayInfo, retryParam)
@@ -1126,8 +1141,8 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
-	// 兜底模型逻辑：最后一次重试或 shouldRetry 返回 false 但有兜底渠道时触发（仅触发一次）
-	if !c.GetBool("fallback_triggered") && c.GetBool("source_channel_supports_fallback") && (c.GetBool("fallback_force_next") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= 2)) {
+	// 兜底模型逻辑：故障转移时触发一次；防超载模式下每次重试都优先使用兜底渠道。
+	if (c.GetBool("overload_protection_triggered") || !c.GetBool("fallback_triggered")) && (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) && (c.GetBool("fallback_force_next") || c.GetBool("overload_protection_triggered") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= 2)) {
 		fallbackChannels := model.GetFallbackChannels()
 		// 排除已使用的渠道
 		availableFallback := make([]*model.Channel, 0, len(fallbackChannels))

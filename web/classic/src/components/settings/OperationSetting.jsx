@@ -44,6 +44,7 @@ const OperationSetting = () => {
     QuotaPerUnit: 0,
     USDExchangeRate: 0,
     RetryTimes: 0,
+    OverloadProtectionRPM: 30,
     'general_setting.quota_display_type': 'USD',
     DisplayTokenStatEnabled: false,
     DefaultCollapseSidebar: false,
