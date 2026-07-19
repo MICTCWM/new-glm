@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 
 	"github.com/bytedance/gopkg/util/gopool"
 )
@@ -13,13 +14,13 @@ import (
 // 关联 Log.Id / Log.RequestId，成功和失败请求均记录详情。
 type LogDetail struct {
 	Id                     int    `json:"id" gorm:"primaryKey"`
-	LogId                  int    `json:"log_id" gorm:"index"`           // 关联 Log.Id
-	RequestId              string `json:"request_id" gorm:"index"`       // 关联 Log.RequestId
+	LogId                  int    `json:"log_id" gorm:"index"`                             // 关联 Log.Id
+	RequestId              string `json:"request_id" gorm:"index"`                         // 关联 Log.RequestId
 	UserRequestBody        string `json:"user_request_body" gorm:"type:mediumtext"`        // 数据点1：用户原始请求 JSON
 	UpstreamRequestBody    string `json:"upstream_request_body" gorm:"type:mediumtext"`    // 数据点2：转换后发给上游的请求体（无转换时为空）
 	UpstreamResponseBody   string `json:"upstream_response_body" gorm:"type:mediumtext"`   // 数据点3：上游返回的原始响应体
 	DownstreamResponseBody string `json:"downstream_response_body" gorm:"type:mediumtext"` // 数据点4：系统最终返回给用户的响应体（=数据点5）
-	HasConversion          bool   `json:"has_conversion"`                                // 是否发生协议转换
+	HasConversion          bool   `json:"has_conversion"`                                  // 是否发生协议转换
 	CreatedAt              int64  `json:"created_at" gorm:"bigint"`
 }
 
@@ -32,13 +33,24 @@ func RecordLogDetail(logId int, requestId string, userReq, upstreamReq, upstream
 		LogId:                  logId,
 		RequestId:              requestId,
 		UserRequestBody:        userReq,
-		UpstreamRequestBody:    upstreamReq,
+		UpstreamRequestBody:    constant.RedactForceSystemPrompts(upstreamReq),
 		UpstreamResponseBody:   upstreamResp,
 		DownstreamResponseBody: downstreamResp,
 		HasConversion:          hasConversion,
 		CreatedAt:              common.GetTimestamp(),
 	}
 	return LOG_DB.Create(detail).Error
+}
+
+// SanitizeLogDetail returns a copy safe to expose through the log detail API.
+// It also covers details written before prompt redaction was added.
+func SanitizeLogDetail(detail *LogDetail) *LogDetail {
+	if detail == nil {
+		return nil
+	}
+	sanitized := *detail
+	sanitized.UpstreamRequestBody = constant.RedactForceSystemPrompts(sanitized.UpstreamRequestBody)
+	return &sanitized
 }
 
 // GetLogDetailByLogId 按关联的 Log.Id 查询日志详情

@@ -1,5 +1,17 @@
 package constant
 
+import "strings"
+
+const redactedForceSystemPrompt = "[REDACTED]"
+
+var forceSystemPromptModels = [...]string{
+	"deepseek-v4-pro",
+	"glm-5",
+	"glm-5.1",
+	"glm-5.2",
+	"kimi-k2.6",
+}
+
 // GetForceSystemPrompt 根据模型名返回对应的强制系统提示词。
 // 已知模型注入身份与知识库截止日期；未知模型返回空字符串（不注入）。
 // 用于向模型注入身份与知识库截止日期信息，独立于渠道级 SystemPrompt 配置，
@@ -20,4 +32,15 @@ func GetForceSystemPrompt(modelName string) string {
 	default:
 		return ""
 	}
+}
+
+// RedactForceSystemPrompts removes model identity prompts from data that may be
+// shown outside the upstream request path, such as request detail logs.
+func RedactForceSystemPrompts(value string) string {
+	for _, modelName := range forceSystemPromptModels {
+		if prompt := GetForceSystemPrompt(modelName); prompt != "" {
+			value = strings.ReplaceAll(value, prompt, redactedForceSystemPrompt)
+		}
+	}
+	return value
 }

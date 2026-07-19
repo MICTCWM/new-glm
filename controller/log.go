@@ -184,5 +184,5 @@ func GetLogDetail(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, detail)
+	common.ApiSuccess(c, model.SanitizeLogDetail(detail))
 }
