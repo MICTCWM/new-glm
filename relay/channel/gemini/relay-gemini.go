@@ -132,6 +132,10 @@ func clampThinkingBudgetByEffort(modelName string, effort string) int {
 }
 
 func ThinkingAdaptor(geminiRequest *dto.GeminiChatRequest, info *relaycommon.RelayInfo, oaiRequest ...dto.GeneralOpenAIRequest) {
+	if info != nil && info.GetFallbackReasoningEffort() != "" {
+		info.ApplyFallbackReasoningToGeminiRequest(geminiRequest)
+		return
+	}
 	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled {
 		modelName := info.UpstreamModelName
 		isNew25Pro := strings.HasPrefix(modelName, "gemini-2.5-pro") &&

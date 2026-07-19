@@ -1183,8 +1183,11 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			c.Set("fallback_channel_id", fallbackChannel.Id)
 
 			// 复写上游模型名为兜底模型，保持 OriginModelName 不变
-			fallbackModel := fallbackChannel.GetSetting().FallbackModel
+			fallbackSetting := fallbackChannel.GetSetting()
+			fallbackModel := fallbackSetting.FallbackModel
+			info.FallbackReasoningEffort = ""
 			if fallbackModel != "" {
+				info.FallbackReasoningEffort = fallbackSetting.FallbackModelReasoningEffort
 				info.UpstreamModelName = fallbackModel
 				info.IsModelMapped = true
 				// 通过 context 传递兜底模型名，确保后续 InitChannelMeta 读取到正确的上游模型名

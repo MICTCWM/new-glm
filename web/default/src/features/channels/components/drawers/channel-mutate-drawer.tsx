@@ -152,6 +152,7 @@ import {
   formatModelsArray,
   extractRedirectModels,
   extractMappingSourceModels,
+  getFallbackReasoningOptions,
   hasModelConfigChanged,
   findMissingModelsInMapping,
   validateModelMappingJson,
@@ -429,12 +430,18 @@ export function ChannelMutateDrawer({
   const currentType = form.watch('type')
   const currentBaseUrl = form.watch('base_url')
   const currentModels = form.watch('models')
+  const fallbackModel = form.watch('fallback_model')
+  const fallbackReasoningEffort = form.watch('fallback_model_reasoning_effort')
   const currentModelMapping = form.watch('model_mapping')
   const awsKeyType = form.watch('aws_key_type')
   const specialUserEnabled = form.watch('special_user_enabled')
   const specialUserIds = form.watch('special_user_ids')
   const emergencyPlanEnabled = form.watch('emergency_plan_enabled')
   const fallbackModelEnabled = form.watch('fallback_model_enabled')
+  const fallbackReasoningOptions = useMemo(
+    () => getFallbackReasoningOptions(currentType, fallbackModel || ''),
+    [currentType, fallbackModel]
+  )
   const upstreamModelUpdateCheckEnabled = form.watch(
     'upstream_model_update_check_enabled'
   )
@@ -460,6 +467,17 @@ export function ChannelMutateDrawer({
   // Helper computed values
   const isBatchMode =
     multiKeyMode === 'batch' || multiKeyMode === 'multi_to_single'
+
+  useEffect(() => {
+    if (
+      fallbackReasoningEffort &&
+      !fallbackReasoningOptions.some(
+        (option) => option.value === fallbackReasoningEffort
+      )
+    ) {
+      form.setValue('fallback_model_reasoning_effort', '')
+    }
+  }, [fallbackReasoningEffort, fallbackReasoningOptions, form])
 
   // Get all models list
   const allModelsList = useMemo(
@@ -3890,22 +3908,58 @@ export function ChannelMutateDrawer({
                   )}
                 />
                 {fallbackModelEnabled && (
-                  <FormField
-                    control={form.control}
-                    name='fallback_model'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t('Fallback Model')}</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder={t('e.g. gpt-4o-mini')}
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]'>
+                    <FormField
+                      control={form.control}
+                      name='fallback_model'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Fallback Model')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={t('e.g. gpt-4o-mini')}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='fallback_model_reasoning_effort'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Reasoning Effort')}</FormLabel>
+                          <Select
+                            value={field.value || 'inherit'}
+                            onValueChange={(value) =>
+                              field.onChange(value === 'inherit' ? '' : value)
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent alignItemWithTrigger={false}>
+                              <SelectGroup>
+                                {fallbackReasoningOptions.map((option) => (
+                                  <SelectItem
+                                    key={option.value}
+                                    value={option.value}
+                                  >
+                                    {t(option.label)}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                 )}
               </div>
             </form>

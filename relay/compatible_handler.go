@@ -45,6 +45,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
+	info.ApplyFallbackReasoningToOpenAIRequest(request)
 
 	includeUsage := true
 	// 判断用户是否需要返回使用情况

@@ -101,31 +101,32 @@ type RelayInfo struct {
 	FirstResponseTime time.Time
 	isFirstResponse   bool
 	//SendLastReasoningResponse bool
-	IsStream               bool
-	IsGeminiBatchEmbedding bool
-	IsPlayground           bool
-	UsePrice               bool
-	RelayMode              int
-	DisplayModelName       string
-	AutoRouteModelName     string
-	OriginModelName        string
-	RequestURLPath         string
-	RequestHeaders         map[string]string
-	ShouldIncludeUsage     bool
-	DisablePing            bool // 是否禁止向下游发送自定义 Ping
-	ClientWs               *websocket.Conn
-	TargetWs               *websocket.Conn
-	InputAudioFormat       string
-	OutputAudioFormat      string
-	RealtimeTools          []dto.RealTimeTool
-	IsFirstRequest         bool
-	AudioUsage             bool
-	ReasoningEffort        string
-	UserSetting            dto.UserSetting
-	UserEmail              string
-	UserQuota              int
-	UserGptQuota           float64 // 用户 GPT 专有额度（用于信任检查和日志）
-	UserGptMode            bool    `json:"-"` // 用户是否启用 GPT 模式（从 UserSetting.GptMode 获取）
+	IsStream                bool
+	IsGeminiBatchEmbedding  bool
+	IsPlayground            bool
+	UsePrice                bool
+	RelayMode               int
+	DisplayModelName        string
+	AutoRouteModelName      string
+	OriginModelName         string
+	RequestURLPath          string
+	RequestHeaders          map[string]string
+	ShouldIncludeUsage      bool
+	DisablePing             bool // 是否禁止向下游发送自定义 Ping
+	ClientWs                *websocket.Conn
+	TargetWs                *websocket.Conn
+	InputAudioFormat        string
+	OutputAudioFormat       string
+	RealtimeTools           []dto.RealTimeTool
+	IsFirstRequest          bool
+	AudioUsage              bool
+	ReasoningEffort         string
+	FallbackReasoningEffort string `json:"-"` // 兜底渠道专用思考等级，覆盖用户原请求设置
+	UserSetting             dto.UserSetting
+	UserEmail               string
+	UserQuota               int
+	UserGptQuota            float64 // 用户 GPT 专有额度（用于信任检查和日志）
+	UserGptMode             bool    `json:"-"` // 用户是否启用 GPT 模式（从 UserSetting.GptMode 获取）
 	// NativeMode 原生请求模式：GPT 专用渠道跳过自动重试和参数覆盖
 	// 当渠道 GptModeRequired=true 且用户 GPT 模式开启时设为 true
 	NativeMode              bool `json:"-"`

@@ -70,7 +70,9 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
 
-	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled {
+	if info.GetFallbackReasoningEffort() != "" {
+		gemini.ThinkingAdaptor(request, info)
+	} else if model_setting.GetGeminiSettings().ThinkingAdapterEnabled {
 		if isNoThinkingRequest(request) {
 			if !strings.Contains(info.OriginModelName, ModelSuffixNoThinking) {
 				noThinkingModelName := info.OriginModelName + ModelSuffixNoThinking

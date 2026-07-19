@@ -68,6 +68,7 @@ export const channelFormSchema = z.object({
   emergency_plan_enabled: z.boolean().optional(),
   fallback_model_enabled: z.boolean().optional(),
   fallback_model: z.string().optional(),
+  fallback_model_reasoning_effort: z.string().optional(),
   support_fallback: z.boolean().optional(),
   // Type-specific settings (stored in settings JSON)
   is_enterprise_account: z.boolean().optional(), // OpenRouter specific
@@ -140,6 +141,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   emergency_plan_enabled: false,
   fallback_model_enabled: false,
   fallback_model: '',
+  fallback_model_reasoning_effort: '',
   support_fallback: false,
   // Type-specific settings
   is_enterprise_account: false,
@@ -188,6 +190,7 @@ export function transformChannelToFormDefaults(
     emergency_plan_enabled: false,
     fallback_model_enabled: false,
     fallback_model: '',
+    fallback_model_reasoning_effort: '',
     support_fallback: false,
   }
 
@@ -212,6 +215,8 @@ export function transformChannelToFormDefaults(
         emergency_plan_enabled: parsed.emergency_plan_enabled === true,
         fallback_model_enabled: parsed.fallback_model_enabled === true,
         fallback_model: parsed.fallback_model || '',
+        fallback_model_reasoning_effort:
+          parsed.fallback_model_reasoning_effort || '',
         support_fallback: parsed.support_fallback === true,
       }
     } catch (error) {
@@ -312,6 +317,90 @@ export function transformChannelToFormDefaults(
   }
 }
 
+export interface FallbackReasoningOption {
+  value: string
+  label: string
+}
+
+export function getFallbackReasoningOptions(
+  channelType: number,
+  modelName: string
+): FallbackReasoningOption[] {
+  const model = modelName.trim().toLowerCase()
+  const inherited = { value: 'inherit', label: 'Default' }
+  const none = { value: 'none', label: 'None' }
+
+  if (channelType === 14) {
+    if (
+      model.startsWith('claude-opus-4-6') ||
+      model.startsWith('claude-opus-4-7')
+    ) {
+      return [
+        inherited,
+        none,
+        { value: 'low', label: 'Low' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'high', label: 'High' },
+        { value: 'max', label: 'Max' },
+      ]
+    }
+    return [inherited, none, { value: 'thinking', label: 'Thinking' }]
+  }
+
+  if (channelType === 24 || channelType === 41) {
+    return [
+      inherited,
+      none,
+      { value: 'minimal', label: 'Minimal' },
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+    ]
+  }
+
+  if (channelType === 43 && model.startsWith('deepseek-v4-')) {
+    return [inherited, none, { value: 'max', label: 'Max' }]
+  }
+  if (channelType === 43) {
+    return [inherited]
+  }
+
+  if (channelType === 48 && model.startsWith('grok-3-mini')) {
+    return [
+      inherited,
+      none,
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' },
+    ]
+  }
+  if (channelType === 48) {
+    return [inherited]
+  }
+
+  if (channelType === 20) {
+    return [
+      inherited,
+      none,
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+    ]
+  }
+
+  if (![1, 3, 6, 8, 40, 42, 57].includes(channelType)) {
+    return [inherited]
+  }
+
+  return [
+    inherited,
+    none,
+    { value: 'minimal', label: 'Minimal' },
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+  ]
+}
+
 /**
  * Build the setting JSON string from form extra settings
  */
@@ -340,6 +429,8 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     emergency_plan_enabled: formData.emergency_plan_enabled === true,
     fallback_model_enabled: formData.fallback_model_enabled === true,
     fallback_model: formData.fallback_model || '',
+    fallback_model_reasoning_effort:
+      formData.fallback_model_reasoning_effort || '',
     support_fallback: formData.support_fallback === true,
   }
   return JSON.stringify(settingObj)
