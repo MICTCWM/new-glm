@@ -334,7 +334,10 @@ func (o *OpenAIResponsesResponse) GetSize() string {
 }
 
 type IncompleteDetails struct {
-	Reasoning string `json:"reasoning"`
+	// Reason is the Responses API field. Reasoning is retained for compatibility
+	// with older providers that used the non-standard field name.
+	Reason    string `json:"reason,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 type ResponsesOutput struct {
@@ -400,6 +403,8 @@ type ResponsesStreamResponse struct {
 	ContentIndex *int                           `json:"content_index,omitempty"`
 	SummaryIndex *int                           `json:"summary_index,omitempty"`
 	ItemID       string                         `json:"item_id,omitempty"`
+	CallID       string                         `json:"call_id,omitempty"`
+	Arguments    json.RawMessage                `json:"arguments,omitempty"`
 	Part         *ResponsesReasoningSummaryPart `json:"part,omitempty"`
 }
 

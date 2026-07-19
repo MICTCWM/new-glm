@@ -224,20 +224,36 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 					"text": part.Text,
 				})
 			case dto.ContentTypeImageURL:
-				contentParts = append(contentParts, map[string]any{
+				imagePart := map[string]any{
 					"type":      "input_image",
 					"image_url": normalizeChatImageURLToString(part.ImageUrl),
-				})
+				}
+				if image := part.GetImageMedia(); image != nil && image.Detail != "" {
+					imagePart["detail"] = image.Detail
+				}
+				contentParts = append(contentParts, imagePart)
 			case dto.ContentTypeInputAudio:
 				contentParts = append(contentParts, map[string]any{
 					"type":        "input_audio",
 					"input_audio": part.InputAudio,
 				})
 			case dto.ContentTypeFile:
-				contentParts = append(contentParts, map[string]any{
-					"type": "input_file",
-					"file": part.File,
-				})
+				filePart := map[string]any{"type": "input_file"}
+				if file := part.GetFile(); file != nil {
+					if file.FileId != "" {
+						filePart["file_id"] = file.FileId
+					}
+					if file.FileData != "" {
+						filePart["file_data"] = file.FileData
+					}
+					if file.FileName != "" {
+						filePart["filename"] = file.FileName
+					}
+				} else if part.File != nil {
+					// Preserve custom file fields for compatible providers.
+					filePart["file"] = part.File
+				}
+				contentParts = append(contentParts, filePart)
 			case dto.ContentTypeVideoUrl:
 				contentParts = append(contentParts, map[string]any{
 					"type":      "input_video",
@@ -291,12 +307,19 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		for _, tool := range req.Tools {
 			switch tool.Type {
 			case "function":
-				tools = append(tools, map[string]any{
+				functionTool := map[string]any{
 					"type":        "function",
 					"name":        tool.Function.Name,
 					"description": tool.Function.Description,
 					"parameters":  tool.Function.Parameters,
-				})
+				}
+				if len(tool.Function.Strict) > 0 {
+					var strict any
+					if err := common.Unmarshal(tool.Function.Strict, &strict); err == nil {
+						functionTool["strict"] = strict
+					}
+				}
+				tools = append(tools, functionTool)
 			default:
 				// Best-effort: keep original tool shape for unknown types.
 				var m map[string]any

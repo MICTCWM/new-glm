@@ -234,10 +234,11 @@ type ToolCallRequest struct {
 }
 
 type FunctionRequest struct {
-	Description string `json:"description,omitempty"`
-	Name        string `json:"name"`
-	Parameters  any    `json:"parameters,omitempty"`
-	Arguments   string `json:"arguments,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Name        string          `json:"name"`
+	Parameters  any             `json:"parameters,omitempty"`
+	Arguments   string          `json:"arguments,omitempty"`
+	Strict      json.RawMessage `json:"strict,omitempty"`
 }
 
 type StreamOptions struct {
@@ -337,8 +338,12 @@ func (m *MediaContent) GetFile() *MessageFile {
 			return m.File.(*MessageFile)
 		}
 		if itemMap, ok := m.File.(map[string]any); ok {
+			fileName := common.Interface2String(itemMap["file_name"])
+			if fileName == "" {
+				fileName = common.Interface2String(itemMap["filename"])
+			}
 			out := &MessageFile{
-				FileName: common.Interface2String(itemMap["file_name"]),
+				FileName: fileName,
 				FileData: common.Interface2String(itemMap["file_data"]),
 				FileId:   common.Interface2String(itemMap["file_id"]),
 			}
@@ -612,7 +617,8 @@ func (m *Message) ParseContent() []MediaContent {
 					contentList = append(contentList, MediaContent{
 						Type: ContentTypeFile,
 						File: &MessageFile{
-							FileId: fileId,
+							FileId:   fileId,
+							FileName: common.Interface2String(fileData["filename"]),
 						},
 					})
 				} else {
