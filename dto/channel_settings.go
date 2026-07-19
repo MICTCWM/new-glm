@@ -1,6 +1,10 @@
 package dto
 
 type ChannelSettings struct {
+	// UpstreamProtocol explicitly declares the protocol required by this channel.
+	// Supported values are "chat" and "responses". Responses-only channel types
+	// such as Codex are detected automatically as well.
+	UpstreamProtocol       string `json:"upstream_protocol,omitempty"`
 	ForceFormat            bool   `json:"force_format,omitempty"`
 	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
 	Proxy                  string `json:"proxy"`
@@ -13,7 +17,7 @@ type ChannelSettings struct {
 	EmergencyPlanEnabled   bool   `json:"emergency_plan_enabled,omitempty"`
 	FallbackModelEnabled   bool   `json:"fallback_model_enabled,omitempty"` // 是否启用兜底模式
 	FallbackModel          string `json:"fallback_model,omitempty"`         // 兜底模型名（上游实际请求的模型名）
-	SupportFallback        bool   `json:"support_fallback,omitempty"`        // 是否支持错误转移（该渠道失败时是否触发转移到兜底渠道）
+	SupportFallback        bool   `json:"support_fallback,omitempty"`       // 是否支持错误转移（该渠道失败时是否触发转移到兜底渠道）
 }
 
 type VertexKeyType string
