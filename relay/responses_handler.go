@@ -82,6 +82,20 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 
+	// A Responses request must follow the selected channel's configured
+	// protocol. OpenAI-compatible Chat channels receive a Chat request and
+	// their Chat response is converted back to Responses for the caller.
+	if info.RelayMode == relayconstant.RelayModeResponses &&
+		isOpenAICompatibleAPIType(info.ApiType) &&
+		!service.ResponsesProtocolRequiredForChannel(info.ChannelSetting, info.ChannelType) {
+		usage, newApiErr := responsesViaChatCompletions(c, info, adaptor, request)
+		if newApiErr != nil {
+			return newApiErr
+		}
+		service.PostTextConsumeQuota(c, info, usage, nil)
+		return nil
+	}
+
 	var requestBody io.Reader
 	var jsonData []byte
 	var passThroughStorage io.ReadSeeker

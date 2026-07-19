@@ -9,6 +9,22 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	return openaicompat.ChatCompletionsRequestToResponsesRequest(req)
 }
 
+func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (*dto.GeneralOpenAIRequest, error) {
+	return openaicompat.ResponsesRequestToChatCompletionsRequest(req)
+}
+
+func NewChatToResponsesStreamState(id string, model string) *openaicompat.ChatToResponsesStreamState {
+	return openaicompat.NewChatToResponsesStreamState(id, model)
+}
+
+func ChatCompletionsStreamChunkToResponsesEvents(chunk *dto.ChatCompletionsStreamResponse, state *openaicompat.ChatToResponsesStreamState) ([]openaicompat.ChatToResponsesStreamEvent, error) {
+	return openaicompat.ChatCompletionsStreamChunkToResponsesEvents(chunk, state)
+}
+
+func FinalizeChatCompletionsStreamToResponses(state *openaicompat.ChatToResponsesStreamState) []openaicompat.ChatToResponsesStreamEvent {
+	return openaicompat.FinalizeChatCompletionsStreamToResponses(state)
+}
+
 func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesResponse, id string) (*dto.OpenAITextResponse, *dto.Usage, error) {
 	return openaicompat.ResponsesResponseToChatCompletionsResponse(resp, id)
 }

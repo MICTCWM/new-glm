@@ -175,7 +175,15 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	var requestBody io.Reader
 	var jsonData []byte
 	var passThroughStorage io.ReadSeeker
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	// OpenAI-compatible channels must normalize Anthropic input to Chat
+	// Completions before sending it upstream. Otherwise pass-through would
+	// send an Anthropic Messages body to a Chat endpoint. Native Anthropic
+	// channels keep their existing pass-through behavior.
+	passThroughClaudeRequest := model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled
+	if isOpenAICompatibleAPIType(info.ApiType) {
+		passThroughClaudeRequest = false
+	}
+	if passThroughClaudeRequest {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
