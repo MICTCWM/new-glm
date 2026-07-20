@@ -15,6 +15,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -70,4 +71,16 @@ func TestDetachedFallbackContextAllowsResponseWrites(t *testing.T) {
 	// The fallback response can now be flushed instead of becoming a second
 	// "request context done: context canceled" failure.
 	require.NoError(t, helper.FlushWriter(ginContext))
+}
+
+func TestMarkContextCancelledResponseUsesSuccessStatusAndKeepsDetail(t *testing.T) {
+	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	err := types.NewErrorWithStatusCode(context.Canceled, types.ErrorCodeDoRequestFailed, 500)
+
+	markContextCancelledResponse(ginContext, err)
+
+	require.Equal(t, 200, err.StatusCode)
+	require.Equal(t, requestContextCancelledMessage, err.GetUserFriendlyMessage())
+	require.True(t, ginContext.GetBool("request_context_cancelled"))
+	require.Equal(t, "status_code=500, context canceled", ginContext.GetString("request_context_cancelled_detail"))
 }

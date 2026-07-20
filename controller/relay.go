@@ -82,6 +82,33 @@ func getRetryDelay(retryCount int) time.Duration {
 
 const detachedFallbackContextTimeout = 5 * time.Minute
 
+const requestContextCancelledMessage = "请求已完成，但用户已取消上下文"
+
+func isContextCancelledAPIError(err *types.NewAPIError) bool {
+	return err != nil && errors.Is(err, context.Canceled)
+}
+
+func requestContextIsCancelled(c *gin.Context) bool {
+	return c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled)
+}
+
+// markContextCancelledResponse keeps the HTTP status successful while retaining
+// the original cancellation detail for the admin/error log. A cancellation can
+// be caused by the client disconnecting, so it must not be reported as a relay
+// server 500.
+func markContextCancelledResponse(c *gin.Context, err *types.NewAPIError) {
+	if err == nil {
+		return
+	}
+	detail := err.ErrorWithStatusCode()
+	if c != nil {
+		c.Set("request_context_cancelled", true)
+		c.Set("request_context_cancelled_detail", detail)
+	}
+	err.StatusCode = http.StatusOK
+	err.SetMessage(requestContextCancelledMessage)
+}
+
 // detachCancelledRequestContext gives the one fallback attempt a live context
 // when the primary attempt ended because the request context was cancelled.
 // Without this, both the fallback HTTP request and stream writer immediately
@@ -348,6 +375,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	runtimeRpmFull := false
 	var firstSpecificError *types.NewAPIError // 第一条非网络层错误（更具体的上游错误），用于最终返回时替代 do_request_failed
 	fallbackErrorReturned := false
+	requestContextCancelled := false
+	requestContextCancelDetail := ""
 
 	defer func() {
 		// Release the RPM slot and wake one queued request when a request completes.
@@ -490,10 +519,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		if newAPIError == nil {
 			relayInfo.LastError = nil
+			if requestContextCancelled {
+				common.SysLog(fmt.Sprintf("请求已成功完成，但用户已取消上下文: %s", requestContextCancelDetail))
+			}
 			if len(retryDelays) > 0 {
 				c.Set("retry_delays", retryDelays)
 			}
 			return
+		}
+
+		if requestContextIsCancelled(c) {
+			requestContextCancelled = true
+			requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
+			c.Set("request_context_cancelled", true)
+			c.Set("request_context_cancelled_detail", requestContextCancelDetail)
 		}
 
 		// 客户端已断开连接：保留第一条真正的上游错误，不用断开导致的错误覆盖
@@ -604,6 +643,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					return
 				}
 
+				if isContextCancelledAPIError(newAPIError) {
+					requestContextCancelled = true
+					requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
+				}
+
 				// The fallback is the final attempt, so expose its error to the
 				// caller instead of restoring the primary-channel error. Apply the
 				// same error normalization as the primary request path.
@@ -618,6 +662,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				fallbackErrorReturned = true
 			}
 		} else if fallbackErr != nil {
+			if isContextCancelledAPIError(fallbackErr) {
+				requestContextCancelled = true
+				requestContextCancelDetail = fallbackErr.ErrorWithStatusCode()
+			}
 			common.SysLog(fmt.Sprintf("兜底渠道获取失败，返回兜底错误: %v", fallbackErr))
 			newAPIError = service.NormalizeViolationFeeError(fallbackErr)
 			newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
@@ -635,8 +683,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
+		// A request-context cancellation is not a relay-side 500. Return HTTP 200
+		// and retain the original detail in the admin log. Do not mask a real
+		// fallback error (for example, a fallback upstream 500).
+		if isContextCancelledAPIError(newAPIError) || (requestContextCancelled && !fallbackErrorReturned) {
+			if requestContextCancelDetail == "" {
+				requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
+			}
+			markContextCancelledResponse(c, newAPIError)
+		}
+
 		// 保护：如果最终错误是网络层错误(do_request_failed)，但之前有更具体的上游错误，返回之前的错误
-		if !fallbackErrorReturned && newAPIError.GetErrorCode() == types.ErrorCodeDoRequestFailed && firstSpecificError != nil {
+		if !requestContextCancelled && !fallbackErrorReturned && newAPIError.GetErrorCode() == types.ErrorCodeDoRequestFailed && firstSpecificError != nil {
 			common.SysLog(fmt.Sprintf("最终错误为网络层错误，使用之前的上游错误: prev_error_code=%v", firstSpecificError.GetErrorCode()))
 			newAPIError = firstSpecificError
 		}
@@ -1382,6 +1440,12 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		adminInfo := make(map[string]interface{})
 		service.AppendChannelRetryAdminInfo(c, adminInfo)
 		adminInfo["detail_error"] = err.ErrorWithStatusCode()
+		if c.GetBool("request_context_cancelled") {
+			adminInfo["request_context_cancelled"] = true
+			if detail := c.GetString("request_context_cancelled_detail"); detail != "" {
+				adminInfo["detail_error"] = detail + "; " + requestContextCancelledMessage
+			}
+		}
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
 		if isMultiKey {
 			adminInfo["is_multi_key"] = true
