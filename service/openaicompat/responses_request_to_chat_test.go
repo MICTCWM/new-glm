@@ -59,6 +59,41 @@ func TestResponsesRequestToChatConvertsResponseFormat(t *testing.T) {
 	require.Equal(t, "object", gjson.GetBytes(got.ResponseFormat.JsonSchema, "schema.type").String())
 }
 
+func TestResponsesRequestToChatFlattensNamespaceTools(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Tools: []byte(`[
+		  {
+		    "type":"namespace",
+		    "name":"crm",
+		    "description":"CRM tools",
+		    "tools":[
+		      {"type":"function","name":"get_customer_profile","description":"get profile","parameters":{"type":"object"}},
+		      {"type":"function","name":"list_open_orders","parameters":{"type":"object","properties":{}}}
+		    ]
+		  }
+		]`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Tools, 2)
+	require.Equal(t, "function", got.Tools[0].Type)
+	require.Equal(t, "get_customer_profile", got.Tools[0].Function.Name)
+	require.Equal(t, "get profile", got.Tools[0].Function.Description)
+	require.Equal(t, "list_open_orders", got.Tools[1].Function.Name)
+}
+
+func TestResponsesRequestToChatRejectsUnsupportedNestedNamespaceTool(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Tools: []byte(`[{"type":"namespace","name":"crm","tools":[{"type":"mcp","server_label":"crm"}]}]`),
+	}
+
+	_, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.EqualError(t, err, `responses namespace tool "crm" contains unsupported tool type "mcp"`)
+}
+
 func mustMarshal(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := common.Marshal(value)

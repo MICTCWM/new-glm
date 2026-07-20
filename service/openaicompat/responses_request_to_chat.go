@@ -291,27 +291,78 @@ func responsesToolsToChatTools(raw json.RawMessage) ([]dto.ToolCallRequest, erro
 	}
 	tools := make([]dto.ToolCallRequest, 0, len(items))
 	for _, item := range items {
-		if toolType := common.Interface2String(item["type"]); toolType != "function" {
+		toolType := common.Interface2String(item["type"])
+		switch toolType {
+		case "function":
+			tool, err := responsesFunctionToolToChatTool(item)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, tool)
+		case "namespace":
+			// Chat Completions has no namespace tool type. A Responses
+			// namespace is a container for function tools, so flatten its
+			// functions while preserving their names. Keeping the names is
+			// important because the Chat-to-Responses response converter has
+			// no request-local namespace metadata with which to reconstruct a
+			// renamed function call.
+			nested, err := responsesNamespaceTools(item["tools"])
+			if err != nil {
+				return nil, fmt.Errorf("invalid Responses namespace tool %q: %w", common.Interface2String(item["name"]), err)
+			}
+			for _, nestedItem := range nested {
+				if nestedType := common.Interface2String(nestedItem["type"]); nestedType != "function" {
+					return nil, fmt.Errorf(
+						"responses namespace tool %q contains unsupported tool type %q",
+						common.Interface2String(item["name"]),
+						nestedType,
+					)
+				}
+				tool, err := responsesFunctionToolToChatTool(nestedItem)
+				if err != nil {
+					return nil, err
+				}
+				tools = append(tools, tool)
+			}
+		default:
 			// Built-in Responses tools have no generic Chat Completions
 			// equivalent. Failing explicitly is safer than silently removing
 			// the user's tool and changing the request's behavior.
 			return nil, fmt.Errorf("responses tool type %q cannot be converted to Chat Completions", toolType)
 		}
-		var strict json.RawMessage
-		if strictValue, ok := item["strict"]; ok {
-			strict, _ = common.Marshal(strictValue)
-		}
-		tools = append(tools, dto.ToolCallRequest{
-			Type: "function",
-			Function: dto.FunctionRequest{
-				Name:        common.Interface2String(item["name"]),
-				Description: common.Interface2String(item["description"]),
-				Parameters:  item["parameters"],
-				Strict:      strict,
-			},
-		})
 	}
 	return tools, nil
+}
+
+func responsesNamespaceTools(raw any) ([]map[string]any, error) {
+	if raw == nil {
+		return nil, errors.New("tools must be an array")
+	}
+	rawTools, err := common.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("tools must be an array: %w", err)
+	}
+	var tools []map[string]any
+	if err := common.Unmarshal(rawTools, &tools); err != nil {
+		return nil, fmt.Errorf("tools must be an array: %w", err)
+	}
+	return tools, nil
+}
+
+func responsesFunctionToolToChatTool(item map[string]any) (dto.ToolCallRequest, error) {
+	var strict json.RawMessage
+	if strictValue, ok := item["strict"]; ok {
+		strict, _ = common.Marshal(strictValue)
+	}
+	return dto.ToolCallRequest{
+		Type: "function",
+		Function: dto.FunctionRequest{
+			Name:        common.Interface2String(item["name"]),
+			Description: common.Interface2String(item["description"]),
+			Parameters:  item["parameters"],
+			Strict:      strict,
+		},
+	}, nil
 }
 
 func responsesToolChoiceToChat(raw json.RawMessage) any {
