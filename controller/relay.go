@@ -80,6 +80,38 @@ func getRetryDelay(retryCount int) time.Duration {
 	return common.RetryDelays[retryCount-1]
 }
 
+const detachedFallbackContextTimeout = 5 * time.Minute
+
+// detachCancelledRequestContext gives the one fallback attempt a live context
+// when the primary attempt ended because the request context was cancelled.
+// Without this, both the fallback HTTP request and stream writer immediately
+// fail with "request context done: context canceled". Values from the original
+// request context are retained, but cancellation is intentionally detached.
+//
+// The cancel function is owned by Relay's outer response defer so the detached
+// context remains usable while the final fallback response/error is written.
+func detachCancelledRequestContext(c *gin.Context) context.CancelFunc {
+	if c == nil || c.Request == nil {
+		return nil
+	}
+	originalContext := c.Request.Context()
+	if originalContext.Err() == nil {
+		return nil
+	}
+
+	timeout := detachedFallbackContextTimeout
+	if common.RequestMaxDuration > 0 {
+		configuredTimeout := time.Duration(common.RequestMaxDuration) * time.Second
+		if configuredTimeout < timeout {
+			timeout = configuredTimeout
+		}
+	}
+	detachedContext, cancel := context.WithTimeout(context.WithoutCancel(originalContext), timeout)
+	c.Request = c.Request.WithContext(detachedContext)
+	common.SysLog(fmt.Sprintf("主请求上下文已取消，兜底阶段切换到独立上下文，timeout=%s", timeout))
+	return cancel
+}
+
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	if strings.Contains(c.Request.URL.Path, "embed") {
@@ -104,9 +136,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
 	var (
-		newAPIError *types.NewAPIError
-		ws          *websocket.Conn
-		relayInfo   *relaycommon.RelayInfo
+		newAPIError           *types.NewAPIError
+		ws                    *websocket.Conn
+		relayInfo             *relaycommon.RelayInfo
+		fallbackContextCancel context.CancelFunc
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -120,6 +153,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	defer func() {
+		// Keep the detached context alive until the final response/error has
+		// been written, then release its timer.
+		if fallbackContextCancel != nil {
+			defer fallbackContextCancel()
+		}
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
 			// 使用用户友好的错误消息返回给客户端
@@ -518,6 +556,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) &&
 		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
 		common.SysLog(fmt.Sprintf("主请求失败后执行一次兜底: retry=%d", retryParam.GetRetry()))
+		// A cancelled client/request context must not poison the one allowed
+		// fallback attempt. The response defer cleans this context up after it
+		// has finished writing the final result.
+		if fallbackContextCancel == nil {
+			fallbackContextCancel = detachCancelledRequestContext(c)
+		}
 		c.Set("fallback_force_next", true)
 		fallbackChannel, fallbackErr := getChannel(c, relayInfo, retryParam)
 		if fallbackErr == nil && fallbackChannel != nil {
