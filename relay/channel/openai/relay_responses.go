@@ -13,9 +13,25 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
+
+// sanitizeResponsesInstructions removes request-derived instructions from
+// Responses payloads before they are written to the downstream client.
+// Some upstream Responses implementations echo the request instructions in
+// response.created/response.completed, which would expose internal system
+// prompts after the relay injected them.
+func sanitizeResponsesInstructions(data []byte) []byte {
+	for _, path := range []string{"instructions", "response.instructions"} {
+		sanitized, err := sjson.DeleteBytes(data, path)
+		if err == nil {
+			data = sanitized
+		}
+	}
+	return data
+}
 
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
@@ -53,6 +69,8 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if shouldRetryZeroOutputUsage(info, &usage) {
 		return nil, zeroOutputRetryError(info, &usage)
 	}
+
+	responseBody = sanitizeResponsesInstructions(responseBody)
 
 	// 协议转换/序列化完成后，统一将响应里的 model 字段改回用户原始请求的 model ID
 	responseBody = relaycommon.OverrideResponseModel(responseBody, info)
@@ -97,6 +115,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
+		data = string(sanitizeResponsesInstructions([]byte(data)))
 		switch streamResponse.Type {
 		case "response.completed":
 			completed := streamResponse
