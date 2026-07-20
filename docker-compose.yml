@@ -14,10 +14,7 @@
 
 services:
   new-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: new-api:local
+    image: crpi-ujziiyb05s9uykhk.cn-hangzhou.personal.cr.aliyuncs.com/mict-namespace/new-api:latest
     container_name: new-api
     restart: always
     command: --log-dir /app/logs
