@@ -39,6 +39,7 @@ import { isTokenBasedModel } from '../lib/model-helpers'
 import {
   formatPrice,
   formatRequestPrice,
+  getHardcodedTokenPrice,
   stripTrailingZeros,
 } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
@@ -435,7 +436,11 @@ export function usePricingColumns(
 
         const isTokenBased = isTokenBasedModel(model)
 
-        if (!isTokenBased || model.cache_ratio == null) {
+        if (
+          !isTokenBased ||
+          (model.cache_ratio == null &&
+            getHardcodedTokenPrice(model.model_name, 'cache') === undefined)
+        ) {
           return <span className='text-muted-foreground/30 text-xs'>—</span>
         }
 

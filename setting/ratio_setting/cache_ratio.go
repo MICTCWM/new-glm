@@ -1,6 +1,7 @@
 package ratio_setting
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -32,6 +33,9 @@ var defaultCacheRatio = map[string]float64{
 	"gpt-5":                               0.1,
 	"gpt-5-2025-08-07":                    0.1,
 	"gpt-5-chat-latest":                   0.1,
+	"gpt-5.6-sol":                         0.1,
+	"gpt-5.6-terra":                       0.1,
+	"gpt-5.6-luna":                        0.1,
 	"gpt-5-mini":                          0.1,
 	"gpt-5-mini-2025-08-07":               0.1,
 	"gpt-5-nano":                          0.1,
@@ -115,12 +119,16 @@ var createCacheRatioMap = types.NewRWMap[string, float64]()
 
 // GetCacheRatioMap returns a copy of the cache ratio map
 func GetCacheRatioMap() map[string]float64 {
-	return cacheRatioMap.ReadAll()
+	return GetCacheRatioCopy()
 }
 
 // CacheRatio2JSONString converts the cache ratio map to a JSON string
 func CacheRatio2JSONString() string {
-	return cacheRatioMap.MarshalJSONString()
+	jsonBytes, err := common.Marshal(GetCacheRatioCopy())
+	if err != nil {
+		return "{}"
+	}
+	return string(jsonBytes)
 }
 
 // CreateCacheRatio2JSONString converts the create cache ratio map to a JSON string
@@ -140,6 +148,10 @@ func UpdateCreateCacheRatioByJSONString(jsonStr string) error {
 
 // GetCacheRatio returns the cache ratio for a model
 func GetCacheRatio(name string) (float64, bool) {
+	name = FormatMatchingModelName(name)
+	if pricing, hardcoded := getHardcodedModelPricing(name); hardcoded {
+		return pricing.CacheRatio, true
+	}
 	ratio, ok := cacheRatioMap.Get(name)
 	if !ok {
 		return 1, false // Default to 1 if not found
@@ -156,7 +168,11 @@ func GetCreateCacheRatio(name string) (float64, bool) {
 }
 
 func GetCacheRatioCopy() map[string]float64 {
-	return cacheRatioMap.ReadAll()
+	result := cacheRatioMap.ReadAll()
+	for name, pricing := range hardcodedModelPricingMap {
+		result[name] = pricing.CacheRatio
+	}
+	return result
 }
 
 func GetCreateCacheRatioCopy() map[string]float64 {

@@ -73,6 +73,37 @@ function getMinGroupRatio(
   return minRatio === Number.POSITIVE_INFINITY ? 1 : minRatio
 }
 
+// Keep the public model plaza aligned with the billing backend even when an
+// old cached pricing response or an editable ratio contains stale values.
+// Values are USD per 1M tokens.
+const HARD_CODED_TOKEN_PRICES: Record<
+  string,
+  { input: number; cache: number; output: number }
+> = {
+  'gpt-5.6-sol': { input: 5, cache: 0.5, output: 30 },
+  'gpt-5.6-terra': { input: 2.5, cache: 0.25, output: 15 },
+  'gpt-5.6-luna': { input: 1, cache: 0.1, output: 6 },
+}
+
+export function getHardcodedTokenPrice(
+  modelName: string,
+  type: PriceType
+): number | undefined {
+  const pricing = HARD_CODED_TOKEN_PRICES[modelName]
+  if (!pricing) return undefined
+
+  switch (type) {
+    case 'input':
+      return pricing.input
+    case 'cache':
+      return pricing.cache
+    case 'output':
+      return pricing.output
+    default:
+      return undefined
+  }
+}
+
 /**
  * Calculate token price in USD.
  *
@@ -84,6 +115,9 @@ function calculateTokenPrice(
   type: PriceType,
   ratio: number
 ): number {
+  const hardcodedPrice = getHardcodedTokenPrice(model.model_name, type)
+  if (hardcodedPrice !== undefined) return hardcodedPrice * ratio
+
   const base = model.model_ratio * 2 * ratio
 
   switch (type) {

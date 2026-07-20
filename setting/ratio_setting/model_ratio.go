@@ -94,6 +94,9 @@ var defaultModelRatio = map[string]float64{
 	"gpt-5":                            0.625,
 	"gpt-5-2025-08-07":                 0.625,
 	"gpt-5-chat-latest":                0.625,
+	"gpt-5.6-sol":                      2.5,  // $5 / 1M input tokens
+	"gpt-5.6-terra":                    1.25, // $2.5 / 1M input tokens
+	"gpt-5.6-luna":                     0.5,  // $1 / 1M input tokens
 	"gpt-5-mini":                       0.125,
 	"gpt-5-mini-2025-08-07":            0.125,
 	"gpt-5-nano":                       0.025,
@@ -337,6 +340,9 @@ var defaultCompletionRatio = map[string]float64{
 	"gpt-4o-gizmo-*": 3,
 	"gpt-4-all":      2,
 	"gpt-image-1":    8,
+	"gpt-5.6-sol":    6,
+	"gpt-5.6-terra":  6,
+	"gpt-5.6-luna":   6,
 }
 
 // InitRatioSettings initializes all model related settings maps
@@ -352,11 +358,15 @@ func InitRatioSettings() {
 }
 
 func GetModelPriceMap() map[string]float64 {
-	return modelPriceMap.ReadAll()
+	return GetModelPriceCopy()
 }
 
 func ModelPrice2JSONString() string {
-	return modelPriceMap.MarshalJSONString()
+	jsonBytes, err := common.Marshal(GetModelPriceCopy())
+	if err != nil {
+		return "{}"
+	}
+	return string(jsonBytes)
 }
 
 func UpdateModelPriceByJSONString(jsonStr string) error {
@@ -366,6 +376,11 @@ func UpdateModelPriceByJSONString(jsonStr string) error {
 // GetModelPrice 返回模型的价格，如果模型不存在则返回-1，false
 func GetModelPrice(name string, printErr bool) (float64, bool) {
 	name = FormatMatchingModelName(name)
+	if _, hardcoded := getHardcodedModelPricing(name); hardcoded {
+		// GPT-5.6 is token-priced and must never fall back to an editable
+		// per-request model_price entry.
+		return -1, false
+	}
 
 	if price, ok := modelPriceMap.Get(name); ok {
 		return price, true
@@ -402,6 +417,9 @@ func handleThinkingBudgetModel(name, prefix, wildcard string) string {
 
 func GetModelRatio(name string) (float64, bool, string) {
 	name = FormatMatchingModelName(name)
+	if pricing, hardcoded := getHardcodedModelPricing(name); hardcoded {
+		return pricing.ModelRatio, true, name
+	}
 
 	ratio, ok := modelRatioMap.Get(name)
 	if !ok {
@@ -433,7 +451,11 @@ func GetDefaultModelPriceMap() map[string]float64 {
 }
 
 func CompletionRatio2JSONString() string {
-	return completionRatioMap.MarshalJSONString()
+	jsonBytes, err := common.Marshal(GetCompletionRatioCopy())
+	if err != nil {
+		return "{}"
+	}
+	return string(jsonBytes)
 }
 
 func UpdateCompletionRatioByJSONString(jsonStr string) error {
@@ -442,6 +464,9 @@ func UpdateCompletionRatioByJSONString(jsonStr string) error {
 
 func GetCompletionRatio(name string) float64 {
 	name = FormatMatchingModelName(name)
+	if pricing, hardcoded := getHardcodedModelPricing(name); hardcoded {
+		return pricing.CompletionRatio
+	}
 
 	if strings.Contains(name, "/") {
 		if ratio, ok := completionRatioMap.Get(name); ok {
@@ -465,6 +490,9 @@ type CompletionRatioInfo struct {
 
 func GetCompletionRatioInfo(name string) CompletionRatioInfo {
 	name = FormatMatchingModelName(name)
+	if pricing, hardcoded := getHardcodedModelPricing(name); hardcoded {
+		return CompletionRatioInfo{Ratio: pricing.CompletionRatio, Locked: true}
+	}
 
 	if strings.Contains(name, "/") {
 		if ratio, ok := completionRatioMap.Get(name); ok {
@@ -655,7 +683,11 @@ func ContainsAudioCompletionRatio(name string) bool {
 }
 
 func ModelRatio2JSONString() string {
-	return modelRatioMap.MarshalJSONString()
+	jsonBytes, err := common.Marshal(GetModelRatioCopy())
+	if err != nil {
+		return "{}"
+	}
+	return string(jsonBytes)
 }
 
 var defaultImageRatio = map[string]float64{
@@ -698,15 +730,29 @@ func UpdateAudioCompletionRatioByJSONString(jsonStr string) error {
 }
 
 func GetModelRatioCopy() map[string]float64 {
-	return modelRatioMap.ReadAll()
+	result := modelRatioMap.ReadAll()
+	for name, pricing := range hardcodedModelPricingMap {
+		result[name] = pricing.ModelRatio
+	}
+	return result
 }
 
 func GetModelPriceCopy() map[string]float64 {
-	return modelPriceMap.ReadAll()
+	result := modelPriceMap.ReadAll()
+	for name := range hardcodedModelPricingMap {
+		// These models are always token-priced, even if an administrator has
+		// previously saved a stale per-request price for them.
+		delete(result, name)
+	}
+	return result
 }
 
 func GetCompletionRatioCopy() map[string]float64 {
-	return completionRatioMap.ReadAll()
+	result := completionRatioMap.ReadAll()
+	for name, pricing := range hardcodedModelPricingMap {
+		result[name] = pricing.CompletionRatio
+	}
+	return result
 }
 
 func GetImageRatioCopy() map[string]float64 {

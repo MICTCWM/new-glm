@@ -394,10 +394,12 @@ func updatePricing() {
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
-			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
-				pricing.BillingMode = billingMode
-				pricing.BillingExpr = expr
+		if !ratio_setting.IsHardcodedModelPricing(model) {
+			if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
+				if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
+					pricing.BillingMode = billingMode
+					pricing.BillingExpr = expr
+				}
 			}
 		}
 		pricingMap = append(pricingMap, pricing)
@@ -497,10 +499,12 @@ func updatePricing() {
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(meta.ModelName)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(meta.ModelName); billingMode == "tiered_expr" {
-			if expr, ok := billing_setting.GetBillingExpr(meta.ModelName); ok && strings.TrimSpace(expr) != "" {
-				pricing.BillingMode = billingMode
-				pricing.BillingExpr = expr
+		if !ratio_setting.IsHardcodedModelPricing(meta.ModelName) {
+			if billingMode := billing_setting.GetBillingMode(meta.ModelName); billingMode == "tiered_expr" {
+				if expr, ok := billing_setting.GetBillingExpr(meta.ModelName); ok && strings.TrimSpace(expr) != "" {
+					pricing.BillingMode = billingMode
+					pricing.BillingExpr = expr
+				}
 			}
 		}
 		pricingMap = append(pricingMap, pricing)

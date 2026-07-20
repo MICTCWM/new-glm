@@ -608,6 +608,14 @@ export const selectFilter = (input, option) => {
 
 // -------------------------------
 // 模型定价计算工具函数
+// GPT-5.6 系列由后端强制按量计费；前端也保留同一份价格，避免旧的
+// ratio_config 或浏览器缓存导致模型广场显示错误价格。
+const HARD_CODED_TOKEN_PRICES = {
+  'gpt-5.6-sol': { input: 5, cache: 0.5, output: 30 },
+  'gpt-5.6-terra': { input: 2.5, cache: 0.25, output: 15 },
+  'gpt-5.6-luna': { input: 1, cache: 0.1, output: 6 },
+};
+
 export const calculateModelPrice = ({
   record,
   selectedGroup,
@@ -645,8 +653,10 @@ export const calculateModelPrice = ({
     }
   }
 
+  const hardcodedPrice = HARD_CODED_TOKEN_PRICES[record.model_name];
+
   // 2. 动态计费（tiered_expr）
-  if (record.billing_mode === 'tiered_expr' && record.billing_expr) {
+  if (!hardcodedPrice && record.billing_mode === 'tiered_expr' && record.billing_expr) {
     return {
       isDynamicPricing: true,
       billingExpr: record.billing_expr,
@@ -656,10 +666,21 @@ export const calculateModelPrice = ({
   }
 
   // 3. 根据计费类型计算价格
-  if (record.quota_type === 0) {
+  if (record.quota_type === 0 || hardcodedPrice) {
     // 按量计费
     const isTokensDisplay = quotaDisplayType === 'TOKENS';
-    const inputRatioPriceUSD = record.model_ratio * 2 * usedGroupRatio;
+    const inputRatio = hardcodedPrice
+      ? hardcodedPrice.input / 2
+      : record.model_ratio;
+    const completionRatio = hardcodedPrice
+      ? hardcodedPrice.output / hardcodedPrice.input
+      : record.completion_ratio;
+    const cacheRatio = hardcodedPrice
+      ? hardcodedPrice.cache / hardcodedPrice.input
+      : record.cache_ratio;
+    const inputRatioPriceUSD = hardcodedPrice
+      ? hardcodedPrice.input * usedGroupRatio
+      : record.model_ratio * 2 * usedGroupRatio;
     const unitDivisor = tokenUnit === 'K' ? 1000 : 1;
     const unitLabel = tokenUnit === 'K' ? 'K' : 'M';
     const hasRatioValue = (value) =>
@@ -673,9 +694,9 @@ export const calculateModelPrice = ({
 
     if (isTokensDisplay) {
       return {
-        inputRatio: formatRatio(record.model_ratio),
-        completionRatio: formatRatio(record.completion_ratio),
-        cacheRatio: formatRatio(record.cache_ratio),
+        inputRatio: formatRatio(inputRatio),
+        completionRatio: formatRatio(completionRatio),
+        cacheRatio: formatRatio(cacheRatio),
         createCacheRatio: formatRatio(record.create_cache_ratio),
         imageRatio: formatRatio(record.image_ratio),
         audioInputRatio: formatRatio(record.audio_ratio),
@@ -718,11 +739,9 @@ export const calculateModelPrice = ({
 
     return {
       inputPrice,
-      completionPrice: formatTokenPrice(
-        inputRatioPriceUSD * Number(record.completion_ratio),
-      ),
-      cachePrice: hasRatioValue(record.cache_ratio)
-        ? formatTokenPrice(inputRatioPriceUSD * Number(record.cache_ratio))
+      completionPrice: formatTokenPrice(inputRatioPriceUSD * Number(completionRatio)),
+      cachePrice: hasRatioValue(cacheRatio)
+        ? formatTokenPrice(inputRatioPriceUSD * Number(cacheRatio))
         : null,
       createCachePrice: hasRatioValue(record.create_cache_ratio)
         ? formatTokenPrice(inputRatioPriceUSD * Number(record.create_cache_ratio))
