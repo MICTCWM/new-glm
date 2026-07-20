@@ -346,9 +346,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	queueDeadline := time.Time{}
 	queueNoticeSent := false
 	runtimeRpmFull := false
-	var firstSpecificError *types.NewAPIError  // 第一条非网络层错误（更具体的上游错误），用于最终返回时替代 do_request_failed
-	var primaryRequestError *types.NewAPIError // 主请求阶段（含一次内部重试）的最终失败信息
-	primaryErrorReturned := false
+	var firstSpecificError *types.NewAPIError // 第一条非网络层错误（更具体的上游错误），用于最终返回时替代 do_request_failed
+	fallbackErrorReturned := false
 
 	defer func() {
 		// Release the RPM slot and wake one queued request when a request completes.
@@ -506,12 +505,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
-		// Preserve the primary channel error before the fallback handler runs.
-		// The fallback is deliberately not allowed to replace the error exposed
-		// to the client when it also fails.
-		if primaryRequestError == nil && !c.GetBool("fallback_used") {
-			primaryRequestError = newAPIError
-		}
 		relayInfo.LastError = newAPIError
 		// 记录第一条非网络层错误，用于最终返回时替代 do_request_failed
 		if firstSpecificError == nil && newAPIError.GetErrorCode() != types.ErrorCodeDoRequestFailed {
@@ -611,24 +604,24 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					return
 				}
 
-				// A failed fallback must not replace the primary request error.
-				fallbackError := newAPIError
+				// The fallback is the final attempt, so expose its error to the
+				// caller instead of restoring the primary-channel error. Apply the
+				// same error normalization as the primary request path.
+				fallbackError := service.NormalizeViolationFeeError(newAPIError)
+				fallbackError = service.NormalizeSensitiveWordsError(fallbackError)
 				relayInfo.LastError = fallbackError
 				model.UpdateChannelCallCount(fallbackChannel.Id, 1)
 				c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
 				c.Set("is_retry_attempt", true)
 				processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), fallbackError, relayInfo)
-				if primaryRequestError != nil {
-					newAPIError = primaryRequestError
-					primaryErrorReturned = true
-				}
+				newAPIError = fallbackError
+				fallbackErrorReturned = true
 			}
 		} else if fallbackErr != nil {
-			common.SysLog(fmt.Sprintf("兜底渠道获取失败，直接返回主请求错误: %v", fallbackErr))
-			if primaryRequestError != nil {
-				newAPIError = primaryRequestError
-				primaryErrorReturned = true
-			}
+			common.SysLog(fmt.Sprintf("兜底渠道获取失败，返回兜底错误: %v", fallbackErr))
+			newAPIError = service.NormalizeViolationFeeError(fallbackErr)
+			newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
+			fallbackErrorReturned = true
 		}
 	}
 
@@ -643,7 +636,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	if newAPIError != nil {
 		// 保护：如果最终错误是网络层错误(do_request_failed)，但之前有更具体的上游错误，返回之前的错误
-		if !primaryErrorReturned && newAPIError.GetErrorCode() == types.ErrorCodeDoRequestFailed && firstSpecificError != nil {
+		if !fallbackErrorReturned && newAPIError.GetErrorCode() == types.ErrorCodeDoRequestFailed && firstSpecificError != nil {
 			common.SysLog(fmt.Sprintf("最终错误为网络层错误，使用之前的上游错误: prev_error_code=%v", firstSpecificError.GetErrorCode()))
 			newAPIError = firstSpecificError
 		}
