@@ -128,6 +128,11 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 
+	// Capture the final Responses payload, not the intermediate Chat payload.
+	// This is especially important during fallback: it makes it possible to
+	// verify that an Anthropic request was actually sent to the RE endpoint.
+	info.UpstreamRequestBody = jsonData
+
 	var requestBody io.Reader = bytes.NewBuffer(jsonData)
 
 	upstreamRetryTimes := common.UpstreamRetryTimes

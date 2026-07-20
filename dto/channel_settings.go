@@ -5,7 +5,12 @@ type ChannelSettings struct {
 	// for this channel. When false, OpenAI-compatible channels use Chat
 	// Completions by default. Protocol selection is never inferred from the
 	// channel type.
-	ResponsesProtocol            bool   `json:"responses_protocol,omitempty"`
+	ResponsesProtocol bool `json:"responses_protocol,omitempty"`
+	// UpstreamProtocol is the legacy spelling used by channel settings created
+	// before ResponsesProtocol was introduced. Keep reading it so existing
+	// fallback channels configured with "responses" do not silently switch to
+	// Chat Completions after an upgrade.
+	UpstreamProtocol             string `json:"upstream_protocol,omitempty"`
 	ForceFormat                  bool   `json:"force_format,omitempty"`
 	ThinkingToContent            bool   `json:"thinking_to_content,omitempty"`
 	Proxy                        string `json:"proxy"`

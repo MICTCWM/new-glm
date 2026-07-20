@@ -9,16 +9,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestShouldChatCompletionsUseResponsesForChannelRequiresExplicitOptIn(t *testing.T) {
-	for _, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeCodex} {
-		require.False(t, ShouldChatCompletionsUseResponsesForChannel(
-			dto.ChannelSettings{}, 123, channelType, "gpt-5"),
-			"channel type must not implicitly select Responses",
-		)
-		require.True(t, ShouldChatCompletionsUseResponsesForChannel(
-			dto.ChannelSettings{ResponsesProtocol: true}, 123, channelType, "gpt-5"),
-		)
+func TestShouldChatCompletionsUseResponsesForChannelRequiresExplicitOptInForSwitchableChannels(t *testing.T) {
+	require.False(t, ShouldChatCompletionsUseResponsesForChannel(
+		dto.ChannelSettings{}, 123, constant.ChannelTypeOpenAI, "gpt-5"),
+		"switchable OpenAI channels must explicitly opt in to Responses",
+	)
+	require.True(t, ShouldChatCompletionsUseResponsesForChannel(
+		dto.ChannelSettings{ResponsesProtocol: true}, 123, constant.ChannelTypeOpenAI, "gpt-5"),
+	)
+}
+
+func TestShouldChatCompletionsUseResponsesForChannelAcceptsLegacyProtocolSetting(t *testing.T) {
+	for _, legacyValue := range []string{"responses", "response", "re"} {
+		require.Truef(t, ShouldChatCompletionsUseResponsesForChannel(
+			dto.ChannelSettings{UpstreamProtocol: legacyValue},
+			123,
+			constant.ChannelTypeOpenAI,
+			"gpt-5",
+		), "legacy protocol %q should select Responses", legacyValue)
+		require.Truef(t, ResponsesProtocolRequiredForChannel(
+			dto.ChannelSettings{UpstreamProtocol: legacyValue},
+			constant.ChannelTypeOpenAI,
+		), "legacy protocol %q should require Responses", legacyValue)
 	}
+}
+
+func TestCodexChannelAlwaysUsesResponsesProtocol(t *testing.T) {
+	require.True(t, ShouldChatCompletionsUseResponsesForChannel(
+		dto.ChannelSettings{}, 123, constant.ChannelTypeCodex, "gpt-5"),
+	)
+	require.True(t, ResponsesProtocolRequiredForChannel(
+		dto.ChannelSettings{PassThroughBodyEnabled: true}, constant.ChannelTypeCodex),
+	)
 }
 
 func TestShouldChatCompletionsUseResponsesPolicyStillSupportsLegacyMatching(t *testing.T) {
@@ -45,8 +67,7 @@ func TestAnthropicChannelNeverUsesResponsesProtocol(t *testing.T) {
 	)
 }
 
-func TestResponsesProtocolRequiredForChannelOnlyUsesExplicitSwitch(t *testing.T) {
-	require.False(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{PassThroughBodyEnabled: true}, constant.ChannelTypeCodex))
+func TestResponsesProtocolRequiredForChannelUsesExplicitSwitchForSwitchableChannels(t *testing.T) {
 	require.True(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{ResponsesProtocol: true}, constant.ChannelTypeOpenAI))
 	require.False(t, ResponsesProtocolRequiredForChannel(dto.ChannelSettings{}, constant.ChannelTypeOpenAI))
 }

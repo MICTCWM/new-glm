@@ -162,6 +162,11 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		if convErr != nil {
 			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
+		// Keep the intermediate Chat conversion visible in the conversion
+		// chain. The actual upstream hop is performed by the shared
+		// Chat->Responses helper below; this is intentionally not a direct
+		// Claude->Responses conversion.
+		relaycommon.AppendRequestConversionFromRequest(info, openAIRequest)
 
 		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, openAIRequest)
 		if newApiErr != nil {
