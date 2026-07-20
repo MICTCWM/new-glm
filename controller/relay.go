@@ -39,6 +39,15 @@ import (
 
 const HiddenUpstreamModelID = "gpt-5.4-mini"
 
+// skipGlobalRpmOverloadTransfer keeps channels that have their own routing
+// mode on the route selected by the distributor. The global RPM overload rule
+// only applies to ordinary channels; failure-based fallback remains handled
+// separately by source_channel_supports_fallback.
+func skipGlobalRpmOverloadTransfer(c *gin.Context) bool {
+	channel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel)
+	return ok && channel != nil && channel.IsExcludedFromRpmOverloadTransfer()
+}
+
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	switch info.RelayMode {
@@ -326,7 +335,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// the global threshold is reached, prefer a channel with the fallback
 		// switch enabled. The normal route remains available when no fallback
 		// channel is configured.
-		if !globalRpmAcquired {
+		if !globalRpmAcquired && !skipGlobalRpmOverloadTransfer(c) {
 			globalRpmAcquired = true
 			if service.GetGlobalRpmTracker().TryAcquire() && model.HasAvailableFallbackChannels() {
 				c.Set("overload_protection_triggered", true)

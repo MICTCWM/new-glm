@@ -1053,6 +1053,18 @@ func (channel *Channel) IsEmergencyPlanEnabled() bool {
 	return channel.GetSetting().EmergencyPlanEnabled
 }
 
+// IsExcludedFromRpmOverloadTransfer reports whether the channel must stay on
+// its selected route when the global RPM overload protection is triggered.
+// GPT-only, fallback, and emergency channels are managed separately and must
+// not be redirected by the normal-channel RPM overload rule.
+func (channel *Channel) IsExcludedFromRpmOverloadTransfer() bool {
+	if channel == nil {
+		return false
+	}
+	setting := channel.GetSetting()
+	return setting.GptModeRequired || setting.FallbackModelEnabled || setting.EmergencyPlanEnabled
+}
+
 func (channel *Channel) IsSupportFallback() bool {
 	if channel == nil {
 		return false
