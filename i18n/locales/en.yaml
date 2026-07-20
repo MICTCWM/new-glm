@@ -66,6 +66,8 @@ user.register_disabled: "New user registration has been disabled by administrato
 user.password_register_disabled: "Password registration has been disabled by administrator, please use third-party account verification"
 user.username_or_password_empty: "Username or password is empty"
 user.username_or_password_error: "Username or password is incorrect, or user has been banned"
+user.login_temporarily_locked: "Too many incorrect password attempts. Please try again in {{.Minutes}} minutes"
+user.login_auto_banned: "This account has been automatically banned after too many incorrect password attempts. Please contact an administrator to unlock it"
 user.email_or_password_empty: "Email or password is empty!"
 user.exists: "Username already exists or has been deleted"
 user.not_exists: "User does not exist"

@@ -49,6 +49,12 @@ export const USER_STATUSES = {
     value: USER_STATUS.DISABLED,
     showDot: true,
   },
+  AUTO_BANNED: {
+    labelKey: 'Auto Ban',
+    variant: 'danger' as const,
+    value: USER_STATUS.DISABLED,
+    showDot: true,
+  },
   DELETED: {
     labelKey: 'Deleted',
     variant: 'danger' as const,

@@ -128,7 +128,9 @@ export function useUsersColumns(): ColumnDef<User>[] {
 
         const statusConfig = isUserDeleted(user)
           ? USER_STATUSES.DELETED
-          : USER_STATUSES[user.status as keyof typeof USER_STATUSES]
+          : user.login_auto_banned
+            ? USER_STATUSES.AUTO_BANNED
+            : USER_STATUSES[user.status as keyof typeof USER_STATUSES]
 
         if (!statusConfig) {
           return null

@@ -45,7 +45,7 @@ type User struct {
 	WeChatId         string         `json:"wechat_id" gorm:"column:wechat_id;index"`
 	TelegramId       string         `json:"telegram_id" gorm:"column:telegram_id;index"`
 	VerificationCode string         `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
-	EntryCode       string         `json:"entry_code" gorm:"-:all"`                                          // 注册进入码，仅用于注册校验，不写入数据库
+	EntryCode        string         `json:"entry_code" gorm:"-:all"`                                           // 注册进入码，仅用于注册校验，不写入数据库
 	AccessToken      *string        `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int            `json:"quota" gorm:"type:int;default:0"`
 	GptQuota         float64        `json:"gpt_quota" gorm:"type:decimal(36,18);default:0"`         // GPT 专属额度（用户开启 GPT 模式后将基础余额转换得到）
@@ -65,6 +65,9 @@ type User struct {
 	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 	CreatedAt        int64          `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64          `json:"last_login_at" gorm:"default:0;column:last_login_at"`
+	LoginFailedCount int            `json:"login_failed_count" gorm:"type:int;default:0;column:login_failed_count"`
+	LoginLockedUntil int64          `json:"login_locked_until" gorm:"type:bigint;default:0;column:login_locked_until"`
+	LoginAutoBanned  bool           `json:"login_auto_banned" gorm:"default:false;column:login_auto_banned"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -631,7 +634,7 @@ func (user *User) ValidateAndFill() (err error) {
 		return fmt.Errorf("%w: %v", ErrDatabase, err)
 	}
 	okay := common.ValidatePasswordAndHash(password, user.Password)
-	if !okay || user.Status != common.UserStatusEnabled {
+	if !okay || user.Status != common.UserStatusEnabled || user.LoginAutoBanned || user.LoginLockedUntil > time.Now().Unix() {
 		return ErrInvalidCredentials
 	}
 	return nil

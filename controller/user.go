@@ -30,6 +30,20 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+func respondLoginProtectionError(c *gin.Context, status model.LoginProtectionStatus) bool {
+	if status.AutoBanned {
+		common.ApiErrorI18n(c, i18n.MsgUserLoginAutoBanned)
+		return true
+	}
+	if minutes := model.LoginLockRemainingMinutes(status.LockedUntil); minutes > 0 {
+		common.ApiErrorI18n(c, i18n.MsgUserLoginTemporarilyLocked, map[string]any{
+			"Minutes": minutes,
+		})
+		return true
+	}
+	return false
+}
+
 // RegisterEntryCode 注册进入码（硬编码），新用户注册时必须填写正确才能通过
 const RegisterEntryCode = "035725"
 
@@ -50,6 +64,15 @@ func Login(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	protection, protectionErr := model.GetLoginProtection(username)
+	if protectionErr != nil {
+		common.SysLog(fmt.Sprintf("Login protection database error for user %s: %v", username, protectionErr))
+		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+		return
+	}
+	if respondLoginProtectionError(c, protection) {
+		return
+	}
 	user := model.User{
 		Username: username,
 		Password: password,
@@ -62,6 +85,17 @@ func Login(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
 		case errors.Is(err, model.ErrUserEmptyCredentials):
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		case errors.Is(err, model.ErrInvalidCredentials):
+			failure, recordErr := model.RecordLoginFailure(username, password)
+			if recordErr != nil {
+				common.SysLog(fmt.Sprintf("Login protection database error for user %s: %v", username, recordErr))
+				common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+				return
+			}
+			if respondLoginProtectionError(c, failure) {
+				return
+			}
+			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
 		default:
 			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
 		}
@@ -1170,6 +1204,12 @@ func ManageUser(c *gin.Context) {
 	if err := user.Update(false); err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if req.Action == "enable" {
+		if err := model.ResetLoginProtection(user.Id); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 	// 禁用 / 角色调整后，强制失效用户缓存与其全部令牌缓存，
 	// 避免在 Redis TTL 过期前仍使用旧状态（尤其是禁用后仍可发起请求的问题）。

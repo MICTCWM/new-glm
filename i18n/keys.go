@@ -78,6 +78,8 @@ const (
 	MsgUserPasswordRegisterDisabled  = "user.password_register_disabled"
 	MsgUserUsernameOrPasswordEmpty   = "user.username_or_password_empty"
 	MsgUserUsernameOrPasswordError   = "user.username_or_password_error"
+	MsgUserLoginTemporarilyLocked    = "user.login_temporarily_locked"
+	MsgUserLoginAutoBanned           = "user.login_auto_banned"
 	MsgUserEmailOrPasswordEmpty      = "user.email_or_password_empty"
 	MsgUserExists                    = "user.exists"
 	MsgUserNotExists                 = "user.not_exists"

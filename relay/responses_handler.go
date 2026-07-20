@@ -21,6 +21,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// shouldRouteResponsesThroughChat selects the bridge from the request's
+// incoming Responses protocol to the selected channel's upstream protocol.
+// The channel setting is authoritative; API type is only an implementation
+// detail and must not force a Responses request onto a Chat channel.
+func shouldRouteResponsesThroughChat(info *relaycommon.RelayInfo) bool {
+	if info == nil || info.RelayMode != relayconstant.RelayModeResponses {
+		return false
+	}
+	if info.ChannelType == appconstant.ChannelTypeAnthropic {
+		return false
+	}
+	return !service.ResponsesProtocolRequiredForChannel(info.ChannelSetting, info.ChannelType)
+}
+
 func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
 	if info.RelayMode == relayconstant.RelayModeResponsesCompact {
@@ -83,11 +97,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	}
 
 	// A Responses request must follow the selected channel's configured
-	// protocol. OpenAI-compatible Chat channels receive a Chat request and
-	// their Chat response is converted back to Responses for the caller.
-	if info.RelayMode == relayconstant.RelayModeResponses &&
-		isOpenAICompatibleAPIType(info.ApiType) &&
-		!service.ResponsesProtocolRequiredForChannel(info.ChannelSetting, info.ChannelType) {
+	// protocol. Chat channels receive a Chat request and their normalized Chat
+	// response is converted back to Responses for the caller. Do not infer the
+	// upstream protocol from the adaptor/API type: the same model can be served
+	// by different channel adaptors.
+	if shouldRouteResponsesThroughChat(info) {
 		usage, newApiErr := responsesViaChatCompletions(c, info, adaptor, request)
 		if newApiErr != nil {
 			return newApiErr

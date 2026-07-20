@@ -127,10 +127,17 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 
 		var usage *dto.Usage
 		var napiErr *types.NewAPIError
-		if info.IsStream {
-			usage, napiErr = openaichannel.ChatCompletionsToResponsesStreamHandler(c, info, httpResp)
+		if isOpenAICompatibleAPIType(info.ApiType) {
+			if info.IsStream {
+				usage, napiErr = openaichannel.ChatCompletionsToResponsesStreamHandler(c, info, httpResp)
+			} else {
+				usage, napiErr = openaichannel.ChatCompletionsToResponsesHandler(c, info, httpResp)
+			}
 		} else {
-			usage, napiErr = openaichannel.ChatCompletionsToResponsesHandler(c, info, httpResp)
+			// Native adaptors may return a provider-specific response even though
+			// their request protocol is Chat. Normalize that response through the
+			// adaptor first, then reuse the standard Chat -> Responses converter.
+			usage, napiErr = normalizeAdaptorChatResponseToResponses(c, info, adaptor, httpResp)
 		}
 		if napiErr != nil {
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
@@ -155,6 +162,88 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 	}
 
 	return nil, lastApiErr
+}
+
+// normalizeAdaptorChatResponseToResponses lets a native channel adaptor
+// translate its provider response into the normal Chat Completions response
+// before the shared Chat -> Responses conversion runs. This keeps protocol
+// selection independent from the provider-specific API type.
+func normalizeAdaptorChatResponseToResponses(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, upstreamResp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	originalWriter := c.Writer
+	bufferWriter := &chatResponseBufferWriter{ResponseWriter: originalWriter}
+	c.Writer = bufferWriter
+
+	originalRelayFormat := info.RelayFormat
+	info.RelayFormat = types.RelayFormatOpenAI
+	_, adaptorErr := adaptor.DoResponse(c, upstreamResp, info)
+	info.RelayFormat = originalRelayFormat
+	c.Writer = originalWriter
+	if adaptorErr != nil {
+		return nil, adaptorErr
+	}
+
+	statusCode := bufferWriter.status
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	normalizedResp := &http.Response{
+		StatusCode: statusCode,
+		Header:     bufferWriter.Header().Clone(),
+		Body:       io.NopCloser(bytes.NewReader(bufferWriter.buf.Bytes())),
+	}
+	if info.IsStream {
+		return openaichannel.ChatCompletionsToResponsesStreamHandler(c, info, normalizedResp)
+	}
+	return openaichannel.ChatCompletionsToResponsesHandler(c, info, normalizedResp)
+}
+
+// chatResponseBufferWriter captures the Chat response emitted by a native
+// adaptor without sending it to the user before it can be converted to RE.
+type chatResponseBufferWriter struct {
+	gin.ResponseWriter
+	buf     bytes.Buffer
+	status  int
+	written bool
+}
+
+func (w *chatResponseBufferWriter) WriteHeader(code int) {
+	if w.written {
+		return
+	}
+	w.status = code
+	w.written = true
+}
+
+func (w *chatResponseBufferWriter) WriteHeaderNow() {
+	if !w.written {
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func (w *chatResponseBufferWriter) Write(data []byte) (int, error) {
+	w.WriteHeaderNow()
+	return w.buf.Write(data)
+}
+
+func (w *chatResponseBufferWriter) WriteString(data string) (int, error) {
+	w.WriteHeaderNow()
+	return w.buf.WriteString(data)
+}
+
+func (w *chatResponseBufferWriter) Status() int {
+	return w.status
+}
+
+func (w *chatResponseBufferWriter) Written() bool {
+	return w.written
+}
+
+func (w *chatResponseBufferWriter) Size() int {
+	return w.buf.Len()
+}
+
+func (w *chatResponseBufferWriter) Flush() {
+	w.WriteHeaderNow()
 }
 
 func isEventStream(resp *http.Response) bool {

@@ -193,7 +193,7 @@ export function ChannelsTable() {
 
   // Fetch channels data
   // eslint-disable-next-line @tanstack/query/exhaustive-deps
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: channelsQueryKeys.list({
       keyword: globalFilter,
       model: modelFilter,
@@ -266,6 +266,10 @@ export function ChannelsTable() {
     // when the browser tab is unfocused (refetchIntervalInBackground: false),
     // so background tabs won't waste resources.
     refetchInterval: isAdmin ? 1000 : false,
+    // A polling response only updates the existing rows.  Do not trigger an
+    // additional refetch when the tab regains focus and make the table keep
+    // its current contents while the request is in flight.
+    refetchOnWindowFocus: false,
   })
 
   // Apply tag aggregation if tag mode is enabled
@@ -310,6 +314,13 @@ export function ChannelsTable() {
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
     getSubRows: (row: Channel & { children?: Channel[] }) => row.children,
+    // The default row id is the array index.  An explicit id keeps a channel
+    // row (and its animated RPM cell) mounted when a polling response replaces
+    // the array with new objects.
+    getRowId: (row) =>
+      isTagAggregateRow(row)
+        ? `tag:${row.tag ?? ''}`
+        : `channel:${row.id}`,
     manualPagination: true,
     manualSorting: true,
     manualFiltering: true,
@@ -383,7 +394,6 @@ export function ChannelsTable() {
       table={table}
       columns={columns}
       isLoading={isLoading}
-      isFetching={isFetching}
       emptyTitle={t('No Channels Found')}
       emptyDescription={t(
         'No channels available. Create your first channel to get started.'
