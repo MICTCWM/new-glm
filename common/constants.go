@@ -151,9 +151,16 @@ var AutomaticEnableChannelEnabled = false
 var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 
-var RetryTimes = 5 // 重试次数，默认5次，每次尝试不同的渠道
+// RetryTimes is the number of additional channel selections performed by the
+// outer relay loop. Upstream retries are handled inside each relay handler;
+// keeping this at zero guarantees that a failed primary request goes directly
+// to the single fallback request instead of trying more primary channels.
+const RetryTimes = 0
 
-var FailoverRetryTimes = 4 // 故障转移重试次数，重试达到此次数后触发兜底，不能大于RetryTimes
+// FailoverRetryTimes is retained as a compatibility value for usage metadata
+// and old callers. The failover decision is now hard-coded in the relay
+// controller and does not depend on this value.
+const FailoverRetryTimes = 1
 
 // OverloadProtectionRPM is the global request threshold for overload protection.
 // Once the current global request rate reaches this value, new requests are
@@ -161,10 +168,15 @@ var FailoverRetryTimes = 4 // 故障转移重试次数，重试达到此次数�
 // overload protection.
 var OverloadProtectionRPM = 30
 
-var UpstreamRetryTimes = 5
+// UpstreamRetryTimes is intentionally hard-coded. Every primary upstream
+// request may have exactly one internal retry; fallback requests disable this
+// retry in the relay handlers, resulting in at most three upstream calls:
+// primary + one internal retry + one fallback.
+const UpstreamRetryTimes = 1
 
-// RetryDelays 定义每次重试前的等待时间
-// 第 1 次重试等待 3 秒，第 2 次等待 5 秒，第 3 次等待 7 秒，第 4 次等待 10 秒，第 5 次等待 15 秒
+// RetryDelays defines the delay before an internal retry. Only the first
+// entry is used by the hard-coded one-retry policy; the remaining entries are
+// retained for compatibility with older callers.
 var RetryDelays = []time.Duration{
 	3 * time.Second,  // 第 1 次重试
 	5 * time.Second,  // 第 2 次重试

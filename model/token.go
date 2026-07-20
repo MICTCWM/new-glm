@@ -27,8 +27,8 @@ type Token struct {
 	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
 	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
 	Group              string         `json:"group" gorm:"default:''"`
-	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
-	MaxRetryEnabled    bool           `json:"max_retry_enabled" gorm:"default:false"` // 极限重试开关，开启后重试50次
+	CrossGroupRetry    bool           `json:"cross_group_retry"`                      // 跨分组重试，仅auto分组有效
+	MaxRetryEnabled    bool           `json:"max_retry_enabled" gorm:"default:false"` // Deprecated: retry policy is hard-coded and this value is ignored.
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 

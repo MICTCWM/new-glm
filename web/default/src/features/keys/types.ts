@@ -93,7 +93,6 @@ export interface ApiKeyFormData {
   allow_ips: string
   group: string
   cross_group_retry: boolean
-  max_retry_enabled: boolean
 }
 
 // ============================================================================

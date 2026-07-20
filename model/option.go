@@ -165,15 +165,12 @@ func InitOptionMap() {
 	//common.OptionMap["ChatLink"] = common.ChatLink
 	//common.OptionMap["ChatLink2"] = common.ChatLink2
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
-	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
-	common.OptionMap["FailoverRetryTimes"] = strconv.Itoa(common.FailoverRetryTimes)
 	common.OptionMap["OverloadProtectionRPM"] = strconv.Itoa(common.OverloadProtectionRPM)
 	common.OptionMap["RenewPotentialPassScore"] = strconv.Itoa(common.RenewPotentialPassScore)
 	common.OptionMap["LowQuotaAlertPercent"] = strconv.Itoa(common.LowQuotaAlertPercent)
 	common.OptionMap["ShortExpiryDays"] = strconv.Itoa(common.ShortExpiryDays)
 	common.OptionMap["ConsumeStatPeriodDays"] = strconv.Itoa(common.ConsumeStatPeriodDays)
 	common.OptionMap["RequestMaxDuration"] = strconv.Itoa(common.RequestMaxDuration)
-	common.OptionMap["UpstreamRetryTimes"] = strconv.Itoa(common.UpstreamRetryTimes)
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
 	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
 	common.OptionMap["DefaultCollapseSidebar"] = strconv.FormatBool(common.DefaultCollapseSidebar)
@@ -224,6 +221,13 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	// Retry behavior is a fixed safety policy, not an administrator setting.
+	// Ignore writes instead of persisting values that would be misleading on
+	// the next restart or on another node.
+	if isHardcodedRetryOption(key) {
+		return nil
+	}
+
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -239,9 +243,32 @@ func UpdateOption(key string, value string) error {
 	return updateOptionMap(key, value)
 }
 
+func isHardcodedRetryOption(key string) bool {
+	switch key {
+	case "RetryTimes", "FailoverRetryTimes", "UpstreamRetryTimes":
+		return true
+	default:
+		return false
+	}
+}
+
 func updateOptionMap(key string, value string) (err error) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if isHardcodedRetryOption(key) {
+		// Do not allow stale database values or a cross-node sync to change the
+		// effective retry policy. These options are intentionally not exposed in
+		// OptionMap, but normalize them here for backward compatibility.
+		switch key {
+		case "RetryTimes":
+			common.OptionMap[key] = "0"
+		case "FailoverRetryTimes":
+			common.OptionMap[key] = "1"
+		case "UpstreamRetryTimes":
+			common.OptionMap[key] = "1"
+		}
+		return nil
+	}
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理
@@ -512,16 +539,6 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.ModelRequestRateLimitSuccessCount, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitGroup":
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
-	case "RetryTimes":
-		common.RetryTimes, _ = strconv.Atoi(value)
-		if common.FailoverRetryTimes > common.RetryTimes {
-			common.FailoverRetryTimes = common.RetryTimes
-		}
-	case "FailoverRetryTimes":
-		common.FailoverRetryTimes, _ = strconv.Atoi(value)
-		if common.FailoverRetryTimes > common.RetryTimes {
-			common.FailoverRetryTimes = common.RetryTimes
-		}
 	case "OverloadProtectionRPM":
 		common.OverloadProtectionRPM, _ = strconv.Atoi(value)
 	case "RenewPotentialPassScore":
@@ -534,8 +551,6 @@ func updateOptionMap(key string, value string) (err error) {
 		common.ConsumeStatPeriodDays, _ = strconv.Atoi(value)
 	case "RequestMaxDuration":
 		common.RequestMaxDuration, _ = strconv.Atoi(value)
-	case "UpstreamRetryTimes":
-		common.UpstreamRetryTimes, _ = strconv.Atoi(value)
 	case "DataExportInterval":
 		common.DataExportInterval, _ = strconv.Atoi(value)
 	case "DataExportDefaultTime":

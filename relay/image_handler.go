@@ -89,6 +89,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	}
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
+	if c.GetBool("fallback_triggered") {
+		upstreamRetryTimes = 0
+	}
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
 

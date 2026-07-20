@@ -34,8 +34,6 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <SystemBehaviorSection
         defaultValues={{
-          RetryTimes: settings.RetryTimes,
-          FailoverRetryTimes: settings.FailoverRetryTimes,
           OverloadProtectionRPM: settings.OverloadProtectionRPM,
           RenewPotentialPassScore: settings.RenewPotentialPassScore,
           LowQuotaAlertPercent: settings.LowQuotaAlertPercent,

@@ -63,6 +63,9 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	var requestBody io.Reader = bytes.NewBuffer(jsonData)
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
+	if c.GetBool("fallback_triggered") {
+		upstreamRetryTimes = 0
+	}
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
 

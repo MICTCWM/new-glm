@@ -37,8 +37,6 @@ import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 const behaviorSchema = z.object({
-  RetryTimes: z.coerce.number().min(0).max(10),
-  FailoverRetryTimes: z.coerce.number().min(0).max(10),
   OverloadProtectionRPM: z.coerce.number().int().min(0).max(100000),
   RenewPotentialPassScore: z.coerce.number().min(0).max(100),
   LowQuotaAlertPercent: z.coerce.number().min(0).max(100),
@@ -87,58 +85,6 @@ export function SystemBehaviorSection({
     >
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
-          <FormField
-            control={form.control}
-            name='RetryTimes'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Retry Times')}</FormLabel>
-                <FormControl>
-                  <Input
-                    type='number'
-                    min='0'
-                    max='10'
-                    value={field.value as number}
-                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
-                    name={field.name}
-                    onBlur={field.onBlur}
-                    ref={field.ref}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t('Number of times to retry failed requests (0-10)')}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name='FailoverRetryTimes'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t('Failover Retry Times')}</FormLabel>
-                <FormControl>
-                  <Input
-                    type='number'
-                    min='0'
-                    max='10'
-                    value={field.value as number}
-                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
-                    name={field.name}
-                    onBlur={field.onBlur}
-                    ref={field.ref}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t('Number of retries before failover to fallback channels (0-10, must be <= retry times)')}
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
           <FormField
             control={form.control}
             name='OverloadProtectionRPM'
