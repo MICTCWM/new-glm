@@ -158,12 +158,12 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 }
 
 func isEventStream(resp *http.Response) bool {
-	return resp != nil && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
+	return resp != nil && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream")
 }
 
 func isOpenAICompatibleAPIType(apiType int) bool {
 	switch apiType {
-	case constant.APITypeOpenAI, constant.APITypeOpenRouter, constant.APITypeXinference:
+	case constant.APITypeOpenAI, constant.APITypeOpenRouter, constant.APITypeXinference, constant.APITypeXai:
 		return true
 	default:
 		return false

@@ -136,6 +136,12 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	}
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
+	clientStream := info.IsStream
+	upstreamStream := false
+	savedIsStream := info.IsStream
+	defer func() {
+		info.IsStream = savedIsStream
+	}()
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
@@ -173,7 +179,8 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 			httpResp.Body.Close()
 		}
 		httpResp = resp.(*http.Response)
-		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+		upstreamStream = isResponsesEventStreamContentType(httpResp.Header.Get("Content-Type"))
+		info.IsStream = clientStream || upstreamStream
 		if httpResp.StatusCode != http.StatusOK {
 			napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
@@ -186,7 +193,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 			continue
 		}
 
-		if info.IsStream {
+		if upstreamStream {
 			info.ActualApiCallCount = attempt + 1
 			break
 		}
@@ -217,14 +224,28 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return usage, nil
 	}
 
-	// 流式响应：在循环外处理，不重试（stream handler 内部已处理零输出检测）
-	if info.IsStream {
+	// Responses SSE must always be converted before it reaches a Chat client.
+	// Keep the client and upstream stream flags separate: an upstream may stream
+	// even when the client requested a buffered response, and vice versa.
+	if upstreamStream {
+		if !clientStream {
+			return openaichannel.OaiResponsesToChatBufferedStreamHandler(c, info, httpResp)
+		}
 		usage, napiErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
 		if napiErr != nil {
 			return nil, napiErr
 		}
 		return usage, nil
 	}
+	if clientStream && httpResp != nil {
+		// Some gateways ignore stream=true and return one JSON Responses object.
+		// Convert it to the requested Chat response instead of returning no body.
+		return openaichannel.OaiResponsesToChatHandler(c, info, httpResp)
+	}
 
 	return nil, lastApiErr
+}
+
+func isResponsesEventStreamContentType(contentType string) bool {
+	return strings.Contains(strings.ToLower(contentType), "text/event-stream")
 }

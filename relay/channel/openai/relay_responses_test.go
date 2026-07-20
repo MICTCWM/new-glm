@@ -85,6 +85,86 @@ func TestOaiResponsesStreamHandlerForwardsOutputEvents(t *testing.T) {
 	}
 }
 
+func TestOaiResponsesToChatStreamHandlerNeverLeaksResponsesEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"chatcmpl-1","object":"response","created_at":0,"status":"in_progress","instructions":null,"max_output_tokens":0,"model":"grok-4.5","output":null,"parallel_tool_calls":false,"previous_response_id":null,"reasoning":null,"store":false,"temperature":0,"tool_choice":null,"tools":null,"top_p":0,"truncation":null,"usage":null,"user":null,"metadata":null}}`,
+		`data: {"type":"response.output_text.delta","delta":"hello"}`,
+		`data: {"type":"response.completed","response":{"id":"chatcmpl-1","object":"response","created_at":0,"status":"completed","model":"grok-4.5","output":null,"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n\n")
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream; charset=utf-8"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "grok-4.5"},
+		RelayFormat: types.RelayFormatOpenAI,
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		IsStream:    true,
+	}
+
+	if _, apiErr := OaiResponsesToChatStreamHandler(ctx, info, resp); apiErr != nil {
+		t.Fatalf("apiErr = %v, want nil", apiErr)
+	}
+	got := recorder.Body.String()
+	for _, leaked := range []string{"response.created", "response.output_text.delta", "response.completed"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("Responses event %q leaked into Chat response: %s", leaked, got)
+		}
+	}
+	if !strings.Contains(got, `"object":"chat.completion.chunk"`) || !strings.Contains(got, `"choices"`) {
+		t.Fatalf("converted Chat chunks are missing: %s", got)
+	}
+	if !strings.Contains(got, `"content":"hello"`) {
+		t.Fatalf("converted text delta is missing: %s", got)
+	}
+}
+
+func TestOaiResponsesToChatBufferedStreamHandlerReturnsChatJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp-1","model":"grok-4.5"}}`,
+		`data: {"type":"response.output_text.delta","delta":"hello"}`,
+		`data: {"type":"response.completed","response":{"id":"resp-1","model":"grok-4.5","status":"completed","usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "grok-4.5"},
+		RelayFormat: types.RelayFormatOpenAI,
+	}
+
+	if _, apiErr := OaiResponsesToChatBufferedStreamHandler(ctx, info, resp); apiErr != nil {
+		t.Fatalf("apiErr = %v, want nil", apiErr)
+	}
+	got := recorder.Body.String()
+	if strings.Contains(got, "response.created") || strings.Contains(got, "response.completed") {
+		t.Fatalf("Responses events leaked into buffered Chat response: %s", got)
+	}
+	if !strings.Contains(got, `"object":"chat.completion"`) || !strings.Contains(got, `"content":"hello"`) {
+		t.Fatalf("unexpected buffered Chat response: %s", got)
+	}
+}
+
 func TestOpenAIAdaptorUsesConfiguredChatOrResponsesPath(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := &relaycommon.RelayInfo{

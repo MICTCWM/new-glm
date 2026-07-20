@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net/http"
@@ -94,6 +95,120 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 	return usage, nil
+}
+
+// OaiResponsesToChatBufferedStreamHandler consumes a Responses SSE stream and
+// emits one regular Chat Completions response. This is needed when an upstream
+// streams regardless of the client's stream=false request; forwarding the SSE
+// events would make a Chat SDK attempt to validate response.created as a Chat
+// response and fail with "expected choices".
+func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	defer service.CloseResponseBodyGracefully(resp)
+
+	aggregate := &dto.OpenAIResponsesResponse{
+		ID:        helper.GetResponseID(c),
+		Object:    "response",
+		CreatedAt: int(time.Now().Unix()),
+		Model:     info.UpstreamModelName,
+		Status:    []byte(`"completed"`),
+	}
+	var outputText strings.Builder
+	var outputItems []dto.ResponsesOutput
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, helper.InitialScannerBufferSize), helper.DefaultMaxScannerBufferSize)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+
+		var event dto.ResponsesStreamResponse
+		if err := common.UnmarshalJsonStr(data, &event); err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		if event.Type == "response.error" || event.Type == "response.failed" {
+			if event.Response != nil {
+				if oaiErr := event.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
+					return nil, types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
+				}
+			}
+			return nil, types.NewOpenAIError(fmt.Errorf("responses stream error: %s", event.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+
+		switch event.Type {
+		case "response.created":
+			if event.Response != nil {
+				*aggregate = *event.Response
+			}
+		case "response.output_text.delta":
+			outputText.WriteString(event.Delta)
+		case "response.output_item.done":
+			if event.Item != nil {
+				outputItems = append(outputItems, *event.Item)
+			}
+		case "response.completed", "response.done", "response.incomplete":
+			if event.Response != nil {
+				previousOutput := aggregate.Output
+				*aggregate = *event.Response
+				if len(aggregate.Output) == 0 {
+					aggregate.Output = previousOutput
+				}
+			}
+			if event.Type == "response.incomplete" && len(aggregate.Status) == 0 {
+				aggregate.Status = []byte(`"incomplete"`)
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+
+	if aggregate.ID == "" {
+		aggregate.ID = helper.GetResponseID(c)
+	}
+	if aggregate.Model == "" {
+		aggregate.Model = info.UpstreamModelName
+	}
+	for _, output := range aggregate.Output {
+		if output.Type == "message" {
+			outputText.Reset()
+			break
+		}
+	}
+	if outputText.Len() > 0 {
+		aggregate.Output = append(aggregate.Output, dto.ResponsesOutput{
+			Type:   "message",
+			Role:   "assistant",
+			Status: "completed",
+			Content: []dto.ResponsesOutputContent{{
+				Type: "output_text",
+				Text: outputText.String(),
+			}},
+		})
+	}
+	if len(outputItems) > 0 {
+		aggregate.Output = append(aggregate.Output, outputItems...)
+	}
+
+	body, err := common.Marshal(aggregate)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+	}
+	chatResp := &http.Response{
+		StatusCode: resp.StatusCode,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(string(body))),
+	}
+	chatResp.Header.Set("Content-Type", "application/json")
+	return OaiResponsesToChatHandler(c, info, chatResp)
 }
 
 func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
