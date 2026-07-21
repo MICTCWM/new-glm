@@ -307,11 +307,22 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		for _, tool := range req.Tools {
 			switch tool.Type {
 			case "function":
+				// Build the function tool map conditionally so we respect the
+				// `omitempty` semantics of dto.FunctionRequest. The previous
+				// implementation always emitted `parameters` and `description`,
+				// which produced `"parameters": null` when the caller omitted the
+				// field. Upstream Responses APIs reject that with errors such as
+				// "null is not of type array" (the meta-schema validates array
+				// sub-fields like `required` against the null object).
 				functionTool := map[string]any{
-					"type":        "function",
-					"name":        tool.Function.Name,
-					"description": tool.Function.Description,
-					"parameters":  tool.Function.Parameters,
+					"type": "function",
+					"name": tool.Function.Name,
+				}
+				if tool.Function.Description != "" {
+					functionTool["description"] = tool.Function.Description
+				}
+				if tool.Function.Parameters != nil {
+					functionTool["parameters"] = sanitizeFunctionParameters(tool.Function.Parameters)
 				}
 				if len(tool.Function.Strict) > 0 {
 					var strict any
@@ -422,4 +433,49 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	}
 
 	return out, nil
+}
+
+// jsonSchemaArrayFields lists JSON Schema keywords whose value MUST be an
+// array. When clients send `null` for these fields (which is invalid per the
+// JSON Schema spec), upstream Responses APIs reject the entire function
+// definition with errors such as "null is not of type array". We drop these
+// null entries defensively so a malformed client schema does not break the
+// protocol conversion.
+var jsonSchemaArrayFields = map[string]struct{}{
+	"required":    {},
+	"enum":        {},
+	"anyOf":       {},
+	"oneOf":       {},
+	"allOf":       {},
+	"prefixItems": {},
+}
+
+// sanitizeFunctionParameters recursively cleans a JSON Schema value before it
+// is forwarded to the Responses API. It drops null values for keywords that
+// must be arrays (e.g. `required`, `enum`) and recurses into `properties`,
+// `items`, and the composition keywords so nested schemas are cleaned too.
+// Non-array null values such as `default: null` or `const: null` are
+// preserved because they are valid JSON Schema.
+func sanitizeFunctionParameters(params any) any {
+	switch v := params.(type) {
+	case map[string]any:
+		cleaned := make(map[string]any, len(v))
+		for k, val := range v {
+			if val == nil {
+				if _, isArrayField := jsonSchemaArrayFields[k]; isArrayField {
+					continue
+				}
+			}
+			cleaned[k] = sanitizeFunctionParameters(val)
+		}
+		return cleaned
+	case []any:
+		cleaned := make([]any, len(v))
+		for i, item := range v {
+			cleaned[i] = sanitizeFunctionParameters(item)
+		}
+		return cleaned
+	default:
+		return params
+	}
 }

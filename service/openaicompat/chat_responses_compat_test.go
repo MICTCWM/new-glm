@@ -134,6 +134,114 @@ func TestChatCompletionsStreamChunkToResponsesEventsFinalizesToolCall(t *testing
 	require.Equal(t, "function_call", final[len(final)-1].Payload.Response.Output[1].Type)
 }
 
+// TestChatCompletionsRequestToResponsesOmitsNilFunctionParameters verifies that
+// a function tool without `parameters` does not produce `"parameters": null`
+// in the converted Responses payload. Upstream APIs reject null parameters
+// with "null is not of type array" because the meta-schema validates array
+// sub-fields (e.g. `required`) against the null object.
+func TestChatCompletionsRequestToResponsesOmitsNilFunctionParameters(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{
+		Model: "gpt-test",
+		N:     lo.ToPtr(1),
+		Tools: []dto.ToolCallRequest{{
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name: "TaskList",
+				// Description and Parameters intentionally left empty/nil.
+			},
+		}},
+		Messages: []dto.Message{{Role: "user", Content: "hi"}},
+	}
+
+	got, err := ChatCompletionsRequestToResponsesRequest(req)
+	require.NoError(t, err)
+
+	// `parameters` must be absent (not null) when the caller omits it.
+	require.False(t, gjson.GetBytes(got.Tools, "0.parameters").Exists(),
+		"parameters should be omitted when nil, got: %s", string(got.Tools))
+	// `description` must be absent when empty.
+	require.False(t, gjson.GetBytes(got.Tools, "0.description").Exists(),
+		"description should be omitted when empty, got: %s", string(got.Tools))
+	require.Equal(t, "TaskList", jsonPath(t, got.Tools, "0.name"))
+	require.Equal(t, "function", jsonPath(t, got.Tools, "0.type"))
+}
+
+// TestChatCompletionsRequestToResponsesSanitizesNullArrayFields verifies that
+// null values for JSON Schema keywords that must be arrays (e.g. `required`,
+// `enum`) are dropped before forwarding to the Responses API. This prevents
+// upstream validation errors like "null is not of type array".
+func TestChatCompletionsRequestToResponsesSanitizesNullArrayFields(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{
+		Model: "gpt-test",
+		N:     lo.ToPtr(1),
+		Tools: []dto.ToolCallRequest{{
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name: "TaskList",
+				Parameters: map[string]any{
+					"type":       "object",
+					"required":   nil, // invalid JSON Schema, should be dropped
+					"enum":       nil, // invalid JSON Schema, should be dropped
+					"properties": map[string]any{
+						"status": map[string]any{
+							"type": "string",
+							"enum": []any{"pending", "completed"},
+						},
+					},
+					"default": nil, // valid JSON Schema, should be preserved
+				},
+			},
+		}},
+		Messages: []dto.Message{{Role: "user", Content: "hi"}},
+	}
+
+	got, err := ChatCompletionsRequestToResponsesRequest(req)
+	require.NoError(t, err)
+
+	// `required` and `enum` (null) must be dropped.
+	require.False(t, gjson.GetBytes(got.Tools, "0.parameters.required").Exists(),
+		"null required field should be dropped, got: %s", string(got.Tools))
+	require.False(t, gjson.GetBytes(got.Tools, "0.parameters.enum").Exists(),
+		"null enum field should be dropped, got: %s", string(got.Tools))
+	// `default: null` is valid JSON Schema and must be preserved.
+	require.True(t, gjson.GetBytes(got.Tools, "0.parameters.default").Exists(),
+		"default field should be preserved even when null, got: %s", string(got.Tools))
+	// Nested `enum` array must be preserved.
+	require.Equal(t, "pending", jsonPath(t, got.Tools, "0.parameters.properties.status.enum.0"),
+		"nested enum array should be preserved, got: %s", string(got.Tools))
+}
+
+// TestChatCompletionsRequestToResponsesPreservesValidArrayFields verifies that
+// non-null array fields in the JSON Schema are preserved through the conversion.
+func TestChatCompletionsRequestToResponsesPreservesValidArrayFields(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{
+		Model: "gpt-test",
+		N:     lo.ToPtr(1),
+		Tools: []dto.ToolCallRequest{{
+			Type: "function",
+			Function: dto.FunctionRequest{
+				Name: "TaskList",
+				Parameters: map[string]any{
+					"type":     "object",
+					"required": []any{"task_id"},
+					"properties": map[string]any{
+						"task_id": map[string]any{"type": "string"},
+					},
+				},
+			},
+		}},
+		Messages: []dto.Message{{Role: "user", Content: "hi"}},
+	}
+
+	got, err := ChatCompletionsRequestToResponsesRequest(req)
+	require.NoError(t, err)
+
+	require.Equal(t, "object", jsonPath(t, got.Tools, "0.parameters.type"))
+	require.Equal(t, "task_id", jsonPath(t, got.Tools, "0.parameters.required.0"),
+		"required array should be preserved, got: %s", string(got.Tools))
+	require.Equal(t, "string", jsonPath(t, got.Tools, "0.parameters.properties.task_id.type"))
+}
+
 func jsonPath(t *testing.T, raw []byte, path string) string {
 	t.Helper()
 	return gjson.GetBytes(raw, path).String()
