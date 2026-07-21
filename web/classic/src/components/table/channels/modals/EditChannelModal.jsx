@@ -1832,6 +1832,10 @@ const EditChannelModal = (props) => {
 
     // 生成渠道额外设置JSON
     const channelExtraSettings = {
+      // Keep the Responses/RE protocol switch in the persisted channel setting.
+      // The backend reads it from ChannelSettings (the JSON stored in setting).
+      // Omitting it here silently switches an enabled RE channel back to Chat.
+      responses_protocol: localInputs.responses_protocol === true,
       force_format: localInputs.force_format || false,
       thinking_to_content: localInputs.thinking_to_content || false,
       proxy: localInputs.proxy || '',
