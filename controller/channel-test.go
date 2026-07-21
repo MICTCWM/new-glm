@@ -941,6 +941,11 @@ func confirm429DisableCandidates(candidates []channelTestDisableCandidate) {
 			if channel.Status != common.ChannelStatusEnabled {
 				continue
 			}
+			// 兜底/GPT 模式渠道不参与延迟禁用复测，直接跳过
+			if channel.IsExcludedFromAutoBan() {
+				common.SysLog(fmt.Sprintf("通道「%s」（#%d）已开启兜底/GPT 模式，第 %d 轮 429 复测跳过禁用", channel.Name, channel.Id, round))
+				continue
+			}
 			result := testChannelWithUsingKey(channel, "", "", shouldUseStreamForAutomaticChannelTest(channel), candidate.channelError.UsingKey)
 			apiErr := result.newAPIError
 			if apiErr == nil {
@@ -960,6 +965,11 @@ func confirm429DisableCandidates(candidates []channelTestDisableCandidate) {
 	for _, candidate := range remaining {
 		channel, err := model.CacheGetChannel(candidate.channel.Id)
 		if err != nil || channel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		// 兜底/GPT 模式渠道不执行最终禁用
+		if channel.IsExcludedFromAutoBan() {
+			common.SysLog(fmt.Sprintf("通道「%s」（#%d）已开启兜底/GPT 模式，跳过最终禁用", channel.Name, channel.Id))
 			continue
 		}
 		if channel.GetAutoBan() {
@@ -1009,6 +1019,13 @@ func testAllChannels(notify bool) error {
 			// request error disables the channel
 			if newAPIError != nil {
 				shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+			}
+
+			// 兜底/GPT 模式渠道不受自动禁用制约，跳过 429 候选列表与立即禁用逻辑
+			channelExcludedFromAutoBan := channel.IsExcludedFromAutoBan()
+			if channelExcludedFromAutoBan && shouldBanChannel && channel.GetAutoBan() {
+				common.SysLog(fmt.Sprintf("通道「%s」（#%d）已开启兜底/GPT 模式，测试时跳过自动禁用", channel.Name, channel.Id))
+				shouldBanChannel = false
 			}
 
 			if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() && service.ShouldDelayDisableChannel(newAPIError) {

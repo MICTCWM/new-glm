@@ -438,6 +438,14 @@ export function ChannelMutateDrawer({
   const specialUserIds = form.watch('special_user_ids')
   const emergencyPlanEnabled = form.watch('emergency_plan_enabled')
   const fallbackModelEnabled = form.watch('fallback_model_enabled')
+  const gptModeRequired = form.watch('gpt_mode_required')
+  // 兜底/GPT 模式开启时不允许自动禁用，避免兜底通道被误禁用导致整体不可用
+  const autoBanLocked = fallbackModelEnabled || gptModeRequired
+  useEffect(() => {
+    if (autoBanLocked) {
+      form.setValue('auto_ban', 0, { shouldDirty: true })
+    }
+  }, [autoBanLocked, form])
   const fallbackReasoningOptions = useMemo(
     () => getFallbackReasoningOptions(currentType, fallbackModel || ''),
     [currentType, fallbackModel]
@@ -2701,7 +2709,11 @@ export function ChannelMutateDrawer({
                             <div className='space-y-0.5'>
                               <FormLabel>{t('Auto Ban')}</FormLabel>
                               <FormDescription>
-                                {t(FIELD_DESCRIPTIONS.AUTO_BAN)}
+                                {autoBanLocked
+                                  ? t(
+                                      'Fallback/GPT mode is enabled, auto ban is disabled'
+                                    )
+                                  : t(FIELD_DESCRIPTIONS.AUTO_BAN)}
                               </FormDescription>
                             </div>
                             <FormControl>
@@ -2710,6 +2722,7 @@ export function ChannelMutateDrawer({
                                 onCheckedChange={(checked) =>
                                   field.onChange(checked ? 1 : 0)
                                 }
+                                disabled={autoBanLocked}
                               />
                             </FormControl>
                           </FormItem>

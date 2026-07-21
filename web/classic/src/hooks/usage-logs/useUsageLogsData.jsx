@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '@douyinfe/semi-ui';
 import {
@@ -74,6 +74,16 @@ export const useLogsData = () => {
   const [logCount, setLogCount] = useState(0);
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
   const [logType, setLogType] = useState(0);
+
+  // Auto-refresh support: track newly-inserted log ids for row animation,
+  // and whether the user was near the bottom before the latest refresh.
+  const [newLogIds, setNewLogIds] = useState(() => new Set());
+  const [skipRowAnimation, setSkipRowAnimation] = useState(false);
+  const activePageRef = useRef(activePage);
+  const pageSizeRef = useRef(pageSize);
+  const prevLogIdsRef = useRef(new Set());
+  const wasAtTopRef = useRef(false);
+  const hasInitialDataRef = useRef(false);
 
   // User and admin
   const isAdminUser = isAdmin();
@@ -721,13 +731,33 @@ export const useLogsData = () => {
       expandDatesLocal[logs[i].key] = expandDataLocal;
     }
 
+    // Detect newly-inserted log ids for row enter animation.
+    const prevIds = prevLogIdsRef.current;
+    const nextIds = new Set(logs.map((l) => l.id));
+    const addedIds = new Set();
+    logs.forEach((l) => {
+      if (!prevIds.has(l.id)) addedIds.add(l.id);
+    });
+    setNewLogIds(addedIds);
+    // Skip per-row animation when too many rows arrive at once (e.g. first
+    // load or filter change) to avoid jank.
+    setSkipRowAnimation(addedIds.size > 5);
+    prevLogIdsRef.current = nextIds;
+
     setExpandData(expandDatesLocal);
     setLogs(logs);
   };
 
   // Load logs function
-  const loadLogs = async (startIdx, pageSize, customLogType = null) => {
-    setLoading(true);
+  // `silent` suppresses the loading spinner — used by the 5s auto-refresh so
+  // the table doesn't flicker on every poll.
+  const loadLogs = async (
+    startIdx,
+    pageSize,
+    customLogType = null,
+    silent = false,
+  ) => {
+    if (!silent) setLoading(true);
 
     let url = '';
     const {
@@ -769,7 +799,7 @@ export const useLogsData = () => {
     } else {
       showError(message);
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   // Page handlers
@@ -825,6 +855,85 @@ export const useLogsData = () => {
     }
   }, [formApi]);
 
+  // Keep refs in sync with the latest activePage / pageSize so the 5s
+  // auto-refresh interval always polls the page the user is currently on.
+  useEffect(() => {
+    activePageRef.current = activePage;
+  }, [activePage]);
+  useEffect(() => {
+    pageSizeRef.current = pageSize;
+  }, [pageSize]);
+
+  // Keep a ref to the latest loadLogs so the interval closure doesn't capture
+  // a stale version (with stale formApi / filter values).
+  const loadLogsRef = useRef(loadLogs);
+  useEffect(() => {
+    loadLogsRef.current = loadLogs;
+  });
+
+  // Auto-refresh every 5s. Uses `silent: true` so the loading spinner doesn't
+  // flicker on every poll. The interval is cleared on unmount. Skip polling
+  // when the tab is hidden to align with Default theme's
+  // refetchIntervalInBackground: false behaviour.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadLogsRef.current(
+        activePageRef.current,
+        pageSizeRef.current,
+        null,
+        true,
+      );
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Track whether the user is near the top of the scroll container so
+  // auto-refresh only follows the top when they were already reading there.
+  // Desktop uses `.semi-card-body` as the scroll container (the page body
+  // has overflow:hidden, so window scroll never fires); mobile falls back
+  // to window scroll.
+  useEffect(() => {
+    const getScrollEl = () => {
+      if (window.innerWidth >= 768) {
+        return document.querySelector('.semi-card-body');
+      }
+      return document.scrollingElement || document.body;
+    };
+    const handleScroll = () => {
+      const scrollEl = getScrollEl();
+      if (!scrollEl) return;
+      wasAtTopRef.current = scrollEl.scrollTop < 100;
+    };
+    const cardBody = document.querySelector('.semi-card-body');
+    if (cardBody) {
+      cardBody.addEventListener('scroll', handleScroll, { passive: true });
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      if (cardBody) cardBody.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
+
+  // When refreshed logs arrive, if the user was near the top, follow the
+  // new top so newly-arrived rows stay visible. Skip the first paint so
+  // the initial view starts at the top (latest logs).
+  useEffect(() => {
+    if (!hasInitialDataRef.current) {
+      if (logs.length > 0) hasInitialDataRef.current = true;
+      return;
+    }
+    if (!wasAtTopRef.current) return;
+    const scrollEl =
+      window.innerWidth >= 768
+        ? document.querySelector('.semi-card-body')
+        : document.scrollingElement || document.body;
+    if (scrollEl) {
+      scrollEl.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [logs]);
+
   // Check if any record has expandable content
   const hasExpandableRows = () => {
     return logs.some(
@@ -845,6 +954,10 @@ export const useLogsData = () => {
     logType,
     stat,
     isAdminUser,
+
+    // Auto-refresh animation support
+    newLogIds,
+    skipRowAnimation,
 
     // Form state
     formApi,

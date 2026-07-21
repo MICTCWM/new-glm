@@ -44,6 +44,8 @@ const LogsTable = (logsData) => {
     hasExpandableRows,
     isAdminUser,
     billingDisplayMode,
+    newLogIds,
+    skipRowAnimation,
     t,
     COLUMN_KEYS,
   } = logsData;
@@ -88,6 +90,17 @@ const LogsTable = (logsData) => {
     return <Descriptions data={expandData[record.key]} />;
   };
 
+  // Assign an enter-animation class to newly-arrived rows so they fade in
+  // when auto-refresh appends fresh logs. Skipped when too many rows arrive
+  // at once (e.g. first load / filter change) to avoid jank.
+  const rowClassName = (record) => {
+    if (skipRowAnimation) return '';
+    if (record?.id != null && newLogIds.has(record.id)) {
+      return 'log-row-enter';
+    }
+    return '';
+  };
+
   return (
     <CardTable
       columns={tableColumns}
@@ -100,6 +113,7 @@ const LogsTable = (logsData) => {
       dataSource={logs}
       rowKey='key'
       loading={loading}
+      rowClassName={rowClassName}
       scroll={compactMode ? undefined : { x: 'max-content' }}
       className='rounded-xl overflow-hidden'
       size='small'

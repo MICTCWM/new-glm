@@ -536,6 +536,7 @@ const EditChannelModal = (props) => {
     system_prompt_override: false,
     gpt_mode_required: false,
     emergency_plan_enabled: false,
+    fallback_model_enabled: false,
   });
   // 配额每日重置时刻（数组，元素为 0-23 的小时数）
   const [resetHours, setResetHours] = useState([]);
@@ -897,6 +898,8 @@ const EditChannelModal = (props) => {
           data.gpt_mode_required = parsedSettings.gpt_mode_required || false;
           data.emergency_plan_enabled =
             parsedSettings.emergency_plan_enabled || false;
+          data.fallback_model_enabled =
+            parsedSettings.fallback_model_enabled === true;
         } catch (error) {
           console.error('解析渠道设置失败:', error);
           data.responses_protocol = false;
@@ -908,6 +911,7 @@ const EditChannelModal = (props) => {
           data.system_prompt_override = false;
           data.gpt_mode_required = false;
           data.emergency_plan_enabled = false;
+          data.fallback_model_enabled = false;
         }
       } else {
         data.responses_protocol = false;
@@ -919,6 +923,7 @@ const EditChannelModal = (props) => {
         data.system_prompt_override = false;
         data.gpt_mode_required = false;
         data.emergency_plan_enabled = false;
+        data.fallback_model_enabled = false;
       }
 
       if (data.settings) {
@@ -1031,6 +1036,7 @@ const EditChannelModal = (props) => {
         system_prompt_override: data.system_prompt_override || false,
         gpt_mode_required: data.gpt_mode_required || false,
         emergency_plan_enabled: data.emergency_plan_enabled || false,
+        fallback_model_enabled: data.fallback_model_enabled === true,
       });
       initialModelsRef.current = (data.models || [])
         .map((model) => (model || '').trim())
@@ -1336,6 +1342,20 @@ const EditChannelModal = (props) => {
       setDoubaoApiEditUnlocked(false);
     }
   }, [inputs.type]);
+
+  // 兜底 / 应急预案 / GPT 模式开启时不允许自动禁用，避免兜底通道被误禁用导致整体不可用
+  const autoBanLocked =
+    channelSettings.fallback_model_enabled ||
+    channelSettings.emergency_plan_enabled ||
+    channelSettings.gpt_mode_required;
+  useEffect(() => {
+    if (autoBanLocked) {
+      setAutoBan(false);
+      if (formApiRef.current) {
+        formApiRef.current.setValue('auto_ban', 0);
+      }
+    }
+  }, [autoBanLocked]);
 
   useEffect(() => {
     const modelMap = new Map();
@@ -1844,6 +1864,7 @@ const EditChannelModal = (props) => {
       system_prompt_override: localInputs.system_prompt_override || false,
       gpt_mode_required: localInputs.gpt_mode_required || false,
       emergency_plan_enabled: localInputs.emergency_plan_enabled || false,
+      fallback_model_enabled: channelSettings.fallback_model_enabled === true,
     };
     localInputs.setting = JSON.stringify(channelExtraSettings);
 
@@ -4116,10 +4137,15 @@ const EditChannelModal = (props) => {
                         checkedText={t('开')}
                         uncheckedText={t('关')}
                         onChange={(value) => setAutoBan(value)}
-                        extraText={t(
-                          '仅当自动禁用开启时有效，关闭后不会自动禁用该渠道',
-                        )}
+                        extraText={
+                          autoBanLocked
+                            ? t('已开启兜底/应急/GPT 模式，自动禁用已关闭')
+                            : t(
+                                '仅当自动禁用开启时有效，关闭后不会自动禁用该渠道',
+                              )
+                        }
                         initValue={autoBan}
+                        disabled={autoBanLocked}
                       />
 
                       {/* Test Model - Core Config */}

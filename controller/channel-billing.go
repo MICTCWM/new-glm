@@ -473,6 +473,11 @@ func updateAllChannelsBalance() error {
 		} else {
 			// err is nil & balance <= 0 means quota is used up
 			if balance <= 0 {
+				// 兜底/GPT 模式渠道不受余额不足自动禁用的制约
+				if channel.IsExcludedFromAutoBan() {
+					common.SysLog(fmt.Sprintf("通道「%s」（#%d）已开启兜底/GPT 模式，跳过余额不足自动禁用", channel.Name, channel.Id))
+					continue
+				}
 				service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan()), "余额不足")
 			}
 		}

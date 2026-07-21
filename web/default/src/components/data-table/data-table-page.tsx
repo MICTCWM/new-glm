@@ -192,6 +192,13 @@ export type DataTablePageProps<TData> = {
    * Useful for sticky headers (`'sticky top-0 z-10 bg-muted/30'`) on long lists.
    */
   tableHeaderClassName?: string
+
+  /**
+   * Ref attached to the desktop scroll container (the `tableClassName` wrapper).
+   * Use this to programmatically scroll the table body (e.g. auto-follow new
+   * rows on data refresh). Mobile layout is unaffected.
+   */
+  scrollContainerRef?: React.Ref<HTMLDivElement>
 }
 
 /**
@@ -302,6 +309,7 @@ function renderDesktop<TData>(
 
   return (
     <div
+      ref={props.scrollContainerRef}
       className={cn(
         'overflow-hidden rounded-lg border transition-opacity duration-150',
         isFetchingOnly && 'pointer-events-none opacity-60',

@@ -1023,4 +1023,22 @@ html.dark .with-pastel-balls::before {
   }
 }
 
+/* ==================== Usage logs: new row enter animation ==================== */
+/* Applied to newly-arrived rows on auto-refresh so they fade in smoothly.
+   Skipped (via JS) when too many rows arrive at once to avoid jank. */
+@keyframes logRowFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.semi-table-row.log-row-enter {
+  animation: logRowFadeIn 0.25s ease-out;
+}
+
 .ec-dbcd0a3c01b55203 { forced-color-adjust: auto; }

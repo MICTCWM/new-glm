@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import {
@@ -29,13 +29,15 @@ import {
   getPaginationRowModel,
   useReactTable,
 } from '@tanstack/react-table'
+import { motion } from 'motion/react'
 import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { MOTION_TRANSITION } from '@/lib/motion'
 import { useIsAdmin } from '@/hooks/use-admin'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { TableCell, TableRow } from '@/components/ui/table'
+import { TableCell } from '@/components/ui/table'
 import { DataTablePage } from '@/components/data-table'
 import { DEFAULT_LOGS_DATA, LOG_TYPE_ENUM } from '../constants'
 import { useColumnsByCategory } from '../lib/columns'
@@ -128,6 +130,14 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       }
       return undefined
     },
+    // Auto-refresh every 5s so new logs stream in without a manual search.
+    // TanStack Query v5 defaults to refetchIntervalInBackground: false, so
+    // background tabs won't waste requests.
+    refetchInterval: 5000,
+    // A polling response only updates existing rows. Don't trigger an extra
+    // refetch on tab focus and keep the current data while the request is in
+    // flight (handled by placeholderData above).
+    refetchOnWindowFocus: false,
   })
 
   const logs = data?.items || []
@@ -160,12 +170,64 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
 
   const isCommon = logCategory === 'common'
 
+  // ---- Auto-refresh support: scroll-following + new-row animation ----
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Tracks whether the user was reading near the top of the scroll
+  // container *before* the latest refresh. Updated by a passive scroll
+  // listener so the value is always current when new data arrives.
+  // Initialised to `false` so auto-scroll only kicks in after the user
+  // actively scrolls to the top (latest logs appear at the top by default).
+  const wasAtTopRef = useRef(false)
+  // Distinguishes the very first successful data paint from subsequent
+  // polling refreshes — we don't want to auto-scroll on the initial load.
+  const hasInitialDataRef = useRef(false)
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const handleScroll = () => {
+      wasAtTopRef.current = el.scrollTop < 100
+    }
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // When refreshed data arrives, if the user was near the top, follow the
+  // new top so newly-arrived rows stay visible. Skip the first paint so
+  // the initial view starts at the top (latest logs).
+  useEffect(() => {
+    if (!hasInitialDataRef.current) {
+      if (data) hasInitialDataRef.current = true
+      return
+    }
+    if (!wasAtTopRef.current) return
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [data])
+
+  // Track previous row ids so we can detect newly-inserted rows on each
+  // refresh and only animate those (avoid re-animating the whole list).
+  const rows = table.getRowModel().rows
+  const prevRowIdsRef = useRef<Set<string>>(new Set())
+  const newRowIds = useMemo(() => {
+    const prev = prevRowIdsRef.current
+    return new Set(rows.filter((r) => !prev.has(r.id)).map((r) => r.id))
+  }, [rows])
+  useEffect(() => {
+    prevRowIdsRef.current = new Set(rows.map((r) => r.id))
+  }, [rows])
+
+  // If a refresh inserts more than 5 new rows at once, skip per-row animation
+  // to avoid jank (e.g. after a filter change or first load).
+  const skipRowAnimation = newRowIds.size > 5
+  const rowTransition = skipRowAnimation ? { duration: 0 } : MOTION_TRANSITION.fast
+
   return (
     <DataTablePage
       table={table}
       columns={columns as ColumnDef<Record<string, unknown>>[]}
       isLoading={isLoadingData}
-      isFetching={isFetching}
       emptyTitle={t('No Logs Found')}
       emptyDescription={t(
         'No usage logs available. Logs will appear here once API calls are made.'
@@ -173,6 +235,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       skeletonKeyPrefix='usage-log-skeleton'
       tableClassName='max-h-[calc(100dvh-13rem)] overflow-auto sm:max-h-[calc(100dvh-14rem)]'
       tableHeaderClassName='bg-muted/30 sticky top-0 z-10'
+      scrollContainerRef={scrollContainerRef}
       toolbar={
         isCommon ? (
           <CommonLogsFilterBar table={table} />
@@ -186,15 +249,29 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
           | undefined
         const tintClass =
           isCommon && logType != null ? (logTypeRowTint[logType] ?? '') : ''
+        const isNewRow = newRowIds.has(row.id)
 
         return (
-          <TableRow key={row.id} className={cn('transition-colors', tintClass)}>
+          <motion.tr
+            key={row.id}
+            data-slot='table-row'
+            data-state={row.getIsSelected() && 'selected'}
+            initial={
+              isNewRow && !skipRowAnimation ? { opacity: 0, y: -4 } : false
+            }
+            animate={{ opacity: 1, y: 0 }}
+            transition={rowTransition}
+            className={cn(
+              'hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors',
+              tintClass
+            )}
+          >
             {row.getVisibleCells().map((cell) => (
               <TableCell key={cell.id} className={isCommon ? 'py-2' : 'py-3.5'}>
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </TableCell>
             ))}
-          </TableRow>
+          </motion.tr>
         )
       }}
     />

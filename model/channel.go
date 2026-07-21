@@ -113,10 +113,17 @@ func NewChannelSortOptions(sortBy string, sortOrder string, idSort bool) Channel
 
 func (options ChannelSortOptions) Apply(query *gorm.DB) *gorm.DB {
 	if columnName, ok := channelSortColumns[options.SortBy]; ok {
-		return query.Order(clause.OrderByColumn{
+		query = query.Order(clause.OrderByColumn{
 			Column: clause.Column{Name: columnName},
 			Desc:   options.SortOrder != "asc",
 		})
+		if columnName != "id" {
+			query = query.Order(clause.OrderByColumn{
+				Column: clause.Column{Name: "id"},
+				Desc:   false,
+			})
+		}
+		return query
 	}
 	if options.IDSort {
 		return query.Order(clause.OrderByColumn{
@@ -124,10 +131,9 @@ func (options ChannelSortOptions) Apply(query *gorm.DB) *gorm.DB {
 			Desc:   true,
 		})
 	}
-	return query.Order(clause.OrderByColumn{
-		Column: clause.Column{Name: "priority"},
-		Desc:   true,
-	})
+	return query.
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "priority"}, Desc: true}).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: "id"}, Desc: false})
 }
 
 func resolveChannelSortOptions(idSort bool, sortOptions []ChannelSortOptions) ChannelSortOptions {
@@ -1063,6 +1069,19 @@ func (channel *Channel) IsExcludedFromRpmOverloadTransfer() bool {
 	}
 	setting := channel.GetSetting()
 	return setting.GptModeRequired || setting.FallbackModelEnabled || setting.EmergencyPlanEnabled
+}
+
+// IsExcludedFromAutoBan reports whether the channel must be exempted from
+// automatic disabling (including 429/401/503 delayed-disable and balance-based
+// disabling). Channels with GPT-only mode or fallback mode enabled are managed
+// separately and must never be auto-banned, so that traffic can still be served
+// through their dedicated routes even when upstream returns transient errors.
+func (channel *Channel) IsExcludedFromAutoBan() bool {
+	if channel == nil {
+		return false
+	}
+	setting := channel.GetSetting()
+	return setting.GptModeRequired || setting.FallbackModelEnabled
 }
 
 func (channel *Channel) IsSupportFallback() bool {

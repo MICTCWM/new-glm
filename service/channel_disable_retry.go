@@ -80,6 +80,11 @@ func StartRetryCheck(channelError types.ChannelError, reason string, testFn func
 		common.SysLog(fmt.Sprintf("通道「%s」（#%d）延迟禁用检测函数未配置，跳过延迟禁用", channelError.ChannelName, channelError.ChannelId))
 		return
 	}
+	// 兜底/GPT 模式渠道不参与延迟禁用复测，直接跳过（保险起见，即便上游已拦截也再做一次防护）
+	if ch, err := model.GetChannelById(channelError.ChannelId, false); err == nil && ch != nil && ch.IsExcludedFromAutoBan() {
+		common.SysLog(fmt.Sprintf("通道「%s」（#%d）已开启兜底/GPT 模式，跳过延迟禁用复测", channelError.ChannelName, channelError.ChannelId))
+		return
+	}
 	if !TryAcquireRetrySlot(channelError.ChannelId) {
 		common.SysLog(fmt.Sprintf("通道「%s」（#%d）延迟禁用检测已在进行中，跳过本次检测", channelError.ChannelName, channelError.ChannelId))
 		return
