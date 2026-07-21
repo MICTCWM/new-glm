@@ -10,15 +10,36 @@ package controller
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestShouldReplaceFallbackWithRetryUsesStrictTokenLimit(t *testing.T) {
+	belowLimit := &relaycommon.RelayInfo{}
+	belowLimit.SetEstimatePromptTokens(fallbackInputTokenLimit)
+	require.False(t, shouldReplaceFallbackWithRetry(belowLimit))
+
+	overLimit := &relaycommon.RelayInfo{}
+	overLimit.SetEstimatePromptTokens(fallbackInputTokenLimit + 1)
+	require.True(t, shouldReplaceFallbackWithRetry(overLimit))
+}
+
+func TestNewContextTooLongErrorIsClientErrorAndSkipsRetry(t *testing.T) {
+	err := newContextTooLongError()
+
+	require.Equal(t, http.StatusBadRequest, err.StatusCode)
+	require.Equal(t, types.ErrorCodeInvalidRequest, err.GetErrorCode())
+	require.True(t, types.IsSkipRetryError(err))
+	require.Equal(t, contextTooLongMessage, err.Error())
+}
 
 func TestDetachCancelledRequestContextForFallback(t *testing.T) {
 	oldRequestMaxDuration := common.RequestMaxDuration

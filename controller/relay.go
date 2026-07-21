@@ -80,6 +80,53 @@ func getRetryDelay(retryCount int) time.Duration {
 	return common.RetryDelays[retryCount-1]
 }
 
+const (
+	fallbackInputTokenLimit = 360000
+	contextTooLongMessage   = "上下文过长"
+)
+
+func shouldReplaceFallbackWithRetry(info *relaycommon.RelayInfo) bool {
+	return info != nil && info.GetEstimatePromptTokens() > fallbackInputTokenLimit
+}
+
+func newContextTooLongError() *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		errors.New(contextTooLongMessage),
+		types.ErrorCodeInvalidRequest,
+		http.StatusBadRequest,
+		types.ErrOptionWithSkipRetry(),
+	)
+}
+
+// retryCurrentChannelOnce sends one additional request to the channel that is
+// already selected. Setting fallback_triggered temporarily makes all relay
+// handlers perform exactly one upstream call instead of their normal internal
+// retry, so this remains one extra attempt in total.
+func retryCurrentChannelOnce(c *gin.Context, info *relaycommon.RelayInfo, relayFormat types.RelayFormat) *types.NewAPIError {
+	bodyStorage, bodyErr := common.GetBodyStorage(c)
+	if bodyErr != nil {
+		return types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	c.Request.Body = io.NopCloser(bodyStorage)
+
+	fallbackTriggered := c.GetBool("fallback_triggered")
+	c.Set("fallback_triggered", true)
+	defer c.Set("fallback_triggered", fallbackTriggered)
+
+	info.UpstreamRetryCount = 0
+	info.ActualApiCallCount = 0
+	switch relayFormat {
+	case types.RelayFormatOpenAIRealtime:
+		return relay.WssHelper(c, info)
+	case types.RelayFormatClaude:
+		return relay.ClaudeHelper(c, info)
+	case types.RelayFormatGemini:
+		return geminiRelayHandler(c, info)
+	default:
+		return relayHandler(c, info)
+	}
+}
+
 const detachedFallbackContextTimeout = 5 * time.Minute
 
 const requestContextCancelledMessage = "请求已完成，但用户已取消上下文"
@@ -582,11 +629,33 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	}
 
-	// Fallback is a single request, never a fallback-channel retry chain. The
-	// handler sees fallback_triggered and therefore disables its own internal
-	// retry as well.
-	if (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) &&
-		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+	// Fallback is a single request, never a fallback-channel retry chain. For
+	// an oversized context, replace that fallback slot with one more request to
+	// the channel that is already selected. This also prevents a primary
+	// failure from turning into a fallback retry.
+	canFallback := (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) &&
+		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds)
+	if canFallback && shouldReplaceFallbackWithRetry(relayInfo) {
+		common.SysLog(fmt.Sprintf("输入 token 超过兜底限制，跳过兜底并对当前渠道额外重试: tokens=%d, limit=%d",
+			relayInfo.GetEstimatePromptTokens(), fallbackInputTokenLimit))
+		retryErr := retryCurrentChannelOnce(c, relayInfo, relayFormat)
+		if retryErr == nil {
+			relayInfo.LastError = nil
+			return
+		}
+
+		retryErr = service.NormalizeViolationFeeError(retryErr)
+		retryErr = service.NormalizeSensitiveWordsError(retryErr)
+		relayInfo.LastError = retryErr
+		c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
+		c.Set("is_retry_attempt", true)
+		if currentChannel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel); ok && currentChannel != nil {
+			model.UpdateChannelCallCount(currentChannel.Id, 1)
+			processChannelError(c, *types.NewChannelError(currentChannel.Id, currentChannel.Type, currentChannel.Name, currentChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), currentChannel.GetAutoBan()), retryErr, relayInfo)
+		}
+		newAPIError = newContextTooLongError()
+		relayInfo.LastError = newAPIError
+	} else if canFallback {
 		common.SysLog(fmt.Sprintf("主请求失败后执行一次兜底: retry=%d", retryParam.GetRetry()))
 		// A cancelled client/request context must not poison the one allowed
 		// fallback attempt. The response defer cleans this context up after it
