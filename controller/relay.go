@@ -1283,10 +1283,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 				// 清除 model_mapping，防止 ModelMappedHelper 覆盖兜底模型名（兜底模型名优先级最高）
 				c.Set("model_mapping", "")
 				c.Set("fallback_model", fallbackModel)
-				// 修复计费：用兜底模型名重新计算 PriceData 的各项倍率（ModelRatio/CompletionRatio 等），
-				// 否则兜底模型会按原模型计费（PriceData 在主循环前已按 OriginModelName 计算）。
-				// 注意：preConsumedQuota 不重算（预扣费已按原模型完成），最终结算会用新倍率。
-				helper.RecalcPriceDataForFallbackModel(info, fallbackModel)
+				// 兜底只改变上游实际请求模型，不改变用户请求模型。
+				// PriceData 已按 OriginModelName（当前请求模型）计算，必须保留，
+				// 以免按兜底渠道的真实模型价格向用户计费。
 			}
 			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 			return fallbackChannel, nil
