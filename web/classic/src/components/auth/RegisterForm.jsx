@@ -47,6 +47,7 @@ import Title from '@douyinfe/semi-ui/lib/es/typography/title';
 import Text from '@douyinfe/semi-ui/lib/es/typography/text';
 import {
   IconGithubLogo,
+  IconHelpCircle,
   IconMail,
   IconUser,
   IconLock,
@@ -616,9 +617,10 @@ const RegisterForm = () => {
                       <span>{t('进入码')}</span>
                       <span className='flex items-center gap-2'>
                         <Button
-                          type='button'
-                          theme='borderless'
+                          type='primary'
+                          theme='light'
                           size='small'
+                          icon={<IconHelpCircle />}
                           onClick={() => setShowEntryCodeHelp(true)}
                         >
                           {t('如何获取进入码')}
