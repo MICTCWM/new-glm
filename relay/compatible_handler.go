@@ -79,9 +79,27 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	passThroughGlobal := model_setting.GetGlobalSettings().PassThroughRequestEnabled
 	shouldUseResponses := service.ShouldChatCompletionsUseResponsesForChannel(info.ChannelSetting, info.ChannelId, info.ChannelType, info.OriginModelName)
 	responsesRequired := service.ResponsesProtocolRequiredForChannel(info.ChannelSetting, info.ChannelType)
+
+	// 诊断日志：输出协议转换判断的所有关键变量
+	isFallback := c.GetBool("fallback_triggered")
+	common.SysLog(fmt.Sprintf("TextHelper protocol check: isFallback=%v, relayMode=%d (expect %d for chat), shouldUseResponses=%v, responsesRequired=%v, passThroughGlobal=%v, passThroughBody=%v, responsesProtocol=%v, upstreamProtocol=%q, channelId=%d, channelType=%d, originModel=%q",
+		isFallback,
+		info.RelayMode,
+		relayconstant.RelayModeChatCompletions,
+		shouldUseResponses,
+		responsesRequired,
+		passThroughGlobal,
+		info.ChannelSetting.PassThroughBodyEnabled,
+		info.ChannelSetting.ResponsesProtocol,
+		info.ChannelSetting.UpstreamProtocol,
+		info.ChannelId,
+		info.ChannelType,
+		info.OriginModelName))
+
 	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
 		shouldUseResponses &&
 		(!passThroughGlobal && !info.ChannelSetting.PassThroughBodyEnabled || responsesRequired) {
+		common.SysLog(fmt.Sprintf("TextHelper: protocol conversion triggered (chat -> responses), isFallback=%v, channelId=%d", isFallback, info.ChannelId))
 		applySystemPromptIfNeeded(c, info, request)
 		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
 		if newApiErr != nil {
@@ -97,6 +115,14 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			service.PostTextConsumeQuota(c, info, usage, nil)
 		}
 		return nil
+	} else {
+		// 新增：记录为什么没有触发转换
+		common.SysLog(fmt.Sprintf("TextHelper: protocol conversion SKIPPED: relayModeMatch=%v, shouldUseResponses=%v, conditionMet=%v, isFallback=%v, channelId=%d",
+			info.RelayMode == relayconstant.RelayModeChatCompletions,
+			shouldUseResponses,
+			(!passThroughGlobal && !info.ChannelSetting.PassThroughBodyEnabled) || responsesRequired,
+			isFallback,
+			info.ChannelId))
 	}
 
 	var requestBody io.Reader

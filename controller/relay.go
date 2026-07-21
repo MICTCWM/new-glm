@@ -704,6 +704,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					case types.RelayFormatGemini:
 						newAPIError = geminiRelayHandler(c, relayInfo)
 					default:
+						// 诊断日志：兜底请求执行前的状态
+						common.SysLog(fmt.Sprintf("fallback request starting: fallback_triggered=%v, fallback_channel_id=%d, relayMode=%d, originModel=%q, upstreamModel=%q, channelId=%d",
+							c.GetBool("fallback_triggered"),
+							c.GetInt("fallback_channel_id"),
+							relayInfo.RelayMode,
+							relayInfo.OriginModelName,
+							relayInfo.UpstreamModelName,
+							relayInfo.ChannelId))
 						newAPIError = relayHandler(c, relayInfo)
 					}
 				}
