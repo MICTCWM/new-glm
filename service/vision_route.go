@@ -2,6 +2,8 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,8 +79,8 @@ func claudeRequestHasImage(req *dto.ClaudeRequest) bool {
 	return false
 }
 
-// ProcessVisionRoute 执行视觉路由：调用 Kimi 描述图片，然后替换原请求中的图片位置
-// 如果 Kimi 调用失败，返回错误，由调用方进行降级处理
+// ProcessVisionRoute 执行视觉路由：复用缓存的图片描述，仅将未命中的图片发送给 Kimi，
+// 然后替换原请求中的图片位置。如果 Kimi 调用失败，返回错误，由调用方进行降级处理
 func ProcessVisionRoute(c *gin.Context, relayInfo *relaycommon.RelayInfo, request dto.Request) (dto.Request, error) {
 	switch relayInfo.RelayFormat {
 	case types.RelayFormatOpenAI:
@@ -113,14 +115,14 @@ func processOpenAIVisionRoute(c *gin.Context, relayInfo *relaycommon.RelayInfo, 
 		return req, nil
 	}
 
-	// 调用 Kimi 描述图片（所有图片合并打包一次性描述）
-	description, err := callKimiForImageDescription(c, relayInfo, imageContents)
+	descriptions, created, hits, err := resolveVisionImageDescriptions(c, relayInfo, imageContents)
 	if err != nil {
 		return req, err
 	}
+	relayInfo.VisionRouteCacheCreated += created
+	relayInfo.VisionRouteCacheHits += hits
 
-	// 替换所有图片位置为描述文本
-	descriptionText := "[图片描述] " + description
+	imageIndex := 0
 	for i := range req.Messages {
 		contents := req.Messages[i].ParseContent()
 		if len(contents) == 0 {
@@ -128,13 +130,18 @@ func processOpenAIVisionRoute(c *gin.Context, relayInfo *relaycommon.RelayInfo, 
 		}
 		modified := false
 		for j := range contents {
-			if contents[j].Type == dto.ContentTypeImageURL {
-				contents[j] = dto.MediaContent{
-					Type: dto.ContentTypeText,
-					Text: descriptionText,
-				}
-				modified = true
+			if contents[j].Type != dto.ContentTypeImageURL {
+				continue
 			}
+			if imageIndex >= len(descriptions) {
+				return req, fmt.Errorf("vision route description count mismatch")
+			}
+			contents[j] = dto.MediaContent{
+				Type: dto.ContentTypeText,
+				Text: "[图片描述] " + descriptions[imageIndex],
+			}
+			imageIndex++
+			modified = true
 		}
 		if modified {
 			req.Messages[i].SetMediaContent(contents)
@@ -166,14 +173,14 @@ func processClaudeVisionRoute(c *gin.Context, relayInfo *relaycommon.RelayInfo, 
 		return req, nil
 	}
 
-	// 调用 Kimi 描述图片
-	description, err := callKimiForImageDescription(c, relayInfo, imageContents)
+	descriptions, created, hits, err := resolveVisionImageDescriptions(c, relayInfo, imageContents)
 	if err != nil {
 		return req, err
 	}
+	relayInfo.VisionRouteCacheCreated += created
+	relayInfo.VisionRouteCacheHits += hits
 
-	// 替换所有图片位置为描述文本
-	descriptionText := "[图片描述] " + description
+	imageIndex := 0
 	for i := range req.Messages {
 		contents, err := req.Messages[i].ParseContent()
 		if err != nil || len(contents) == 0 {
@@ -181,20 +188,107 @@ func processClaudeVisionRoute(c *gin.Context, relayInfo *relaycommon.RelayInfo, 
 		}
 		modified := false
 		for j := range contents {
-			if contents[j].Type == "image" {
-				text := descriptionText
-				contents[j] = dto.ClaudeMediaMessage{
-					Type: dto.ContentTypeText,
-					Text: &text,
-				}
-				modified = true
+			if contents[j].Type != "image" {
+				continue
 			}
+			if _, ok := claudeImageToOpenAI(contents[j]); !ok {
+				continue
+			}
+			if imageIndex >= len(descriptions) {
+				return req, fmt.Errorf("vision route description count mismatch")
+			}
+			text := "[图片描述] " + descriptions[imageIndex]
+			contents[j] = dto.ClaudeMediaMessage{
+				Type: dto.ContentTypeText,
+				Text: &text,
+			}
+			imageIndex++
+			modified = true
 		}
 		if modified {
 			req.Messages[i].SetContent(contents)
 		}
 	}
 	return req, nil
+}
+
+type visionRouteDescriptionResult struct {
+	description string
+	created     bool
+}
+
+// resolveVisionImageDescriptions resolves each image independently. This keeps a
+// cached description reusable even when the editor sends a different message around it.
+func resolveVisionImageDescriptions(c *gin.Context, relayInfo *relaycommon.RelayInfo, imageContents []dto.MediaContent) ([]string, int, int, error) {
+	descriptions := make([]string, 0, len(imageContents))
+	resolved := make(map[string]string)
+	created := 0
+	hits := 0
+
+	for _, imageContent := range imageContents {
+		key := visionRouteImageCacheKey(imageContent)
+		if key != "" {
+			if description, ok := resolved[key]; ok {
+				descriptions = append(descriptions, description)
+				continue
+			}
+			if description, ok := getVisionRouteCache(key, time.Now()); ok {
+				resolved[key] = description
+				descriptions = append(descriptions, description)
+				hits++
+				continue
+			}
+		}
+
+		if key == "" {
+			description, err := callKimiForImageDescription(c, relayInfo, []dto.MediaContent{imageContent})
+			if err != nil {
+				return nil, 0, 0, err
+			}
+			descriptions = append(descriptions, description)
+			created++
+			continue
+		}
+
+		result, err, shared := visionRouteDescriptionGroup.Do(key, func() (interface{}, error) {
+			// Recheck after entering singleflight: another request may have filled
+			// the cache just before this request joined the group.
+			if description, ok := getVisionRouteCache(key, time.Now()); ok {
+				return visionRouteDescriptionResult{description: description}, nil
+			}
+			description, err := callKimiForImageDescription(c, relayInfo, []dto.MediaContent{imageContent})
+			if err != nil {
+				return nil, err
+			}
+			putVisionRouteCache(key, description, time.Now())
+			return visionRouteDescriptionResult{description: description, created: true}, nil
+		})
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		cacheResult, ok := result.(visionRouteDescriptionResult)
+		if !ok || cacheResult.description == "" {
+			return nil, 0, 0, fmt.Errorf("invalid vision route cache result")
+		}
+		resolved[key] = cacheResult.description
+		descriptions = append(descriptions, cacheResult.description)
+		if cacheResult.created && !shared {
+			created++
+		} else {
+			hits++
+		}
+	}
+	return descriptions, created, hits, nil
+}
+
+// visionRouteImageCacheKey hashes the image reference without retaining the image bytes.
+func visionRouteImageCacheKey(content dto.MediaContent) string {
+	image := content.GetImageMedia()
+	if image == nil || image.Url == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte(image.MimeType + "\x00" + image.Url))
+	return hex.EncodeToString(digest[:])
 }
 
 // claudeImageToOpenAI 将 Claude 图片内容转换为 OpenAI 格式
@@ -409,13 +503,29 @@ func stripClaudeImages(req *dto.ClaudeRequest) *dto.ClaudeRequest {
 	return req
 }
 
-// CalcVisionRouteFeeQuota 计算视觉路由固定扣费金额
-// 扣费 = 2.5 * QuotaPerUnit * groupRatio
+// CalcVisionRouteFeeQuota 计算单张未命中缓存的视觉路由扣费金额。
 func CalcVisionRouteFeeQuota(groupRatio float64) int {
-	if groupRatio <= 0 {
+	return calcVisionRouteFeeQuota(groupRatio, 1, 0)
+}
+
+// CalcVisionRouteFeeQuotaByCache charges each newly described image at the full
+// route fee and each cached image at the cheaper GLM-only fee.
+func CalcVisionRouteFeeQuotaByCache(groupRatio float64, created, hits int) int {
+	if created <= 0 && hits <= 0 {
+		created = 1
+	}
+	return calcVisionRouteFeeQuota(groupRatio, created, hits)
+}
+
+func calcVisionRouteFeeQuota(groupRatio float64, created, hits int) int {
+	if groupRatio <= 0 || (created <= 0 && hits <= 0) {
 		return 0
 	}
-	quota := decimal.NewFromFloat(common.VisionRouteFixedFee).
+	fee := decimal.NewFromFloat(common.VisionRouteFixedFee).Mul(decimal.NewFromInt(int64(created)))
+	if hits > 0 {
+		fee = fee.Add(decimal.NewFromFloat(common.VisionRouteCacheHitFee).Mul(decimal.NewFromInt(int64(hits))))
+	}
+	quota := fee.
 		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
 		Mul(decimal.NewFromFloat(groupRatio)).
 		Round(0).

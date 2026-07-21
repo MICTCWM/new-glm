@@ -355,9 +355,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	// 视觉路由触发时，覆盖预扣费为固定金额
+	// 视觉路由触发时，按图片缓存状态覆盖预扣费
 	if relayInfo.VisionRouteTriggered {
-		feeQuota := service.CalcVisionRouteFeeQuota(priceData.GroupRatioInfo.GroupRatio)
+		feeQuota := service.CalcVisionRouteFeeQuotaByCache(
+			priceData.GroupRatioInfo.GroupRatio,
+			relayInfo.VisionRouteCacheCreated,
+			relayInfo.VisionRouteCacheHits,
+		)
 		priceData.QuotaToPreConsume = feeQuota
 		priceData.FreeModel = false
 	}

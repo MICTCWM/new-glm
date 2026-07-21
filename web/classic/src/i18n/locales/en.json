@@ -2783,6 +2783,8 @@
     "缓存倍率": "Cache ratio",
     "缓存倍率 {{cacheRatio}}": "Cache ratio {{cacheRatio}}",
     "缓存写": "Cache Write",
+    "图片缓存创建": "Image cache created",
+    "图片缓存命中": "Image cache hit",
     "缓存创建 {{price}} / 1M tokens": "Cache creation {{price}} / 1M tokens",
     "缓存创建 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}": "Cache creation {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}",
     "缓存创建 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (倍率: {{ratio}})": "Cache creation {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (ratio: {{ratio}})",

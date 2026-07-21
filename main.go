@@ -304,6 +304,8 @@ func InitResources() error {
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()
+	// 启动视觉路由描述缓存的 30 分钟过期清理
+	service.StartVisionRouteCacheCleanupTask()
 
 	// 初始化模型
 	model.GetPricing()

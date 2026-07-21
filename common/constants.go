@@ -320,7 +320,8 @@ const (
 	VisionRouteNotice      = "检测到图片已自动路由给视觉模型，请稍候"
 	VisionRouteTargetModel = "kimi-k2.6"
 	VisionRouteSourceModel = "glm-5.2"
-	VisionRouteFixedFee    = 2.5
+	VisionRouteFixedFee    = 3.5 // 未命中缓存，包含 Kimi 图片描述
+	VisionRouteCacheHitFee = 1.6 // 命中缓存，仅调用 GLM
 )
 
 // RPM Queue configuration

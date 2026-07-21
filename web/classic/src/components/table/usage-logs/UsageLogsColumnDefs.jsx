@@ -36,7 +36,7 @@ import {
   renderTieredModelPriceSimple,
 } from '../../../helpers';
 import { IconHelpCircle } from '@douyinfe/semi-icons';
-import { CircleAlert, Route, Sparkles } from 'lucide-react';
+import { CircleAlert, Image as ImageIcon, Route, Sparkles } from 'lucide-react';
 
 const colors = [
   'amber',
@@ -368,6 +368,30 @@ function getPromptCacheSummary(other) {
     cacheReadTokens,
     cacheWriteTokens,
   };
+}
+
+function renderVisionRouteCacheIcon(other, t) {
+  const status = other?.vision_route_cache_status;
+  if (!status) {
+    return null;
+  }
+
+  const isHit = status === 'hit';
+  const created = Number(other?.vision_route_cache_created || 0);
+  const hits = Number(other?.vision_route_cache_hits || 0);
+  const countText = created > 0 && hits > 0 ? ` (${created}/${hits})` : '';
+  const title = `${t(isHit ? '图片缓存命中' : '图片缓存创建')}${countText}`;
+
+  return (
+    <Tooltip content={title}>
+      <ImageIcon
+        size={15}
+        strokeWidth={2.2}
+        color={isHit ? '#16a34a' : '#f59e0b'}
+        aria-label={title}
+      />
+    </Tooltip>
+  );
 }
 
 function normalizeDetailText(detail) {
@@ -766,7 +790,10 @@ export const getLogsColumns = ({
               lineHeight: 1.2,
             }}
           >
-            <span>{text}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span>{text}</span>
+              {renderVisionRouteCacheIcon(other, t)}
+            </span>
             {cacheText ? (
               <span
                 style={{

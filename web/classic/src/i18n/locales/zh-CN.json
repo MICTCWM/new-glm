@@ -2740,6 +2740,8 @@
     "缓存倍率": "缓存倍率",
     "缓存倍率 {{cacheRatio}}": "缓存倍率 {{cacheRatio}}",
     "缓存写": "缓存写",
+    "图片缓存创建": "图片缓存创建",
+    "图片缓存命中": "图片缓存命中",
     "缓存创建 {{price}} / 1M tokens": "缓存创建 {{price}} / 1M tokens",
     "缓存创建 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}": "缓存创建 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}",
     "缓存创建 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (倍率: {{ratio}})": "缓存创建 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (倍率: {{ratio}})",

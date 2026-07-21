@@ -362,10 +362,18 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 %s", decimal.NewFromFloat(summary.ImageGenerationCallPrice).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
 	}
 
-	// 视觉路由触发时，强制使用固定扣费金额（替换原 glm-5.2 计费）
+	// 视觉路由触发时，按图片缓存状态计费（替换原 glm-5.2 token 计费）
 	if relayInfo.VisionRouteTriggered {
-		summary.Quota = CalcVisionRouteFeeQuota(relayInfo.PriceData.GroupRatioInfo.GroupRatio)
-		extraContent = append(extraContent, "包含视觉模型")
+		summary.Quota = CalcVisionRouteFeeQuotaByCache(
+			relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+			relayInfo.VisionRouteCacheCreated,
+			relayInfo.VisionRouteCacheHits,
+		)
+		if relayInfo.VisionRouteCacheCreated > 0 {
+			extraContent = append(extraContent, "包含视觉模型，创建图片缓存")
+		} else {
+			extraContent = append(extraContent, "包含视觉模型，命中图片缓存")
+		}
 	}
 
 	// 渠道调用次数：只要请求成功到达上游并返回响应就 +1，不依赖 usage（避免无 usage 时渠道配额漏扣）
@@ -488,6 +496,17 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	if relayInfo.VisionRouteTriggered {
 		other["contains_vision_model"] = true
+		if relayInfo.VisionRouteCacheCreated > 0 {
+			other["vision_route_cache_status"] = "created"
+		} else if relayInfo.VisionRouteCacheHits > 0 {
+			other["vision_route_cache_status"] = "hit"
+		}
+		if relayInfo.VisionRouteCacheHits > 0 {
+			other["vision_route_cache_hits"] = relayInfo.VisionRouteCacheHits
+		}
+		if relayInfo.VisionRouteCacheCreated > 0 {
+			other["vision_route_cache_created"] = relayInfo.VisionRouteCacheCreated
+		}
 	}
 
 	logId := model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
