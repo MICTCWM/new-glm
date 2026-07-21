@@ -27,26 +27,50 @@ const visionRouteTimeout = 30 * time.Second
 // ShouldVisionRoute 检测是否需要视觉路由
 // 条件：模型为 glm-5.2 + 协议为 OpenAI 或 Anthropic + 请求含图片
 func ShouldVisionRoute(relayFormat types.RelayFormat, modelName string, request dto.Request) bool {
+	// 诊断日志：输出所有关键变量
+	common.SysLog(fmt.Sprintf("vision route check: format=%s, modelName=%q, expectedModel=%q, requestType=%T, requestNil=%v",
+		relayFormat, modelName, common.VisionRouteSourceModel, request, request == nil))
+
 	if modelName != common.VisionRouteSourceModel {
+		common.SysLog(fmt.Sprintf("vision route skipped: model mismatch (got %q, want %q)", modelName, common.VisionRouteSourceModel))
 		return false
 	}
 	if request == nil {
+		common.SysLog("vision route skipped: request is nil")
 		return false
 	}
 	switch relayFormat {
 	case types.RelayFormatOpenAI:
 		openaiReq, ok := request.(*dto.GeneralOpenAIRequest)
 		if !ok || openaiReq == nil {
+			common.SysLog(fmt.Sprintf("vision route skipped: request is not *GeneralOpenAIRequest (ok=%v, nil=%v)", ok, openaiReq == nil))
 			return false
 		}
-		return openaiRequestHasImage(openaiReq)
+		hasImage := openaiRequestHasImage(openaiReq)
+		common.SysLog(fmt.Sprintf("vision route openai: messageCount=%d, hasImage=%v", len(openaiReq.Messages), hasImage))
+		if !hasImage {
+			// 输出每条消息的内容类型，帮助定位图片格式问题
+			for i := range openaiReq.Messages {
+				contents := openaiReq.Messages[i].ParseContent()
+				types := make([]string, 0, len(contents))
+				for _, c := range contents {
+					types = append(types, c.Type)
+				}
+				common.SysLog(fmt.Sprintf("vision route openai: message[%d] contentTypes=%v", i, types))
+			}
+		}
+		return hasImage
 	case types.RelayFormatClaude:
 		claudeReq, ok := request.(*dto.ClaudeRequest)
 		if !ok || claudeReq == nil {
+			common.SysLog(fmt.Sprintf("vision route skipped: request is not *ClaudeRequest (ok=%v, nil=%v)", ok, claudeReq == nil))
 			return false
 		}
-		return claudeRequestHasImage(claudeReq)
+		hasImage := claudeRequestHasImage(claudeReq)
+		common.SysLog(fmt.Sprintf("vision route claude: messageCount=%d, hasImage=%v", len(claudeReq.Messages), hasImage))
+		return hasImage
 	}
+	common.SysLog(fmt.Sprintf("vision route skipped: unsupported format %s", relayFormat))
 	return false
 }
 
