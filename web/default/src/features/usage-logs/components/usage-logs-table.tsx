@@ -45,6 +45,7 @@ import { fetchLogsByCategory } from '../lib/utils'
 import type { LogCategory } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
+import { useUsageLogsContext } from './usage-logs-provider'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
@@ -62,6 +63,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const isAdmin = useIsAdmin()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
+  const { detailsDialogOpen } = useUsageLogsContext()
 
   const {
     columnFilters,
@@ -133,7 +135,9 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     // Auto-refresh every 1s so new logs stream in without a manual search.
     // TanStack Query v5 defaults to refetchIntervalInBackground: false, so
     // background tabs won't waste requests. Explicitly set it here for clarity.
-    refetchInterval: 1000,
+    // Pause polling while a details dialog is open so the admin can read the
+    // request/response payload without the table re-rendering underneath.
+    refetchInterval: detailsDialogOpen ? false : 1000,
     refetchIntervalInBackground: false,
     // A polling response only updates existing rows. Don't trigger an extra
     // refetch on tab focus and keep the current data while the request is in

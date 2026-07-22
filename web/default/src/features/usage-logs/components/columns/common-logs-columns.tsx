@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 import { CircleAlert, Sparkles, KeyRound, RotateCw, ImageIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -894,12 +894,17 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       header: t('Details'),
       cell: function DetailsCell({ row }) {
         const [dialogOpen, setDialogOpen] = useState(false)
+        const { setDetailsDialogOpen } = useUsageLogsContext()
         const log = row.original
         const other = parseLogOther(log.other)
 
         const segments = buildDetailSegments(log, other, t)
         const primary = segments[0]
         const hasMore = segments.length > 1
+
+        useEffect(() => {
+          setDetailsDialogOpen(dialogOpen)
+        }, [dialogOpen, setDetailsDialogOpen])
 
         return (
           <>
