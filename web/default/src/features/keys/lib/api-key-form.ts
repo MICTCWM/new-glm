@@ -27,14 +27,14 @@ import { type ApiKeyFormData, type ApiKey } from '../types'
 
 export const apiKeyFormSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  remain_quota_dollars: z.number().min(0).nullish(),
+  remain_quota_dollars: z.any(),
   expired_time: z.date().optional(),
   unlimited_quota: z.boolean(),
   model_limits: z.array(z.string()),
   allow_ips: z.string().optional(),
   group: z.string().optional(),
   cross_group_retry: z.boolean().optional(),
-  tokenCount: z.number().min(1).nullish(),
+  tokenCount: z.any(),
 })
 
 export type ApiKeyFormValues = z.infer<typeof apiKeyFormSchema>

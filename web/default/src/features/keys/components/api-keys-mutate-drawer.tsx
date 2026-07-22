@@ -616,6 +616,7 @@ export function ApiKeysMutateDrawer({
             type='button'
             onClick={form.handleSubmit(onSubmit, (errors) => {
               console.error('API Key form validation errors:', errors)
+              console.error('Current form values:', form.getValues())
               const errorDetails = Object.entries(errors)
                 .map(([field, err]) => `${field}: ${(err as any)?.message || 'invalid'}`)
                 .join(', ')
