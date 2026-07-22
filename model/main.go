@@ -290,6 +290,7 @@ func migrateDB() error {
 		&TicketImage{},
 		&TicketReply{},
 		&LogDetail{},
+		&VisionRouteImageCache{},
 	)
 	if err != nil {
 		return err

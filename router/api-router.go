@@ -400,6 +400,7 @@ func SetApiRouter(router *gin.Engine) {
 				ticketAdminRoute.GET("", controller.GetAllTickets)
 				ticketAdminRoute.POST("/:id/reply", controller.AddTicketReply)
 				ticketAdminRoute.PUT("/:id/status", controller.UpdateTicketStatus)
+				ticketAdminRoute.DELETE("/:id", controller.DeleteTicket)
 			}
 		}
 

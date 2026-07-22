@@ -149,6 +149,11 @@ export interface LogOtherData {
   audio_ratio?: number
   audio_completion_ratio?: number
   frt?: number
+  // Vision route image cache fields
+  contains_vision_model?: boolean
+  vision_route_cache_status?: 'created' | 'hit'
+  vision_route_cache_created?: number
+  vision_route_cache_hits?: number
   // Tiered (expression-based) billing fields, set by backend when
   // billing_mode === 'tiered_expr'. expr_b64 is the base64-encoded billing
   // expression and matched_tier is the label of the tier that fired.

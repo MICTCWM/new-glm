@@ -110,6 +110,16 @@ export async function updateTicketStatus(
 }
 
 /**
+ * Delete a ticket (admin only)
+ */
+export async function deleteTicket(
+  ticketId: number
+): Promise<{ success: boolean; message?: string }> {
+  const res = await api.delete(`/api/ticket/${ticketId}`)
+  return res.data
+}
+
+/**
  * Upload a single image
  */
 export async function uploadTicketImage(

@@ -316,6 +316,7 @@ func InitResources() error {
 		return err
 	}
 	model.StartLogDetailCleanupTask()
+	model.StartVisionRouteCacheCleanupTask()
 
 	// Initialize Redis
 	err = common.InitRedisClient()

@@ -18,15 +18,17 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { RefreshCw, ChevronLeft, ChevronRight, Clock, User } from 'lucide-react'
+import { RefreshCw, ChevronLeft, ChevronRight, Clock, User, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Empty } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TICKET_STATUS_MAP, TICKET_STATUS_FILTER_OPTIONS } from '../constants'
-import { getUserTickets, getAllTickets } from '../api'
+import { getUserTickets, getAllTickets, deleteTicket } from '../api'
 import type { Ticket, TicketStatus } from '../types'
 
 interface TicketListProps {
@@ -40,6 +42,8 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
   const [statusFilter, setStatusFilter] = useState('')
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [deleteTarget, setDeleteTarget] = useState<Ticket | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const pageSize = 20
 
   const fetchTickets = useCallback(async () => {
@@ -60,6 +64,21 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
     fetchTickets()
   }, [fetchTickets])
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await deleteTicket(deleteTarget.id)
+      if (res.success) {
+        toast.success('工单已删除')
+        setDeleteTarget(null)
+        fetchTickets()
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const totalPages = Math.ceil(total / pageSize)
 
   const formatDate = (timestamp: number) => {
@@ -74,6 +93,7 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
   }
 
   return (
+    <>
     <Card>
       <CardHeader className='flex flex-row items-center justify-between'>
         <CardTitle>{isAdmin ? '所有工单' : '我的工单'}</CardTitle>
@@ -143,7 +163,22 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
                       )}
                     </div>
                   </div>
-                  <div className='flex-shrink-0'>{getStatusBadge(ticket.status)}</div>
+                  <div className='flex-shrink-0 flex items-center gap-2'>
+                    {getStatusBadge(ticket.status)}
+                    {isAdmin && (
+                      <Button
+                        variant='destructive'
+                        size='icon'
+                        className='h-7 w-7'
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeleteTarget(ticket)
+                        }}
+                      >
+                        <Trash2 className='h-3.5 w-3.5' />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -180,5 +215,30 @@ export function TicketList({ isAdmin = false }: TicketListProps) {
         )}
       </CardContent>
     </Card>
+
+    <ConfirmDialog
+      destructive
+      open={deleteTarget !== null}
+      onOpenChange={(open) => {
+        if (!open) setDeleteTarget(null)
+      }}
+      handleConfirm={handleDelete}
+      isLoading={deleting}
+      className='max-w-md'
+      title='删除工单？'
+      desc={
+        deleteTarget ? (
+          <>
+            确定要删除工单 <strong>#{deleteTarget.id}</strong> 吗？
+            <br />
+            删除后将同时移除该工单的所有回复和附件图片，此操作无法撤销。
+          </>
+        ) : (
+          ''
+        )
+      }
+      confirmText='删除'
+    />
+    </>
   )
 }

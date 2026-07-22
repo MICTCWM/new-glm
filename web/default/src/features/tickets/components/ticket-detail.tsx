@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
-import { ArrowLeft, Clock, User, CheckCircle, Send, Paperclip } from 'lucide-react'
+import { ArrowLeft, Clock, User, CheckCircle, Send, Paperclip, Trash2 } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -29,8 +29,9 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Empty } from '@/components/ui/empty'
 import { Separator } from '@/components/ui/separator'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TICKET_STATUS_MAP } from '../constants'
-import { getTicket, addTicketReply, updateTicketStatus } from '../api'
+import { getTicket, addTicketReply, updateTicketStatus, deleteTicket } from '../api'
 import { useAuthStore } from '@/stores/auth-store'
 import type { Ticket, TicketStatus } from '../types'
 
@@ -46,6 +47,8 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
   const [replyContent, setReplyContent] = useState('')
   const [closeOnReply, setCloseOnReply] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const isAdmin = auth.user && auth.user.role >= 10
 
@@ -105,6 +108,19 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
       }
     } catch {
       /* error handled by interceptor */
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      const res = await deleteTicket(ticketId)
+      if (res.success) {
+        toast.success('工单已删除')
+        navigate({ to: '/tickets' })
+      }
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -182,6 +198,16 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
                   重新打开
                 </Button>
               )}
+              {isAdmin && (
+                <Button
+                  variant='destructive'
+                  size='sm'
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash2 className='h-4 w-4 mr-1' />
+                  删除
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -203,13 +229,13 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
                 {ticket.images.map((img) => (
                   <a
                     key={img.id}
-                    href={img.file_path}
+                    href={`/api${img.file_path}`}
                     target='_blank'
                     rel='noopener noreferrer'
                     className='block h-24 w-24 rounded-lg border overflow-hidden hover:ring-2 ring-primary transition-all'
                   >
                     <img
-                      src={img.file_path}
+                      src={`/api${img.file_path}`}
                       alt={img.filename}
                       className='h-full w-full object-cover'
                     />
@@ -293,6 +319,24 @@ export function TicketDetail({ ticketId }: TicketDetailProps) {
           </CardContent>
         </Card>
       )}
+
+      <ConfirmDialog
+        destructive
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        handleConfirm={handleDelete}
+        isLoading={deleting}
+        className='max-w-md'
+        title='删除工单？'
+        desc={
+          <>
+            确定要删除工单 <strong>#{ticket.id}</strong> 吗？
+            <br />
+            删除后将同时移除该工单的所有回复和附件图片，此操作无法撤销。
+          </>
+        }
+        confirmText='删除'
+      />
     </div>
   )
 }

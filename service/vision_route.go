@@ -284,7 +284,8 @@ func resolveVisionImageDescriptions(c *gin.Context, relayInfo *relaycommon.Relay
 			if err != nil {
 				return nil, err
 			}
-			putVisionRouteCache(key, description, time.Now())
+			imageUrl, mimeType := visionRouteImageRef(imageContent)
+			putVisionRouteCache(key, description, imageUrl, mimeType, relayInfo.ChannelId, time.Now())
 			return visionRouteDescriptionResult{description: description, created: true}, nil
 		})
 		if err != nil {
@@ -313,6 +314,15 @@ func visionRouteImageCacheKey(content dto.MediaContent) string {
 	}
 	digest := sha256.Sum256([]byte(image.MimeType + "\x00" + image.Url))
 	return hex.EncodeToString(digest[:])
+}
+
+// visionRouteImageRef extracts the image url and mime type from a media content.
+func visionRouteImageRef(content dto.MediaContent) (string, string) {
+	image := content.GetImageMedia()
+	if image == nil {
+		return "", ""
+	}
+	return image.Url, image.MimeType
 }
 
 // claudeImageToOpenAI 将 Claude 图片内容转换为 OpenAI 格式

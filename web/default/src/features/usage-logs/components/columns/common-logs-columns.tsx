@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
-import { CircleAlert, Sparkles, KeyRound, RotateCw } from 'lucide-react'
+import { CircleAlert, Sparkles, KeyRound, RotateCw, ImageIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
@@ -542,6 +542,60 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         )
       },
       meta: { label: t('Model'), mobileTitle: true },
+    },
+
+    {
+      id: 'image_cache',
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          column={column}
+          title={t('Image Cache')}
+          className='justify-center'
+        />
+      ),
+      cell: ({ row }) => {
+        const other = parseLogOther(row.original.other)
+        if (!other?.contains_vision_model) return null
+
+        const status = other.vision_route_cache_status
+        const created = other.vision_route_cache_created || 0
+        const hits = other.vision_route_cache_hits || 0
+
+        if (status === 'created') {
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger render={<span className='flex justify-center' />}>
+                  <ImageIcon className='size-3.5 text-amber-500' />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t('Image Cache Created')} ({created} {t('images')})
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )
+        }
+
+        if (status === 'hit') {
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger render={<span className='flex justify-center' />}>
+                  <ImageIcon className='size-3.5 text-emerald-500' />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t('Image Cache Hit')} ({hits} {t('images')})
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )
+        }
+
+        return null
+      },
+      enableSorting: false,
+      enableHiding: true,
+      meta: { label: t('Image Cache') },
     },
 
     {

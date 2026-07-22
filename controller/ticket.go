@@ -429,7 +429,9 @@ func ServeTicketImage(c *gin.Context) {
 
 	// Prevent path traversal by resolving and comparing absolute paths
 	absBase, _ := filepath.Abs(ticketUploadRoot)
-	fullPath := filepath.Join(ticketUploadRoot, reqPath)
+	// reqPath 格式为 /ticket_images/1/xxx.jpg，已包含 ticketUploadRoot 前缀，
+	// 直接去掉前导 / 使用即可，无需再拼接 ticketUploadRoot。
+	fullPath := filepath.Clean(strings.TrimPrefix(reqPath, "/"))
 	absTarget, err := filepath.Abs(fullPath)
 	if err != nil || !strings.HasPrefix(absTarget, absBase) {
 		c.AbortWithStatus(http.StatusForbidden)
@@ -437,4 +439,38 @@ func ServeTicketImage(c *gin.Context) {
 	}
 
 	c.File(fullPath)
+}
+
+// DeleteTicket deletes a ticket and its associated images and replies (admin only).
+func DeleteTicket(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	// Delete image files from filesystem
+	ticketDir := filepath.Join(ticketUploadRoot, strconv.Itoa(id))
+	if _, err := os.Stat(ticketDir); err == nil {
+		_ = os.RemoveAll(ticketDir)
+	}
+
+	// Soft delete images, replies, and ticket
+	if err := model.DB.Where("ticket_id = ?", id).Delete(&model.TicketImage{}).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.DB.Where("ticket_id = ?", id).Delete(&model.TicketReply{}).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.DB.Delete(&model.Ticket{}, id).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
 }
