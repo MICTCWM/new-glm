@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Clock, Loader2 } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuItem,
 } from '@/components/ui/sidebar'
 
 type QueueItem = {
@@ -35,6 +35,7 @@ function formatTokens(tokens?: number) {
 export function RpmQueueStatus() {
   const { t } = useTranslation()
   const [items, setItems] = useState<QueueItem[]>([])
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
 
   useEffect(() => {
     let mounted = true
@@ -57,11 +58,16 @@ export function RpmQueueStatus() {
     }
 
     load()
-    const timer = window.setInterval(load, 5000)
+    const timer = window.setInterval(load, 3000)
     return () => {
       mounted = false
       window.clearInterval(timer)
     }
+  }, [])
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000)
+    return () => clearInterval(timer)
   }, [])
 
   if (items.length === 0) return null
@@ -73,27 +79,48 @@ export function RpmQueueStatus() {
         {t('Queued Requests')}
       </SidebarGroupLabel>
       <SidebarMenu>
-        {items.slice(0, 5).map((item, index) => (
-          <SidebarMenuItem key={item.request_id || index}>
-            <div className='mx-1 rounded-md border border-border/70 px-2 py-1.5 text-xs'>
-              <div className='flex items-center justify-between gap-2'>
-                <span className='truncate font-medium'>
-                  {item.username || `#${item.user_id || '-'}`}
-                </span>
-                <span className='text-muted-foreground flex shrink-0 items-center gap-1'>
-                  <Clock className='size-3' />
-                  {item.wait_seconds || 0}s
-                </span>
-              </div>
-              <div className='text-muted-foreground mt-1 truncate'>
-                {item.model_name || '-'}
-              </div>
-              <div className='text-muted-foreground mt-1'>
-                {t('Input tokens')}: {formatTokens(item.prompt_tokens)}
-              </div>
-            </div>
-          </SidebarMenuItem>
-        ))}
+        <AnimatePresence mode='popLayout'>
+          {items.slice(0, 5).map((item, index) => {
+            const waitSeconds = item.enqueue_time
+              ? Math.max(0, now - item.enqueue_time)
+              : (item.wait_seconds || 0)
+            return (
+              <motion.li
+                key={
+                  item.request_id ||
+                  item.username ||
+                  `item-${item.user_id}-${item.enqueue_time}-${index}`
+                }
+                data-slot='sidebar-menu-item'
+                data-sidebar='menu-item'
+                className='group/menu-item relative'
+                layout
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -100 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              >
+                <div className='mx-1 rounded-md border border-border/70 px-2 py-1.5 text-xs'>
+                  <div className='flex items-center justify-between gap-2'>
+                    <span className='truncate font-medium'>
+                      {item.username || `#${item.user_id || '-'}`}
+                    </span>
+                    <span className='text-muted-foreground flex shrink-0 items-center gap-1'>
+                      <Clock className='size-3' />
+                      {waitSeconds}s
+                    </span>
+                  </div>
+                  <div className='text-muted-foreground mt-1 truncate'>
+                    {item.model_name || '-'}
+                  </div>
+                  <div className='text-muted-foreground mt-1'>
+                    {t('Input tokens')}: {formatTokens(item.prompt_tokens)}
+                  </div>
+                </div>
+              </motion.li>
+            )
+          })}
+        </AnimatePresence>
       </SidebarMenu>
     </SidebarGroup>
   )

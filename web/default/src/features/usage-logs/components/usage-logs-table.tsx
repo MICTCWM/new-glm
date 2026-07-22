@@ -130,10 +130,11 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       }
       return undefined
     },
-    // Auto-refresh every 5s so new logs stream in without a manual search.
+    // Auto-refresh every 1s so new logs stream in without a manual search.
     // TanStack Query v5 defaults to refetchIntervalInBackground: false, so
-    // background tabs won't waste requests.
-    refetchInterval: 5000,
+    // background tabs won't waste requests. Explicitly set it here for clarity.
+    refetchInterval: 1000,
+    refetchIntervalInBackground: false,
     // A polling response only updates existing rows. Don't trigger an extra
     // refetch on tab focus and keep the current data while the request is in
     // flight (handled by placeholderData above).
@@ -218,9 +219,9 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     prevRowIdsRef.current = new Set(rows.map((r) => r.id))
   }, [rows])
 
-  // If a refresh inserts more than 5 new rows at once, skip per-row animation
+  // If a refresh inserts more than 10 new rows at once, skip per-row animation
   // to avoid jank (e.g. after a filter change or first load).
-  const skipRowAnimation = newRowIds.size > 5
+  const skipRowAnimation = newRowIds.size > 10
   const rowTransition = skipRowAnimation ? { duration: 0 } : MOTION_TRANSITION.fast
 
   return (
@@ -257,10 +258,19 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
             data-slot='table-row'
             data-state={row.getIsSelected() && 'selected'}
             initial={
-              isNewRow && !skipRowAnimation ? { opacity: 0, y: -4 } : false
+              isNewRow && !skipRowAnimation ? { opacity: 0, y: -24 } : false
             }
             animate={{ opacity: 1, y: 0 }}
-            transition={rowTransition}
+            transition={
+              isNewRow && !skipRowAnimation
+                ? {
+                    type: 'spring',
+                    stiffness: 300,
+                    damping: 30,
+                    opacity: { duration: 0.3 },
+                  }
+                : rowTransition
+            }
             className={cn(
               'hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors',
               tintClass
