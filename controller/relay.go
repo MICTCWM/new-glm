@@ -342,11 +342,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// 降级：丢弃图片，仅保留文本，按 glm-5.2 正常计费
 			request = service.StripImagesFromRequest(relayFormat, request)
 			relayInfo.Request = request
+			logger.LogInfo(c, fmt.Sprintf("vision route: degraded to strip images (text-only), model=%s, cacheCreated=%d, cacheHits=%d",
+				relayInfo.OriginModelName, relayInfo.VisionRouteCacheCreated, relayInfo.VisionRouteCacheHits))
 		} else {
 			request = routedRequest
 			relayInfo.Request = request
 			relayInfo.VisionRouteTriggered = true
+			logger.LogInfo(c, fmt.Sprintf("vision route: succeeded, images replaced with text descriptions, model=%s, cacheCreated=%d, cacheHits=%d",
+				relayInfo.OriginModelName, relayInfo.VisionRouteCacheCreated, relayInfo.VisionRouteCacheHits))
 		}
+	} else {
+		logger.LogInfo(c, fmt.Sprintf("vision route: not triggered, model=%s, format=%s", relayInfo.OriginModelName, relayFormat))
 	}
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)

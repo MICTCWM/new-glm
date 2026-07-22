@@ -477,6 +477,14 @@ func (m *Message) StringContent() string {
 	switch m.Content.(type) {
 	case string:
 		return m.Content.(string)
+	case []MediaContent:
+		var contentStr string
+		for _, mediaItem := range m.Content.([]MediaContent) {
+			if mediaItem.Type == ContentTypeText {
+				contentStr += mediaItem.Text
+			}
+		}
+		return contentStr
 	case []any:
 		var contentStr string
 		for _, contentItem := range m.Content.([]any) {
@@ -537,6 +545,14 @@ func (m *Message) ParseContent() []MediaContent {
 		}}
 		m.parsedContent = contentList
 		return contentList
+	}
+
+	// 尝试解析为 []MediaContent（SetMediaContent 设置的类型，DeepCopy 后 parsedContent 缓存丢失时兜底）
+	if mediaContent, ok := m.Content.([]MediaContent); ok {
+		if len(mediaContent) > 0 {
+			m.parsedContent = mediaContent
+		}
+		return mediaContent
 	}
 
 	// 尝试解析为数组
