@@ -31,7 +31,6 @@ func SetDashboardRouter(router *gin.Engine) {
 	adminRouter.Use(gzip.Gzip(gzip.DefaultCompression))
 	adminRouter.Use(middleware.GlobalAPIRateLimit())
 	adminRouter.Use(middleware.CORS())
-	adminRouter.Use(middleware.TokenAuth())
 	adminRouter.Use(middleware.AdminAuth())
 	{
 		adminRouter.GET("/dashboard/queue-status", controller.GetQueueStatus)

@@ -149,7 +149,7 @@ func GetQueueSnapshot() []RpmQueueSnapshotItem {
 }
 
 // WaitWithTimeout waits for either the notify channel or a timeout.
-// The timeout is configurable via common.RpmQueueTimeout (default 60s).
+// The timeout is configurable via common.RpmQueueTimeout (default 180s).
 // Returns true if notified (should retry), false if timed out.
 func (item *RpmQueueItem) WaitWithTimeout() bool {
 	timer := time.NewTimer(common.RpmQueueTimeout)
