@@ -1769,6 +1769,7 @@
     "Forgot password": "Quên mật khẩu",
     "Forgot password?": "Quên mật khẩu?",
     "Form reset to saved values": "Đã đặt lại biểu mẫu về các giá trị đã lưu",
+    "Form validation failed: {{fields}}": "Xác thực biểu mẫu thất bại: {{fields}}",
     "Format": "Định dạng",
     "Format JSON": "Định dạng JSON",
     "Format:": "Định dạng:",

@@ -612,7 +612,13 @@ export function ApiKeysMutateDrawer({
           </SheetClose>
           <Button
             type='button'
-            onClick={form.handleSubmit(onSubmit)}
+            onClick={form.handleSubmit(onSubmit, (errors) => {
+              console.error('API Key form validation errors:', errors)
+              const errorFields = Object.keys(errors).join(', ')
+              toast.error(
+                t('Form validation failed: {{fields}}', { fields: errorFields })
+              )
+            })}
             disabled={isSubmitting}
             className='w-full sm:w-auto'
           >

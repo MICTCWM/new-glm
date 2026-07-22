@@ -96,6 +96,7 @@ export function parseQuotaFromDollars(amount: number): number {
  * Reverse of parseQuotaFromDollars.
  */
 export function quotaUnitsToDollars(units: number): number {
+  if (!Number.isFinite(units)) return 0
   const { config, meta } = getCurrencyDisplay()
 
   if (meta.kind === 'tokens') {
@@ -106,7 +107,8 @@ export function quotaUnitsToDollars(units: number): number {
   const exchangeRate =
     meta.kind === 'currency' || meta.kind === 'custom' ? meta.exchangeRate : 1
 
-  return usdAmount * exchangeRate
+  const result = usdAmount * exchangeRate
+  return Number.isFinite(result) ? result : 0
 }
 
 // ============================================================================

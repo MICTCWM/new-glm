@@ -1769,6 +1769,7 @@
     "Forgot password": "パスワードを忘れた場合",
     "Forgot password?": "パスワードをお忘れですか？",
     "Form reset to saved values": "フォームが保存された値にリセットされました",
+    "Form validation failed: {{fields}}": "フォームの検証に失敗しました: {{fields}}",
     "Format": "形式",
     "Format JSON": "JSONをフォーマット",
     "Format:": "形式:",

@@ -79,7 +79,11 @@ export function transformFormDataToPayload(
     name: data.name,
     remain_quota: data.unlimited_quota
       ? 0
-      : parseQuotaFromDollars(data.remain_quota_dollars || 0),
+      : parseQuotaFromDollars(
+          Number.isFinite(data.remain_quota_dollars)
+            ? data.remain_quota_dollars
+            : 0
+        ),
     expired_time: data.expired_time
       ? Math.floor(data.expired_time.getTime() / 1000)
       : -1,
@@ -100,7 +104,9 @@ export function transformApiKeyToFormDefaults(
 ): ApiKeyFormValues {
   return {
     name: apiKey.name,
-    remain_quota_dollars: quotaUnitsToDollars(apiKey.remain_quota),
+    remain_quota_dollars: Number.isFinite(apiKey.remain_quota)
+      ? quotaUnitsToDollars(apiKey.remain_quota)
+      : 0,
     expired_time:
       apiKey.expired_time > 0
         ? new Date(apiKey.expired_time * 1000)

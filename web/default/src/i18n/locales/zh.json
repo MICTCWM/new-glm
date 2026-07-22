@@ -1805,6 +1805,7 @@
     "Forgot password": "忘记密码",
     "Forgot password?": "忘记密码？",
     "Form reset to saved values": "表单已重置为保存的值",
+    "Form validation failed: {{fields}}": "表单验证失败：{{fields}}",
     "Format": "格式",
     "Format JSON": "格式化 JSON",
     "Format:": "格式：",

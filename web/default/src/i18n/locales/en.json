@@ -1805,6 +1805,7 @@
     "Forgot password": "Forgot password",
     "Forgot password?": "Forgot password?",
     "Form reset to saved values": "Form reset to saved values",
+    "Form validation failed: {{fields}}": "Form validation failed: {{fields}}",
     "Format": "Format",
     "Format JSON": "Format JSON",
     "Format:": "Format:",
