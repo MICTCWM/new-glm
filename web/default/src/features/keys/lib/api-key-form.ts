@@ -27,14 +27,14 @@ import { type ApiKeyFormData, type ApiKey } from '../types'
 
 export const apiKeyFormSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  remain_quota_dollars: z.number().min(0).optional(),
+  remain_quota_dollars: z.number().min(0).nullish(),
   expired_time: z.date().optional(),
   unlimited_quota: z.boolean(),
   model_limits: z.array(z.string()),
   allow_ips: z.string().optional(),
   group: z.string().optional(),
   cross_group_retry: z.boolean().optional(),
-  tokenCount: z.number().min(1).optional(),
+  tokenCount: z.number().min(1).nullish(),
 })
 
 export type ApiKeyFormValues = z.infer<typeof apiKeyFormSchema>
@@ -80,7 +80,8 @@ export function transformFormDataToPayload(
     remain_quota: data.unlimited_quota
       ? 0
       : parseQuotaFromDollars(
-          Number.isFinite(data.remain_quota_dollars)
+          typeof data.remain_quota_dollars === 'number' &&
+            Number.isFinite(data.remain_quota_dollars)
             ? data.remain_quota_dollars
             : 0
         ),

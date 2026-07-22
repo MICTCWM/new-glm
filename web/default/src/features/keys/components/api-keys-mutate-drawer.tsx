@@ -434,6 +434,7 @@ export function ApiKeysMutateDrawer({
                       <FormControl>
                         <Input
                           {...field}
+                          value={field.value ?? undefined}
                           type='number'
                           min='1'
                           placeholder={t('Number of keys to create')}
@@ -469,6 +470,7 @@ export function ApiKeysMutateDrawer({
                       <FormControl>
                         <Input
                           {...field}
+                          value={field.value ?? undefined}
                           type='number'
                           step={tokensOnly ? 1 : 0.01}
                           placeholder={quotaPlaceholder}
@@ -614,6 +616,10 @@ export function ApiKeysMutateDrawer({
             type='button'
             onClick={form.handleSubmit(onSubmit, (errors) => {
               console.error('API Key form validation errors:', errors)
+              const errorDetails = Object.entries(errors)
+                .map(([field, err]) => `${field}: ${(err as any)?.message || 'invalid'}`)
+                .join(', ')
+              console.error('Validation error details:', errorDetails)
               const errorFields = Object.keys(errors).join(', ')
               toast.error(
                 t('Form validation failed: {{fields}}', { fields: errorFields })
