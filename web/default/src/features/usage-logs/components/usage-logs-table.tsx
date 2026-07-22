@@ -63,7 +63,11 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const isAdmin = useIsAdmin()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
-  const { detailsDialogOpen } = useUsageLogsContext()
+  const {
+    detailsDialogOpen,
+    autoRefreshEnabled,
+    autoRefreshInterval,
+  } = useUsageLogsContext()
 
   const {
     columnFilters,
@@ -132,12 +136,12 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       }
       return undefined
     },
-    // Auto-refresh every 1s so new logs stream in without a manual search.
-    // TanStack Query v5 defaults to refetchIntervalInBackground: false, so
-    // background tabs won't waste requests. Explicitly set it here for clarity.
-    // Pause polling while a details dialog is open so the admin can read the
-    // request/response payload without the table re-rendering underneath.
-    refetchInterval: detailsDialogOpen ? false : 1000,
+    // 自动刷新：根据 context 中的开关与间隔（毫秒）轮询拉取新日志。
+    // TanStack Query v5 默认 refetchIntervalInBackground: false，后台标签
+    // 不会浪费请求，这里显式设置以保持清晰。详情弹窗打开时暂停轮询，
+    // 避免表格在管理员阅读请求/响应内容时重渲染。
+    refetchInterval:
+      !autoRefreshEnabled || detailsDialogOpen ? false : autoRefreshInterval,
     refetchIntervalInBackground: false,
     // A polling response only updates existing rows. Don't trigger an extra
     // refetch on tab focus and keep the current data while the request is in

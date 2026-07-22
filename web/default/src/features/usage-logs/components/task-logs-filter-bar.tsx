@@ -27,6 +27,7 @@ import { DataTableToolbar } from '@/components/data-table'
 import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { DrawingLogFilters, LogCategory, TaskLogFilters } from '../types'
+import { AutoRefreshControl } from './auto-refresh-control'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
@@ -202,6 +203,7 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
       onSearch={handleApply}
       searchLoading={fetchingLogs > 0}
       onReset={handleReset}
+      preActions={<AutoRefreshControl />}
     />
   )
 }

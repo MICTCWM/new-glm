@@ -33,6 +33,11 @@ interface UsageLogsContextValue {
   setSensitiveVisible: (visible: boolean) => void
   detailsDialogOpen: boolean
   setDetailsDialogOpen: (open: boolean) => void
+  // 自动刷新开关与刷新间隔（毫秒），关闭时为 false
+  autoRefreshEnabled: boolean
+  setAutoRefreshEnabled: (enabled: boolean) => void
+  autoRefreshInterval: number
+  setAutoRefreshInterval: (interval: number) => void
 }
 
 const UsageLogsContext = createContext<UsageLogsContextValue | undefined>(
@@ -47,6 +52,9 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
   const [affinityDialogOpen, setAffinityDialogOpen] = useState(false)
   const [sensitiveVisible, setSensitiveVisible] = useState(true)
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false)
+  // 自动刷新默认开启，间隔 5 秒（比原硬编码的 1 秒更合理）
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(5000)
 
   return (
     <UsageLogsContext.Provider
@@ -63,6 +71,10 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
         setSensitiveVisible,
         detailsDialogOpen,
         setDetailsDialogOpen,
+        autoRefreshEnabled,
+        setAutoRefreshEnabled,
+        autoRefreshInterval,
+        setAutoRefreshInterval,
       }}
     >
       {children}
