@@ -894,13 +894,19 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       header: t('Details'),
       cell: function DetailsCell({ row }) {
         const [dialogOpen, setDialogOpen] = useState(false)
-        const { setDetailsDialogOpen } = useUsageLogsContext()
+        const { detailsDialogOpen, setDetailsDialogOpen } = useUsageLogsContext()
         const log = row.original
         const other = parseLogOther(log.other)
 
         const segments = buildDetailSegments(log, other, t)
         const primary = segments[0]
         const hasMore = segments.length > 1
+
+        useEffect(() => {
+          if (!dialogOpen && detailsDialogOpen) {
+            setDialogOpen(true)
+          }
+        }, [dialogOpen, detailsDialogOpen])
 
         useEffect(() => {
           setDetailsDialogOpen(dialogOpen)
