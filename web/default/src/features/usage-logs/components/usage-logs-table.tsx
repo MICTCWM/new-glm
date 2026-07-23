@@ -156,6 +156,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const table = useReactTable({
     data: logs as Record<string, unknown>[],
     columns: columns as ColumnDef<Record<string, unknown>>[],
+    getRowId: (row) => String((row as Record<string, unknown>).id),
     state: {
       columnFilters,
       pagination,
