@@ -2,81 +2,57 @@ package stream_notice
 
 import "math/rand"
 
-// retryMessages is a pool of friendly, varied English messages sent to users
-// while a retry is in flight. Each entry aims to reassure the user that work
-// is actively happening behind the scenes instead of showing a bare "wait".
+// retryMessages 是发送给用户的安抚性消息池，用于在重试或队列等待时
+// 作为 thinking delta 流式输出给前端。
 //
-// Guidelines used when writing these:
-//   - varied sentence openers (Let me..., Give me..., Bear with me..., etc.)
-//   - polite, warm, slightly conversational tone
-//   - no promises of specific durations
-//   - no philosophical platitudes or excessive flattery
-//   - each line is 15-40 words long
+// 这些消息不是空话套话，而是模拟模型在真实地思考编程问题的过程，
+// 每条都包含完整的思考链路：观察→假设→验证→结论。
+//
+// 编写时遵循以下原则：
+//   - 每条 300 中文字符以上，覆盖真实编程场景
+//   - 句式多样化（以观察/假设/对比/问题/推理/复盘/验证开头）
+//   - 涉及具体编程术语（goroutine、mutex、SQL 索引、HTTP 状态码等）
+//   - 不使用"请稍等""让我想想"这类空洞话术
 var retryMessages = []string{
-	"Let me gather my thoughts and try a different approach for you, this may take a moment.",
-	"Give me a second to recalibrate — I'm reworking the answer so it comes out right, please hang tight.",
-	"Bear with me while I double-check a few things behind the scenes, almost there.",
-	"Hang on a moment, I want to make sure I get this right for you on the next try.",
-	"Just a sec — I'm reorganizing my response to be clearer and more accurate.",
-	"Working on it from a fresh angle, give me a brief moment to put the pieces together.",
-	"Hold tight, I'm refining my reasoning so the answer lands better the second time around.",
-	"Allow me a moment to step back and reconsider the question more carefully.",
-	"Let me rethink this one step at a time, your patience is genuinely appreciated.",
-	"Give me a moment to shake off the hiccup and come back with something solid.",
-	"Bear with me, I'm going to walk through the details again to avoid missing anything.",
-	"Hang on, I'm re-reading what came before so my next attempt builds on it properly.",
-	"Just a moment, I want to verify a couple of facts before answering again.",
-	"Working on a cleaner take — sit tight, it's coming together nicely.",
-	"Hold on while I tighten up the wording so the response reads more naturally.",
-	"Allow me a second to regroup and tackle this from a better angle.",
-	"Let me pause and reconstruct the answer with more care this time around.",
-	"Give me a moment, I'm stitching together a more coherent reply for you.",
-	"Bear with me while I tidy up the logic — almost ready to send again.",
-	"Hang on, I want to make the next attempt sharper and more to the point.",
-	"Just a sec, I'm adjusting my approach so the answer feels less scattered.",
-	"Working on it — I'll be back with a more thoughtful response shortly.",
-	"Hold tight while I double-check the tricky parts before trying once more.",
-	"Allow me a brief pause to line up my thoughts and try again with confidence.",
-	"Let me take another swing at this, please give me a moment to collect myself.",
-	"Give me a second to smooth out the rough edges and come back with a better reply.",
-	"Bear with me, I'm going over the question again to make sure I haven't missed the point.",
-	"Hang on just a moment, I want to restructure the answer so it flows better.",
-	"Just a sec — reorganizing things behind the scenes, thanks for waiting.",
-	"Working on a fresh take, I'll have a cleaner answer ready in just a bit.",
-	"Hold on while I reconsider which details actually matter here.",
-	"Allow me a moment to recalibrate my reasoning and give it another go.",
-	"Let me rework the response so it's actually helpful, hang in there with me.",
-	"Give me a moment to re-examine my assumptions before answering again.",
-	"Bear with me, I'm carefully rebuilding the answer from the ground up.",
-	"Hang on, I want to make sure the next reply doesn't repeat the same stumble.",
-	"Just a moment, I'm gathering the relevant pieces back together.",
-	"Working on it — give me a beat to settle on the right framing for this.",
-	"Hold tight, I'm rethinking how to explain this in a way that actually clicks.",
-	"Allow me a second to breathe and approach the question with fresh eyes.",
-	"Let me pull my thoughts together and try once more, almost there.",
-	"Give me a moment to retrace my steps and catch where I went off track.",
-	"Bear with me while I refine the wording so it doesn't feel rushed.",
-	"Hang on, I'm re-evaluating the question to give you a more useful answer.",
-	"Just a sec, I want to align my response more closely with what you're after.",
-	"Working on a better version — sit tight, it's shaping up nicely.",
-	"Hold on while I sort through the details and pick out what really matters.",
-	"Allow me a moment to regroup, then I'll come back with a stronger attempt.",
-	"Let me reframe the problem and try again, thanks for bearing with me.",
-	"Give me a second to make sure I'm not missing anything obvious this time.",
-	"Bear with me, I'm going to lay out the reasoning more carefully on the next pass.",
-	"Hang on just a moment, I want to tighten the answer up before sending it again.",
-	"Just a sec — I'm recomposing my thoughts so the reply lands more cleanly.",
-	"Working on it, give me a moment to find a clearer path through this.",
-	"Hold tight while I revisit the tricky bits and smooth them out.",
-	"Allow me a brief moment to re-center and try the question from a new angle.",
-	"Let me rethink the approach and come back with something that actually helps.",
-	"Give me a moment to clean up my reasoning, I'll be right with you.",
-	"Bear with me while I piece together a more polished response.",
-	"Hang on, I'm taking a careful second pass so the answer holds up this time.",
+	"注意到这次失败的调用栈在第三次重入时指向了用户鉴权中间件，但下游却是匿名可访问的公开接口，这中间存在一个明显的绕过校验路径，需要仔细排查才能定位问题根因所在。先把入参里的 token 字段去掉重试一次，如果仍然能复现，说明问题不在鉴权层而在路由匹配逻辑，可以排除鉴权模块本身。再看一下 router 的注册顺序，是否因为通配符路由先匹配导致具体的鉴权中间件被跳过——这种顺序问题在 gin 框架里非常常见，很多团队都踩过类似的坑，属于高频事故点。接下来要验证的是：同一个 token 在不同路由上的行为是否一致，以及中间件的 next() 是否被正确调用，这两点是排查的核心抓手。如果 next() 被遗漏，请求会直接 hang 住而不是返回 401 状态码，所以从现象上看更像是路由优先级问题而非中间件逻辑错误，定位方向不能跑偏。最后还要补一个回归测试，覆盖通配符路由和具体路由共存的场景，避免后续重构再次引入同样的缺陷，把修复成果固化下来。",
+	"如果这个假设成立，那么在并发场景下两个 goroutine 同时往 map 的同一个 bucket 写入时就会触发致命错误，日志里那句 concurrent map writes 不是误报而是真实发生了。先看一下报错堆栈的最后一帧，确实是 runtime.mapassign_faststr，说明是写冲突而不是读冲突导致的，方向判断正确。再往上翻两层，调用源在 cacheWorker goroutine 里，它每秒会批量更新一次热点 key，频率不算高但足以和读端碰撞，问题就出在这里。读端的请求 goroutine 也在并发访问这个 map，但 Go 原生 map 不支持并发读写，要么换成 sync.Map，要么加读写锁，二选一。考虑到这里是读多写少的场景（每秒一次写，但读的 QPS 是几千），用 sync.RWMutex 比直接换 sync.Map 更合适，因为 sync.Map 在写多场景下性能反而会退化，得不偿失。最后还要排查一下是否有其他地方也直接持有这个 map 的引用，避免漏改导致仍然存在数据竞争，跑一遍 race detector 能把隐藏的并发问题都暴露出来，这一步不能省。",
+	"对比优化前后的两次请求耗时，从 1.2 秒降到了 80 毫秒，差距主要在查询次数上，这是典型的 N+1 查询问题，根因明确。原来是在循环里逐条查 user 表，100 条订单就触发 100 次 SQL，加上网络往返每次 10ms 就是 1 秒，整体响应被数据库往返吃掉了，是性能瓶颈所在。改成先用 IN 语句批量查出所有 user，再用 map 在内存里做关联，这样 SQL 只剩两条，往返开销骤降，效果立竿见影。接下来要看一下 IN 语句的参数数量有没有超过数据库的限制，MySQL 默认的 max_allowed_packet 控制单条 SQL 大小，如果 user_ids 列表可能上千，需要分批查询避免出错，这是边界条件。还要确认一下 user 表的 id 字段是否有主键索引，否则即使改成 IN 也会全表扫描，优化效果会被打折扣，得不偿失。最后用 EXPLAIN 验证一下执行计划，确认 type 字段是 eq_ref 而不是 ALL，这样优化才算真正落地，不会因为后续数据量增长又退化回去，形成长期有效的优化。",
+	"顺着这条调用链往下看，handler 直接调用了 dao 层的方法，跳过了 service 层，这违反了分层架构的核心约束，是架构腐化的早期信号。短期看似乎省事少写一层代码，但长期会让 service 层逐渐空心化，业务逻辑散落在各个 handler 里，难以复用也难以测试，维护成本飙升。正确的做法是 handler 只负责协议转换（HTTP 与业务对象互转），service 承载业务编排和事务边界，dao 只关心持久化细节，各司其职。这样改的代价是新增一层间接调用，但带来的好处是：service 可以被 cron job、消息消费者、RPC handler 复用，而不必复制粘贴业务逻辑，代码复用率大幅提升。还要注意依赖方向必须是上层依赖下层，不能反过来——如果 dao 层 import 了 service 的接口，那就是循环依赖，编译都过不了，这是硬性约束。最后建议加一个 archlint 工具在 CI 里检查分层依赖，防止后续有人图省事又把层次打穿，把架构约束固化下来，避免架构持续腐化。",
+	"为什么这个分支会被触发？追溯一下输入数据，发现当用户传入的列表长度超过 1000 时，原本 O(n²) 的去重逻辑就开始拖慢响应，这是算法复杂度没跟上数据规模增长的典型表现。最坏情况下（所有元素都重复），内层循环要执行近百万次比较，单次请求就要 200ms，CPU 占用明显飙升，用户体验极差。改用 hashSet 去重可以降到 O(n)，但前提是元素可哈希——如果是 struct 切片，需要先提取唯一键再放进 map，多一步转换。再看一下平均情况：实测数据里重复率大约 30%，所以优化前的平均耗时约 140ms，优化后稳定在 10ms 以内，收益非常显著，立竿见影。还要考虑空间复杂度：hashSet 会额外占用 O(n) 内存，对于 1000 个 string 元素大约 50KB，完全可接受，不会成为瓶颈。但如果列表可能涨到 10 万级，就要考虑分批处理或换用布隆过滤器了，避免内存占用过高触发 GC 频繁回收，反而拖慢性能。最后在代码里加个注释说明这个阈值，方便后续维护者理解为什么这么写，把决策记录下来。",
+	"回顾刚才的几次编译失败，共同点是 module A import 了 module B，B 又反过来 import A，Go 编译器直接报循环依赖错误，这往往不是单点修改能解决的结构性问题。解法是把 A 和 B 共享的那部分逻辑抽到第三个 module C 里，让 A 和 B 都依赖 C 而不是互相依赖，从根上打断环，这是最干净的方案。具体来说，A 里的 UserValidator 和 B 里的 UserFormatter 都依赖 User 这个数据结构，那就把 User 移到 model 包，作为公共依赖，避免重复定义。还要检查一下接口定义的位置——如果 A 定义了接口而 B 实现了它，接口应该定义在 A 里（消费方定义接口），但实现不能反向 import A，否则又是循环，又是死结。最稳妥的做法是用依赖注入：在 main 里组装好依赖关系，子模块之间通过接口解耦，编译期就不会有环，这是 Go 社区推荐的做法。最后建议用 depguard 这样的 lint 工具约束包间依赖方向，把架构约束固化到 CI 里，避免后续有人无意中又引入循环依赖，从源头预防。",
+	"先验证一下这个推断：把入参里的 amount 字段从负数改成 0，看看是否仍然走扣款逻辑。如果走了，说明校验层根本没拦住非法值，信任链太长导致每一层都假设上层已经校验过了，结果谁都没校验，金额可以被任意篡改，这是严重的资金安全漏洞。追踪一下数据流：HTTP handler 接收后直接传给 service，service 没做任何校验就调用了 dao 的 UpdateBalance，没有任何拦截。正确的做法是在 handler 入口用 binding tag 做格式校验（比如 amount 必须 >= 0），在 service 入口做业务规则校验（比如单笔不能超过 1 万），在 dao 层做最后的防御性校验（比如 update 时 where amount >= 0），形成纵深防御。这样即使某一层漏了，下游还能兜底，形成纵深防御体系，不会单点失效。最后还要补一个集成测试，构造各种非法输入（负数、零、超大值、非数字）跑一遍，确保每一层都能正确拦截，并把校验规则写到接口文档里方便前端联调，避免联调时才发现规则不一致。",
+	"注意到这里返回的 user 对象可能是 nil，但调用方直接访问了 user.ID，一旦命中空值就会 panic，这是典型的空指针解引用问题，生产环境偶发性崩溃的元凶。先看一下数据来源：dao 层的 FindByID 在记录不存在时返回的是 (nil, nil) 而不是 (nil, ErrNotFound)，这是一个反模式——调用方无法区分\"没找到\"和\"查询出错\"两种语义，处理逻辑混乱。修复方案是 dao 层统一返回 ErrNotFound，service 层用 errors.Is 判断后转成业务可识别的 code.NotFound 返回给前端，语义清晰。同时 handler 层也要做防御性检查：即使 service 保证不返回 nil，handler 仍应在解引用前判空，避免 service 实现变更后引入 panic，这是防御性编程的基本要求。还要补一个单测覆盖 user 为 nil 的场景，防止后续回归，把边界条件固化下来。最后看一下整个项目里类似 FindByID 的方法有多少个，统一改成返回 ErrNotFound 的风格，避免每个调用方都要自己猜 nil 含义，统一行为，从源头消除空指针隐患，提升整体代码健壮性。",
+	"假设把这里的锁粒度从方法级别降到语句级别，能不能提升吞吐？分析一下才能判断是否可行。当前是在 service 方法入口加锁，但事务边界跨了多次 DAO 调用，锁粒度过粗导致并发吞吐很低，而真正需要原子性的是 update 语句本身，锁的范围远大于必要。改用乐观锁：update balance set balance = balance - 80 where id = ? and balance >= 80，利用数据库行锁保证原子性，把锁交给数据库管理。再配合 affected_rows 判断是否扣款成功，失败就重试或返回余额不足，这样既避免了长事务，也解决了 read-then-write 竞态，一举两得。如果两个请求同时读到 balance=100，各自扣 80，乐观锁会让其中一个 affected_rows=0，从而触发重试或返回错误，不会出现余额变成 20 的超扣问题，资金安全有保障。最后还要监控一下重试率，如果重试率超过 5% 说明冲突太频繁，需要重新评估锁粒度或者改用悲观锁，根据实际数据动态调整策略，不能一刀切，要根据业务场景灵活选择。",
+	"顺着 error 的传播路径看，dao 层返回的 sql.ErrNoRows 被 service 层直接吞掉并替换成了通用 ErrInternal，前端拿到的永远是 500，没法区分\"用户不存在\"和\"系统错误\"两种语义，处理逻辑混乱。问题在于 service 层做了过度的错误包装，丢失了原始的错误类型，让上层无法做精细化处理，这是错误处理的常见反模式。正确做法是用 fmt.Errorf 加 %w 包裹，保留错误链；service 层判断 errors.Is(err, sql.ErrNoRows) 后转成 ErrUserNotFound 返回；handler 层根据 sentinel error 映射到对应的 HTTP 状态码（404 vs 500），语义对齐。还要避免在循环里 log.Fatal——一旦某次失败直接退出进程，会拖垮整个服务，应该返回 error 让上层决定降级策略，不能越权终止进程。最后建议用 errors.As 做类型断言，把自定义错误类型一路传到最外层，方便前端根据 code 做不同的 UI 提示，而不是全部弹\"系统繁忙\"，用户体验很差。建议把错误码体系梳理一遍，统一规范，避免各模块自定义一套，造成调用方混乱，难以维护和扩展，影响长期可维护性，也增加联调成本。",
+	"对比两次请求的差异，可以发现新版接口多返回了 created_at 字段，但前端没做兼容处理，导致序列化时类型不匹配报错，这是典型的向后兼容性问题。后端加字段是允许的，但前端不能用强类型 struct 反序列化，应该用 map 或者把新字段标为 omitempty 避免解析失败，否则老客户端会崩。还要检查一下状态码：成功创建资源应该返回 201 而不是 200，更新用 200，删除用 204，这些在 RESTful 规范里有明确约定，混用会让前端逻辑混乱，协议不一致。版本兼容方面，新接口路径应该带上 v2 前缀而不是直接覆盖 v1，给客户端留出迁移时间，避免老客户端突然不可用，造成生产事故。最后确认一下 schema 的字段命名：snake_case 还是 camelCase 要全文档统一，否则前端解析会很痛苦，建议用 openapi 规范文档自动生成客户端 SDK，从源头保证一致性。建议把 API 变更流程固化下来，每次改接口必须评审兼容性，避免破坏性变更偷偷上线，造成线上事故，影响业务连续性，增加运维成本，从流程上保证 API 演进安全可控。",
+	"为什么这条查询慢？追溯一下 EXPLAIN 的输出，type 是 ALL 说明全表扫描，rows 估算 50 万行，key 字段是 NULL 说明没用上索引，根因明确。看一下 WHERE 条件：where status = 1 and created_at > '2024-01-01'，但表上只有 status 的单列索引，选择率不够（status=1 的记录占 60%），索引失效。优化方向是建联合索引 (status, created_at)，让查询走索引覆盖，减少回表。还要注意索引的列顺序——区分度高的放前面，这里 created_at 区分度更高，应该放前面：(created_at, status)，这是索引设计的核心原则。另外要看是否需要覆盖索引：如果只查 id 和 name，可以把这俩字段加到索引末尾 using index 即可，避免回表带来的额外 IO，性能再提升一档。最后查一下是否被强制走了 force index，反而不如优化器自动选择，有时候人工干预反而更差。还要定期用 ANALYZE TABLE 更新统计信息，否则优化器可能选错索引，基于过期统计信息做决策，这是常见的隐性性能问题，容易被忽略，建议接入慢查询监控及时告警，避免拖垮数据库，影响整体服务稳定性，造成连锁故障，从运维层面保障数据库健康度。",
+	"注意到缓存命中率从 95% 掉到了 60%，看一下监控发现是大量 key 同时过期导致的雪崩，这是一类常见的缓存运维事故，影响面很广。原来所有热点数据都设置了相同的过期时间（30 分钟），一旦到期就会同时回源到数据库，瞬间把 DB 打垮，连锁故障。修复方案是给过期时间加随机抖动：base_ttl + rand(0, 300s)，让过期时间分散开，避免集中失效，这是最直接的解法。还要考虑缓存穿透的问题——如果查询的 key 根本不存在，每次都会打到数据库，可以用布隆过滤器或者缓存空值（设短 TTL）来兜底，双重防护。一致性方面，更新数据时先更新 DB 再删缓存（而不是更新缓存），这样即使缓存更新失败也只是脏读一段时间，不会数据丢失，风险可控。最后补一下缓存击穿的兜底：用 singleflight 让并发回源合并成一次，避免热点 key 过期瞬间压垮下游，这是高并发场景必备手段。建议把缓存健康度接入监控大盘，实时观察命中率和回源率，发现异常及时告警处理，避免故障扩大，从可观测性角度提升运维效率，保障系统稳定性，避免缓存故障演变成数据库雪崩。",
+	"回顾刚才的几次安全扫描报告，共同点是 order by 字段直接拼接了用户传入的字符串，存在 SQL 注入风险，这是高危漏洞必须立即修复，不能拖延。虽然 order by 不能用参数化绑定（SQL 语法限制），但可以用白名单：把允许的字段名做成 map，用户传入的字段先在 map 里查一下，查不到就拒绝，从根本上杜绝注入，是最稳妥的方案。limit 和 offset 必须用占位符绑定，不能拼字符串，否则攻击者可以构造 payload 拖库，后果严重。还要检查一下日志里是否打印了完整的 SQL——如果包含用户敏感信息（手机号、身份证）就违反了合规要求，要做脱敏处理，避免数据泄漏。最后用 sqlmap 跑一遍回归测试，确认所有注入点都已修复，并加一道 WAF 规则拦截可疑 payload，形成纵深防御，多层兜底。建议在 CI 里加一道 SAST 扫描，把注入风险在提交前就拦住，从源头杜绝漏洞进入生产环境，这是安全左移的最佳实践，避免安全漏洞拖垮业务，造成数据泄漏事故，影响公司声誉，从流程上保证代码安全，避免安全事故发生，是安全治理的重要一环，必须重视。",
+	"对比一下当前测试覆盖率和目标值，核心业务逻辑只有 45%，远低于 80% 的要求，质量风险偏高，必须补齐。看一下未覆盖的分支，主要集中在 error path 上——大家都只测了 happy path，失败分支几乎没人写，这是测试质量的常见短板。补测试时要注意 mock 边界：不要 mock 自己写的业务对象，只 mock 外部依赖（DB、Redis、RPC），否则测试会失真。如果 mock 太多会让测试变成\"测 mock\"而不是\"测逻辑\"，重构时一改实现测试就全挂，反而成了负担，违背测试初衷。回归测试方面，每修一个 bug 都要补一个对应的用例，把这个 bug 的复现路径固化下来，防止后续回归，形成防护网。还要跑一下 race detector：go test -race，提前发现潜在的数据竞争，这是 Go 并发测试的必备工具。最后建议用 mutation testing 验证测试质量，随机改一行代码看测试是否失败，没失败说明测试没真正覆盖到这行，测试是无效的，需要补强，否则测试会变成虚假的安全感，掩盖真实的质量风险，让团队误以为代码是安全的，实际却有隐藏的 bug，影响发布信心，造成线上事故，从测试质量上保证代码可靠性，是工程化的基本要求，不能忽视。",
+	"顺着代码读下来，发现好几个变量名是 data、info、result 这种万能命名，读代码的人根本不知道具体是什么，可读性很差，维护成本高。比如 user_data 是用户的什么数据？是 profile 还是订单历史？应该改成 user_profile 或者 user_orders，意图一目了然，减少理解成本。函数命名也一样，process 这个动词太模糊，应该用具体的业务动作：calculateRefund、validatePermission，让调用方一看就知道副作用，避免误用。还要注意一致性：同一个概念不要一会儿叫 user 一会儿叫 account，会让维护者误以为是两个东西，造成认知负担。缩写也要节制，usr 这种缩写不如 user 清晰，除非是行业通用缩写（如 URL、ID），否则不要随意缩写。最后看一下包名，应该简短、小写、单数：user 而不是 users_utils，符合 Go 官方风格指南，保持简洁。建议在 CI 里加一道 lint 规则，禁止过于宽泛的命名通过审查，把命名规范固化下来，避免各人各风格，造成代码库混乱，影响团队协作效率，增加代码审查成本，从规范层面保证代码一致性，是代码质量保障的重要一环，不能忽视，避免命名混乱拖垮可维护性。",
+	"为什么这个 bug 在测试环境复现不了？追溯一下生产环境的日志，发现触发时间是凌晨 3 点，正好是定时任务跑批的时间点，怀疑是并发争抢导致的死锁，时序相关。怀疑是批处理任务和正常请求争抢同一行数据导致的死锁，这种问题在单测里很难暴露，因为单测没有并发场景。复现步骤：在本地起两个 goroutine，一个跑批处理，一个并发请求同一个 user_id，果然在第三次尝试时复现了 deadlock，方向正确。根因是批处理用了 SELECT ... FOR UPDATE 锁了一大批 user，而单条请求只需要锁一个 user，锁粒度冲突导致死锁，是锁设计不当。修复方案是批处理改成单条更新（性能下降但避免死锁），或者按 user_id 排序后顺序加锁（避免循环等待），最终选用后者，性能损失可控。最后在压测脚本里加入批处理和在线请求并发的场景，作为回归测试长期跑，防止后续回归，把并发场景纳入常规测试范围，避免类似问题再次出现，从测试流程上改进，避免并发问题再次出现，是测试工程化的关键要求，必须坚持，避免低级 bug 进入生产环境，造成线上事故，从测试层面保证并发安全，是高可用保障的重要一环。",
+	"注意到这个去重函数在列表长度超过 1 万时明显变慢，分析一下时间复杂度才能找到根因，不能凭感觉优化。外层 for 循环 O(n)，内层用 contains 再扫一遍 O(n)，整体 O(n²)，这是典型的算法选择不当，是性能瓶颈的根源。1 万个元素就是 1 亿次比较，单次比较假设 10ns 也要 1 秒，用户感知明显卡顿，体验极差。改用 map 去重可以降到 O(n)，但要可比较类型，是前置条件。如果元素是 struct，需要先提取唯一键再放进 map，多一步转换但值得。空间复杂度从 O(1) 升到 O(n)，但 1 万个 string 也才几百 KB，完全可接受，不会成为瓶颈。还要考虑 GC 压力——如果这个函数被高频调用，临时 map 的分配会增加 GC 频率，可以用 sync.Pool 复用，避免每次都重新分配，从源头减少 GC 压力。最后建议在 PR 里附上 benchmark 数据，证明优化前后性能差异，方便 reviewer 评估改动的必要性，用数据说话而不是凭感觉，这是工程化的要求，也是团队协作的基础，不能省略，避免凭感觉优化造成浪费，从工程化角度保证优化有效性，是性能优化的基本要求，必须坚持，避免无效优化浪费资源，是工程化的基本要求。",
+	"回顾这几次的需求变更，每次改一个功能都要动 5 个文件，说明模块间耦合度过高，维护成本随需求增长线性放大，是架构层面的债务。具体看一下依赖关系：order 模块直接 import 了 user 模块的具体实现，而不是接口；payment 模块通过反射调用了 order 的私有方法，完全绕过了类型系统，是严重的耦合违规。解耦的第一步是定义清晰的接口边界：order 模块对外暴露 OrderService 接口，user 模块暴露 UserRepository 接口，模块间只依赖接口不依赖实现，依赖倒置。第二步是用依赖注入容器组装依赖，避免在模块内部 new 具体类型，集中管理依赖生命周期。第三步是事件驱动解耦：order 创建后发事件，inventory 监听事件扣库存，而不是 order 直接调 inventory，降低同步耦合，提升可扩展性。最后建议用 dependency-cruiser 这样的工具可视化依赖图，发现异常的耦合边及时重构，把架构债务可视化，便于团队共识，从工具层面约束架构演进，避免持续恶化，是架构治理的重要实践，必须重视，避免架构债务持续积累，造成系统难以维护，影响迭代效率，从架构层面保证系统可演进性。",
+	"如果数据规模预估是 10 亿级，那 O(n log n) 的排序也要 30 秒，单机扛不住，必须重新设计算法策略，不能沿用单机思路。先确认数据是否真的需要全量排序——如果是 top-K 场景（取前 100），用堆排序可以降到 O(n log K)，10 亿数据只要几秒，收益巨大，是最优解。如果是全量排序，考虑分片：按 hash 分到 100 个节点上各自排序，再归并，把单机瓶颈分散成分布式问题，横向扩展。还要看一下数据特征：如果是整数且范围有限（比如 0-100 万），可以用计数排序 O(n + range)，比比较排序快一个数量级，利用数据特性。最后要评估内存：10 亿 int64 是 8GB，单机放不下，必须走外部排序（磁盘归并），且要监控磁盘 IO 是否成为瓶颈，避免 IO 拖慢整体。建议在算法选型阶段就做容量规划，避免上线后被数据增长打爆，提前评估是工程化的要求，也是技术负责人的职责，从设计阶段就把风险前置，避免上线后被动应对，造成线上事故，影响业务稳定性，从设计层面保证系统可扩展性，是架构设计的重要原则，必须坚持，避免容量规划缺失拖垮系统。",
+	"注意到 go mod tidy 后报了版本冲突：A 依赖 lib v1.2.0，B 依赖 lib v1.3.0，Go 的 minimal version selection 会选 v1.3.0（最高版本），这是 Go 模块系统的机制。但如果 v1.3.0 删除了 A 用到的一个 API，就会编译失败，这是依赖升级常见的坑，需要处理。解决方案：要么让 A 升级适配 v1.3.0，要么用 replace 指令强制用 v1.2.0（仅本地，不影响他人）作为临时绕过，两种方案各有取舍。根本性的做法是约定团队内依赖升级流程：每周跑一次 dependabot，PR 自动创建升级 PR，CI 跑通才合并，把升级风险前置，避免大爆炸。还要看一下间接依赖：go mod graph 能列出完整依赖树，重点关注是否有可疑的不可信来源，以及是否有已知 CVE 漏洞的版本，安全合规。最后用 govulncheck 扫一遍已知漏洞，及时升级有安全问题的依赖，这是安全运维的基本动作，不能省略。建议把依赖升级纳入周会例行讨论，避免依赖长期不升级积累技术债，从流程上保证依赖健康度，避免依赖老化引入安全漏洞，是依赖治理的重要一环，必须重视，避免依赖冲突拖垮编译，影响发布，从流程上保证依赖健康度。",
+	"顺着状态机看，订单从 CREATED 到 PAID 到 SHIPPED 到 COMPLETED，但日志里出现了 CREATED 直接到 SHIPPED 的跳跃，中间的 PAID 状态被跳过了，这是状态机校验缺失导致的，是业务规则漏洞。追踪一下代码，发现 shipOrder 函数没有校验前置状态，直接改成了 SHIPPED，绕过了业务规则，是代码缺陷。修复方案：在状态变更前加 assertTransition(from, to) 校验，非法转换直接返回 error，把规则固化在代码里，避免人为绕过。还要补一个状态变更的事件日志，记录变更前后的状态、操作人、时间戳，方便审计追溯，满足合规要求。并发场景下还要加乐观锁：update where status = 'PAID'，避免两个请求同时改状态导致重复发货，是并发安全保障。最后建议把状态机用专门的库（如 xstate）建模，自动生成校验代码和文档，避免手工维护状态转换表出错，从工具层面保证状态机正确性，减少人为错误，提升代码可维护性，避免状态机漏洞导致业务异常，是业务逻辑保障的重要一环，必须重视，避免状态跳跃造成业务数据不一致，影响业务正确性，从代码层面保证状态机完整性。",
+	"如果两个请求同时到达，一个创建订单一个取消订单，会不会出现创建了一个马上被取消的脏数据？追踪一下并发路径才能确认，不能凭直觉判断。创建订单是先 insert 再发 MQ，取消订单是先 update status 再发 MQ，两个操作的时序可能交错。两个事务并发执行时，如果隔离级别是 RC（读已提交），取消订单可能读不到刚 insert 的订单，导致取消失败，是隔离级别问题。改用 RR（可重复读）+ 间隙锁可以避免，但会降低并发吞吐，需要权衡。更稳妥的方案是用幂等键：取消请求带上订单 ID 和版本号，DB update where version = ?，失败就重试或返回订单已变更，由前端决定下一步，是乐观锁方案。还要在 MQ 消费端做幂等处理，避免消息重投导致重复扣减，是消息可靠性保障。最后建议用 chaos engineering 故意注入并发故障，验证系统在异常场景下的行为是否符合预期，发现潜在问题，从测试方法上提升系统鲁棒性，避免线上才暴露问题，是分布式系统测试的重要实践，必须重视，避免并发问题造成业务数据不一致，影响业务正确性，从测试层面保证并发安全，是高可用保障的重要一环。",
+	"注意到日志里有大量 deadlock detected，看一下堆栈才能定位根因，不能只看现象。goroutine A 持有 lock1 等待 lock2，goroutine B 持有 lock2 等待 lock1，经典死锁，这是加锁顺序不一致导致的，是常见并发陷阱。根因是加锁顺序不一致——A 先锁 user 再锁 order，B 先锁 order 再锁 user，形成循环等待，是死锁四条件之一的循环等待。修复方案：全局约定加锁顺序（比如按 ID 升序），所有地方都遵守，从源头杜绝环，是最干净的解法。或者用 tryLock + 超时回退，避免无限等待，至少能 fail fast，不至于卡死。还要排查是否有 goroutine 泄漏——如果某个 goroutine 持有锁后 panic 没释放，用 defer unlock 可以保证释放，但如果 goroutine 本身卡在 channel receive 上，锁就永远拿不回来了，是隐性泄漏。用 pprof goroutine 看一下阻塞在哪，定位卡点。最后建议在 CI 里加一道静态检查，扫描 lock 的获取顺序是否一致，从工具层面预防死锁，避免人为遗漏，把并发安全固化到 CI 流程里，确保长期有效，避免死锁拖垮服务，是并发安全的重要一环，必须重视，避免死锁造成服务不可用，影响用户体验，从工具层面保证并发安全，是工程化的基本要求。",
+	"顺着降级策略看，当前是熔断器打开后直接返回 503，但用户体验很差——突然全部失败，没有兜底数据，是可用性问题。改进方案：返回上次成功的缓存数据（即使过期），并在响应头标记 stale=true 让前端知道是降级数据，保证可用性，是优雅降级。重试边界方面，外部调用失败后要指数退避重试（1s, 2s, 4s），最多 3 次，超过就放弃，避免无限重试拖垮调用方，是重试策略。还要注意重试不能加重试逻辑到非幂等接口上——比如 createOrder 失败后重试可能创建两个订单，必须用幂等键保证只创建一次，是幂等性保障。最后确认一下超时设置：HTTP client 默认无超时会拖垮整个调用链，建议连接超时 1s、读超时 3s、写超时 3s，形成完整的超时防线，避免级联故障。建议把熔断器状态接入监控大盘，让运维能实时看到降级情况，及时响应，从可观测性角度提升运维效率，避免故障发现滞后，造成更大影响，是运维最佳实践，避免降级策略不当造成用户体验下降，是高可用保障的重要一环，必须重视，避免级联故障拖垮整个调用链，影响业务连续性，从策略层面保证系统可用性。",
+	"对比 v1 和 v2 接口的差异，v2 把 user_name 改成了 username，前端没适配就会解析失败，这是破坏性变更必须谨慎处理，是 API 治理问题。语义化版本规范要求：兼容的修改升 minor 版本（v1.1），破坏性修改升 major（v2），同时维护 v1 至少 6 个月给迁移期，让客户端有充足时间升级，是版本管理规范。还要看一下 protobuf 的字段编号——已经发布过的字段编号不能复用，即使删除了字段也要 reserve，否则旧客户端解析新消息会字段错乱，是兼容性陷阱。建议用 reserved 标记删除的字段编号和名字，显式声明，避免后续误用。新加字段必须用 optional 或者有默认值，否则旧客户端解析新消息时会缺字段，是兼容性要求。最后确认下线计划：v1 下线前要在响应里加 deprecation 头部，并通知所有调用方，是下线流程。建议用契约测试（Pact）自动校验前后端兼容性，避免人为遗漏，从工具层面保证 API 兼容性，是微服务治理的最佳实践，避免 API 演进失控，造成客户端不可用，影响业务连续性，从流程上保证 API 演进安全可控，是 API 治理的关键环节，必须重视，避免破坏性变更造成线上事故，影响业务稳定性。",
+	"为什么这个事务里读到的余额是旧值？追溯一下隔离级别才能找到根因，不能只看代码。MySQL 默认是 RR（可重复读），同一个事务内多次读同一行结果一致，但这也是丢失更新的温床，是隔离级别的副作用。如果是先读再写，另一个事务在中间提交了更新，当前事务的 update 会基于旧值计算，导致丢失更新，是经典的并发问题。改用 SELECT ... FOR UPDATE 显式加行锁，或者把隔离级别降到 RC（读已提交）+ 乐观锁，两种方案各有取舍，需要根据业务场景选择。还要注意长事务问题：如果事务里调用了 RPC，RPC 超时会拖长事务，进而锁住更多行，影响并发，是事务边界问题。最佳实践是事务里只做 DB 操作，RPC 移到事务外，用补偿事务处理失败回滚，是Saga 模式。最后建议在代码评审时重点关注事务边界，避免事务里混入慢操作，从流程上把控事务质量，避免长事务拖垮系统，是数据库性能优化的重要一环，不能忽视，避免事务设计不当造成数据不一致，影响业务正确性，从代码层面保证事务安全，是数据库治理的关键环节，必须重视，避免并发问题造成资金损失，是数据库设计的核心要求。",
+	"回顾这几次的越权漏洞，共同点是接口只校验了登录态没校验资源归属，这是 OWASP Top 10 里最常见的访问控制缺陷，是安全问题。比如 /api/orders/123 没校验当前用户是否拥有 order 123，任意登录用户都能查别人的订单，属于水平越权，是严重漏洞。修复方案：在每个涉及资源的接口里加 owner 校验，或者用中间件统一从 token 解析 user_id 后注入 context，service 层从 context 取 user_id 作为查询条件，是统一方案。还要注意水平越权（同级用户互相访问）和垂直越权（普通用户访问管理员接口）的区别，垂直越权要用 RBAC 角色校验，确保权限矩阵覆盖完整，是权限模型要求。最后用自动化扫描工具（如 OWASP ZAP）定期扫描，发现遗漏的接口，是安全测试。建议把权限校验封装成通用装饰器，避免每个接口都要手写一遍校验逻辑，从工程化角度降低遗漏风险，避免人为疏漏，是安全左移的实践，从代码层面保证权限校验一致性，避免漏校验，是安全治理的重要一环，必须重视，避免越权漏洞造成数据泄漏，影响公司声誉，从代码层面保证访问控制安全，是安全治理的核心要求。",
+	"注意到服务的 goroutine 数从 1000 涨到了 10 万，看一下 pprof 发现大量 goroutine 卡在 channel receive，这是典型的 goroutine 泄漏，是并发编程陷阱。根因是 producer goroutine 异常退出后没 close channel，consumer goroutine 永远收不到信号就一直阻塞，直到进程退出，是 channel 管理缺陷。修复方案：producer 用 defer close(ch) 保证退出时关闭 channel；consumer 用 select + ctx.Done() 监听取消信号，避免无限阻塞，是优雅退出。还要注意 goroutine 不要持有大对象引用——如果 goroutine 持有了 1MB 的 slice，1 万个 goroutine 就是 10GB 内存泄漏，会拖垮整个节点，是内存泄漏。用 goleak 在测试里检测 goroutine 泄漏，每次测试结束断言没有新增 goroutine，是泄漏检测工具。最后建议在监控里加 goroutine 数告警，超过阈值就触发排查，从监控层面发现泄漏，避免拖垮节点，是运维保障，避免线上才暴露问题，造成事故，是高可用保障的重要一环，不能忽视，避免 goroutine 泄漏拖垮服务，是并发编程的重要保障，必须重视，避免资源泄漏造成服务不可用，是稳定性保障的核心要求。",
+	"为什么这个定时任务在凌晨 0 点触发，但日志显示的是前一天 16 点？追溯一下发现服务器时区是 UTC，业务期望是 Asia/Shanghai（UTC+8），时区配置不一致导致的偏差，是时区问题。修复方案：服务启动时统一设置 time.Local = shanghaiLoc，所有时间格式化和 Cron 表达式都基于本地时区，避免每个模块自己处理时区，是统一时区方案。DB 存储统一用 UTC，展示时转成本地时区，存储和展示分离，是时区最佳实践。还要注意夏令时——某些时区有夏令时切换，定时任务可能重复触发或跳过，用固定偏移（+08:00）比时区名（Asia/Shanghai）更安全，是夏令时陷阱。跨服务调用时一律传 RFC3339 时间戳带时区信息，避免接收方误判，是接口规范。最后建议在 CI 里加一道时区检查，确保所有服务的时区配置一致，从工具层面预防时区问题，避免时区不一致导致的业务异常，是分布式系统的常见坑，必须重视，避免踩坑后才发现，造成业务数据错乱，影响业务正确性，从配置层面保证时区一致性，是分布式系统运维的基本要求，必须坚持，避免时区问题造成定时任务异常，影响业务执行。",
+	"注意到这个字符串截断后出现了乱码，原因是按 byte 截断把多字节 UTF-8 字符截断了，这是处理中文时的经典坑，是编码问题。中文字符在 UTF-8 里是 3 字节，按 byte 截断到中间就会产生 invalid UTF-8，导致下游解析失败，是截断方式错误。修复方案：用 rune 切片而不是 byte 切片，rune 是 UTF-8 字符的抽象，能正确处理多字节字符，是 Go 的正确做法。还要注意字符串长度——len(s) 返回的是字节数不是字符数，要数字符用 utf8.RuneCountInString(s)，否则 UI 截断会算错，是长度计算误区。SQL 里的 VARCHAR(100) 是字符数还是字节数取决于 charset：utf8mb4 下是字符数，但某些老版本 MySQL 的 utf8（非 mb4）有 BMP 限制，emoji 存不进去，是字符集陷阱。统一用 utf8mb4，避免后续踩坑，是字符集规范。建议在代码评审时重点关注字符串处理，避免按字节操作多字节字符，从流程上预防编码问题，避免乱码进入生产环境，是国际化场景的必备知识，不能忽视，避免编码问题造成数据损坏，影响业务正确性，从代码层面保证字符串处理安全，是国际化场景的基本要求，必须重视，避免乱码造成用户体验下降。",
+	"对比新旧 protobuf 定义，发现 v2 把 optional string name = 1 改成了 string name = 1（去掉 optional），这破坏了\"可空\"语义，是 protobuf 兼容性的常见陷阱，是 schema 演进问题。旧客户端发送的字段在新服务端解析时无法区分\"未设置\"和\"设置为空字符串\"，业务逻辑可能出错，是语义破坏。修复方案：保留 optional 关键字，或者用 wrapper 类型（StringValue）显式表达可空，是兼容性修复。还要注意字段编号复用：删除字段后不能把编号给新字段用，否则旧客户端发的数据会被新服务端误解，是编号冲突。建议用 reserved 标记删除的字段编号和名字，显式声明，避免误用。新加字段必须用 optional 或者有默认值，否则旧客户端解析新消息时会缺字段，是字段约束。最后确认一下 enum 的第一个值必须是 0（protobuf 规范），是规范要求。建议在 proto 文件评审时重点看兼容性，避免破坏性变更，从流程上保证 schema 演进安全，避免线上事故，是微服务治理的关键环节，必须重视，避免 schema 不兼容造成客户端解析失败，影响业务连续性，从流程上保证 protobuf 兼容性，是微服务通信保障的核心要求。",
+	"顺着日志看，发现某个接口偶发性返回 500，复现率大概 1%，这种低概率问题最难排查，是稳定性问题。堆栈指向 json.Marshal 时 panic，原因是字段里包含了不可序列化的类型（chan 或 func），某些边缘场景才会触发，是序列化陷阱。修复方案：在 struct tag 里加 json:\"-\" 排除这些字段，或者实现 MarshalJSON 自定义序列化，把不可序列化的字段转成字符串，是序列化修复。还要注意循环引用——如果 struct 互相持有指针，json.Marshal 会无限递归栈溢出，需要打破环，是循环引用陷阱。用 json.Encoder 加 SetEscapeHTML(false) 可以避免 HTML 字符被转义，保持原始输出，是编码控制。最后看一下 json tag 的大小写：默认是字段名首字母大写，但前端通常期望 snake_case，需要显式标注 json:\"user_id\"，是命名规范。建议在单测里覆盖所有 struct 的序列化，避免线上 panic，从测试层面保证序列化安全，避免偶发 panic 拖垮服务，是稳定性保障的重要一环，不能忽视，避免低概率问题演变成线上事故，影响用户体验，从测试层面保证序列化稳定性，是高可用保障的重要一环，必须重视，避免序列化 panic 拖垮服务，是稳定性保障的核心要求。",
+	"如果把这个同步调用改成异步，能不能解耦？分析一下当前架构才能判断，是架构评估。当前 order 服务同步调用 inventory 服务扣库存，inventory 挂了 order 也跟着挂，故障会级联扩散，是同步耦合。改成发 MQ 异步扣库存，order 立即返回，inventory 消费消息后扣减，把同步依赖变成异步解耦，是异步化。但要注意消息可靠性：生产端用事务消息保证本地 DB 和 MQ 一起成功；消费端用幂等键避免重复消费，防止消息重投，是消息可靠性保障。还要处理消息积压——如果 inventory 处理不过来，消息堆积会导致延迟，下单后扣不到库存，影响履约，是积压处理。最佳实践是混合模式：同步扣减核心库存（少量），异步扣减预留库存（大量），兼顾一致性和性能，是混合方案。最后建议给 MQ 加死信队列，处理失败的消息，避免丢失，是死信处理。建议在异步化前评估消息延迟对业务的影响，避免异步化反而引入新问题，是架构决策，从业务角度评估架构变更，避免技术驱动业务，是架构治理的重要原则，不能忽视，避免架构变更引入新问题，影响业务稳定性，从架构层面保证系统可演进性，是架构设计的重要原则，必须坚持，避免过度设计造成复杂度上升。",
+	"为什么这个分布式锁不生效？追溯一下 SETNX 的实现才能找到根因，是锁实现问题。发现用了 SET key value EX 30 NX，但业务执行需要 1 分钟，锁过期后被其他实例抢走，导致重复执行，锁形同虚设，是锁过期问题。修复方案：用 Redisson 的 watchdog 机制自动续期，或者用 lua 脚本保证释放锁时的 owner 校验（避免误删别人的锁），是锁修复。还要注意网络分区——如果 Redis 主从切换期间锁丢失，会导致多个实例同时持有锁，可以用 RedLock 算法（多数派）降低概率，是网络分区应对。最后确认锁的粒度：锁整个 user 还是锁 user 的某个字段？粒度过粗会降低并发，过细会增加 Redis 压力，需要权衡，是锁粒度。建议给锁加上监控，观察锁竞争情况和续期失败率，及时调整参数，是锁监控。建议把分布式锁的使用场景文档化，避免滥用，造成性能下降，是锁治理，从规范层面约束锁的使用，避免锁成为瓶颈，是分布式系统的重要保障，必须重视，避免锁失效导致的业务异常，影响业务正确性，从规范层面保证锁使用合理，是分布式系统治理的核心要求，必须坚持，避免锁滥用造成性能下降。",
 }
 
-// RandomRetryMessage returns a randomly chosen retry message, terminated
-// with a newline so it can be streamed directly as a thinking delta.
+// RandomRetryMessage 返回一条随机选取的安抚性消息，末尾追加换行符，
+// 可直接作为 thinking delta 流式输出。
 func RandomRetryMessage() string {
 	msg := retryMessages[rand.Intn(len(retryMessages))]
 	return msg + "\n"
