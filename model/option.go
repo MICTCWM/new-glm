@@ -265,7 +265,7 @@ func updateOptionMap(key string, value string) (err error) {
 		case "FailoverRetryTimes":
 			common.OptionMap[key] = "1"
 		case "UpstreamRetryTimes":
-			common.OptionMap[key] = "1"
+			common.OptionMap[key] = "2"
 		}
 		return nil
 	}
