@@ -448,10 +448,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
-	// The outer channel retry loop is intentionally disabled. Each primary
-	// handler performs exactly one internal retry; after that failure the
-	// request goes directly to one fallback request.
-	maxRetryTimes := 0
+	// 外层渠道重试循环：主渠道失败后切换到其他有相同模型的渠道重试。
+	// maxRetryTimes=2 表示主请求之外再跨渠道重试 2 次；循环结束后再进入
+	// 一次兜底逻辑，因此总共最多 4 次上游调用：
+	// 主请求 + 2 次跨渠道重试 + 1 次兜底。
+	maxRetryTimes := 2
 
 	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
@@ -620,22 +621,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		c.Set("is_retry_attempt", true)
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
-		// A primary request has already completed its one hard-coded internal
-		// retry in the handler. Do not select another primary channel: transition
-		// directly to the fallback phase, if this source permits fallback.
-		if !c.GetBool("fallback_triggered") {
+		// 记录源渠道是否支持兜底（仅在首次失败时记录，作为循环外兜底判断依据）
+		// 不再设置 fallback_force_next，让外层循环通过 getChannel 选择相同模型的其他渠道重试
+		// 只有所有渠道重试用尽后，才进入循环外的兜底逻辑
+		if !c.GetBool("fallback_triggered") && retryParam.GetRetry() == 0 {
 			sourceSupportsFallback := channel.IsSupportFallback()
 			c.Set("source_channel_supports_fallback", sourceSupportsFallback)
-			if sourceSupportsFallback && model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
-				c.Set("fallback_force_next", true)
-				common.SysLog(fmt.Sprintf("主请求失败，直接转入一次兜底: channel_id=%d, status_code=%d, error_code=%v",
-					channel.Id, newAPIError.StatusCode, newAPIError.GetErrorCode()))
-			} else {
-				common.SysLog(fmt.Sprintf("主请求失败且无可用兜底: channel_id=%d, supports_fallback=%v, status_code=%d, error_code=%v",
-					channel.Id, sourceSupportsFallback, newAPIError.StatusCode, newAPIError.GetErrorCode()))
-			}
+			common.SysLog(fmt.Sprintf("主请求失败，将尝试跨渠道重试: channel_id=%d, status_code=%d, error_code=%v, supports_fallback=%v",
+				channel.Id, newAPIError.StatusCode, newAPIError.GetErrorCode(), sourceSupportsFallback))
 		}
-		break
+		// 不再 break，让循环自然 continue 到下一次迭代，getChannel 会通过
+		// CacheGetRandomSatisfiedChannel 选择相同模型的其他渠道（排除 UsedChannelIds）。
 
 	}
 
@@ -1245,7 +1241,11 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	// 兜底模型逻辑：故障转移时触发一次；防超载模式下每次重试都优先使用兜底渠道。
-	if (c.GetBool("overload_protection_triggered") || !c.GetBool("fallback_triggered")) && (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) && (c.GetBool("fallback_force_next") || c.GetBool("overload_protection_triggered") || (retryParam.GetRetry() > 0 && retryParam.GetRetry() >= 2)) {
+	// 注意：跨渠道重试由外层循环通过 CacheGetRandomSatisfiedChannel 选择相同模型
+	// 的其他渠道完成；本分支仅在 fallback_force_next（兜底强制触发）或
+	// overload_protection_triggered（超载保护）时进入，避免循环内最后一次迭代
+	// 因 retry>=2 而误触发兜底（误选兜底渠道而非相同模型渠道）。
+	if (c.GetBool("overload_protection_triggered") || !c.GetBool("fallback_triggered")) && (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) && (c.GetBool("fallback_force_next") || c.GetBool("overload_protection_triggered")) {
 		fallbackChannels := model.GetFallbackChannels()
 		// 排除已使用的渠道
 		availableFallback := make([]*model.Channel, 0, len(fallbackChannels))

@@ -168,16 +168,14 @@ const FailoverRetryTimes = 1
 // overload protection.
 var OverloadProtectionRPM = 30
 
-// UpstreamRetryTimes is intentionally hard-coded. Every primary upstream
-// request may have exactly two internal retries; fallback requests disable this
-// retry in the relay handlers, resulting in at most four upstream calls:
-// primary + two internal retries + one fallback.
-const UpstreamRetryTimes = 2
+// UpstreamRetryTimes is intentionally zero. Cross-channel retry is handled
+// by the outer loop in controller/relay.go (maxRetryTimes). Fallback requests
+// also disable this retry. Resulting in at most four upstream calls:
+// primary + two cross-channel retries + one fallback.
+const UpstreamRetryTimes = 0
 
-// RetryDelays defines the delay before an internal retry. The first two
-// entries are used by the hard-coded two-retry policy (RetryDelays[0] before
-// the first retry, RetryDelays[1] before the second); the remaining entries
-// are retained for compatibility with older callers.
+// RetryDelays 定义内部重试前的延迟。UpstreamRetryTimes=0 后，主请求路径不再
+// 使用本数组；保留数组供其他调用方（如兜底重试、循环外单次重试）兼容使用。
 var RetryDelays = []time.Duration{
 	3 * time.Second,  // 第 1 次重试
 	5 * time.Second,  // 第 2 次重试
