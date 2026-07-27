@@ -167,18 +167,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				pendingEmptyStreamItems = append(pendingEmptyStreamItems, lastStreamData)
 			} else {
 				for _, pendingData := range pendingEmptyStreamItems {
-					if err := HandleStreamFormat(c, info, pendingData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-						common.SysLog("error handling buffered stream format: " + err.Error())
-						sr.Error(err)
-						return
-					}
-				}
-				pendingEmptyStreamItems = nil
-				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-					common.SysLog("error handling stream format: " + err.Error())
-					sr.Error(err)
+				if err := HandleStreamFormat(c, info, pendingData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					common.SysLog("error handling buffered stream format: " + err.Error())
+					sr.Stop(err)
 					return
 				}
+			}
+			pendingEmptyStreamItems = nil
+			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				common.SysLog("error handling stream format: " + err.Error())
+				sr.Stop(err)
+				return
+			}
 				if streamDataHasOutput(info.RelayMode, lastStreamData) {
 					streamOutputSent = true
 				}
@@ -294,6 +294,20 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+
+	// 流非正常结束时（客户端断开、超时、写入失败等），不扣费
+	if info.StreamStatus != nil {
+		reason := info.StreamStatus.EndReason
+		if reason != relaycommon.StreamEndReasonDone &&
+			reason != relaycommon.StreamEndReasonEOF &&
+			reason != relaycommon.StreamEndReasonNone {
+			return usage, types.NewOpenAIError(
+				fmt.Errorf("stream ended abnormally: %s", info.StreamStatus.Summary()),
+				types.ErrorCodeBadResponse,
+				http.StatusInternalServerError,
+			)
+		}
+	}
 
 	return usage, nil
 }
