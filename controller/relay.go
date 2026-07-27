@@ -1161,6 +1161,11 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 	})
 	if !*queueNoticeSent {
 		*queueNoticeSent = sendRpmQueueThinkingNotice(c, relayInfo)
+		// 首字计算从"检测到复杂请求已自动路由到硬推理模型"提示发送后开始
+		// 不包括RPM排队等待时间
+		if *queueNoticeSent {
+			relayInfo.StartTime = time.Now()
+		}
 	}
 	var done <-chan struct{}
 	if c != nil && c.Request != nil {
