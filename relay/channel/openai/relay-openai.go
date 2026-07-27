@@ -273,6 +273,23 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			if err := sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			}
+		} else {
+			// shouldSendLastResp=false 时（客户端未请求 include_usage 且最后 chunk 仅含 usage），
+			// 仍需发送带 finish_reason 的终止 chunk，避免下游因缺少 finish_reason 而判定流不完整
+			finishReason := "stop"
+			var lastResp dto.ChatCompletionsStreamResponse
+			if err := common.Unmarshal(common.StringToByteSlice(lastStreamData), &lastResp); err == nil {
+				for _, ch := range lastResp.Choices {
+					if ch.FinishReason != nil && *ch.FinishReason != "" {
+						finishReason = *ch.FinishReason
+						break
+					}
+				}
+			}
+			stopResponse := helper.GenerateStopResponse(responseId, createAt, info.GetDisplayModelName(), finishReason)
+			if err := helper.ObjectData(c, stopResponse); err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			}
 		}
 	}
 
