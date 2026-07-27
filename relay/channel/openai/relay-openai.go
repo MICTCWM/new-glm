@@ -347,8 +347,25 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	thinkTagsNormalized := false
+	reasoningConverted := false
 	if info.RelayFormat == types.RelayFormatOpenAI && !info.ChannelSetting.ThinkingToContent {
 		thinkTagsNormalized = normalizeTextResponseThinkTags(&simpleResponse)
+		// 自动兜底：当 reasoning_content 非空但 content 为空时，将 reasoning_content 转为 content
+		// 确保不支持 reasoning_content 字段的下游客户端能看到内容
+		for i := range simpleResponse.Choices {
+			message := &simpleResponse.Choices[i].Message
+			if !message.IsStringContent() {
+				continue
+			}
+			reasoning := message.GetReasoningContent()
+			content := message.StringContent()
+			if reasoning != "" && content == "" {
+				message.SetStringContent(reasoning)
+				message.ReasoningContent = nil
+				message.Reasoning = nil
+				reasoningConverted = true
+			}
+		}
 	}
 
 	usageModified := false
@@ -375,9 +392,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		if usageModified || thinkTagsNormalized {
+		if usageModified || thinkTagsNormalized || reasoningConverted {
 			var bodyMap map[string]interface{}
-			if !thinkTagsNormalized && !forceFormat {
+			if !thinkTagsNormalized && !reasoningConverted && !forceFormat {
 				err = common.Unmarshal(responseBody, &bodyMap)
 				if err != nil {
 					return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
