@@ -792,7 +792,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		// Only return "hard inference failed" for requests that went through the queue
 		// AND exhausted all retries. Normal (non-queued) failures preserve their original error.
-		// 503 错误保留原始消息（mac 超负荷运载），其他错误覆写为硬推理失败
+		// 503 错误保留原始上游消息（经脱敏后透传），其他错误覆写为硬推理失败
 		if wasQueued && newAPIError.GetErrorCode() != types.ErrorCodeRpmQueueTimeout && newAPIError.StatusCode != http.StatusServiceUnavailable {
 			// Request was queued, dequeued, tried all retries but all failed
 			// Return controlled message - NEVER expose raw upstream content

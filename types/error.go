@@ -170,9 +170,6 @@ func (e *NewAPIError) GetUserFriendlyMessage() string {
 	if e.StatusCode == 429 {
 		return common.UserMessage429
 	}
-	if e.StatusCode == 503 {
-		return common.UserMessage503
-	}
 	// 对于 429 以外的所有错误码，返回真实错误信息（敏感信息会被脱敏）
 	if e.Err != nil {
 		return common.MaskSensitiveInfo(e.Err.Error())
