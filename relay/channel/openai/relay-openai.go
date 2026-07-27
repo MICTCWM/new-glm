@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -41,7 +42,30 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 		lastStreamResponse.Model = info.OriginModelName
 	}
 
-	if !thinkToContent && !normalizeStreamThinkTags(info, &lastStreamResponse) && !forceFormat {
+	// thinkToContent=false 时，先规范化 think 标签
+	hasThinkTags := false
+	if !thinkToContent {
+		hasThinkTags = normalizeStreamThinkTags(info, &lastStreamResponse)
+	}
+
+	// 自动兜底：当 reasoning_content 非空但 content 为空时，将 reasoning_content 转为 content
+	// 确保不支持 reasoning_content 字段的下游客户端能看到内容
+	hasReasoningConversion := false
+	if !thinkToContent {
+		for i := range lastStreamResponse.Choices {
+			reasoning := lastStreamResponse.Choices[i].Delta.GetReasoningContent()
+			content := lastStreamResponse.Choices[i].Delta.GetContentString()
+			if reasoning != "" && content == "" {
+				lastStreamResponse.Choices[i].Delta.SetContentString(reasoning)
+				lastStreamResponse.Choices[i].Delta.ReasoningContent = nil
+				lastStreamResponse.Choices[i].Delta.Reasoning = nil
+				hasReasoningConversion = true
+			}
+		}
+	}
+
+	// 如果没有 think 标签规范化、没有 reasoning 转换、且不强制格式，原样透传
+	if !thinkToContent && !hasThinkTags && !hasReasoningConversion && !forceFormat {
 		return helper.StringData(c, data)
 	}
 
@@ -187,6 +211,28 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 					usage.InputTokens, usage.OutputTokens))
 			}
 		}
+	}
+
+	// thinkToContent=true 时，若已发送过 <think> 但未发送 </think> 闭合，补发闭合标签
+	if info.ChannelSetting.ThinkingToContent && info.ThinkingContentInfo.HasSentThinkingContent && !info.ThinkingContentInfo.SendLastThinkingContent {
+		closeThinkChunk := &dto.ChatCompletionsStreamResponse{
+			Id:      helper.GetResponseID(c),
+			Object:  "chat.completion.chunk",
+			Created: time.Now().Unix(),
+			Model:   info.GetDisplayModelName(),
+			Choices: []dto.ChatCompletionsStreamResponseChoice{
+				{
+					Index: 0,
+					Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+						Content: common.GetPointer("\n</think>\n"),
+					},
+				},
+			},
+		}
+		if err := helper.ObjectData(c, closeThinkChunk); err != nil {
+			common.SysLog("error sending closing think tag: " + err.Error())
+		}
+		info.ThinkingContentInfo.SendLastThinkingContent = true
 	}
 
 	// 处理最后的响应
