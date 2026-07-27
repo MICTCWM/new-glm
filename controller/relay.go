@@ -431,6 +431,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	queueNoticeSent := false
 	runtimeRpmFull := false
 	var firstSpecificError *types.NewAPIError // 第一条非网络层错误（更具体的上游错误），用于最终返回时替代 do_request_failed
+	var firstPrimaryError *types.NewAPIError  // 主请求（含跨渠道重试）首次失败错误，兜底失败时用此错误返回，绝不暴露兜底渠道错误
 	fallbackErrorReturned := false
 	requestContextCancelled := false
 	requestContextCancelDetail := ""
@@ -607,6 +608,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if firstSpecificError == nil && newAPIError.GetErrorCode() != types.ErrorCodeDoRequestFailed {
 			firstSpecificError = newAPIError
 		}
+		// 记录主请求（含跨渠道重试）首次失败错误，兜底失败时用此错误返回，绝不暴露兜底渠道错误
+		if firstPrimaryError == nil {
+			firstPrimaryError = newAPIError
+		}
 
 		// 渠道已被上游实际调用但请求失败，扣减渠道配额（重试失败补偿，避免配额漏扣）
 		// 使用 UpstreamRetryCount（内部重试次数）+ 本次失败 = 总调用次数
@@ -731,29 +736,39 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
 				}
 
-				// The fallback is the final attempt, so expose its error to the
-				// caller instead of restoring the primary-channel error. Apply the
-				// same error normalization as the primary request path.
-				fallbackError := service.NormalizeViolationFeeError(newAPIError)
-				fallbackError = service.NormalizeSensitiveWordsError(fallbackError)
-				relayInfo.LastError = fallbackError
-				model.UpdateChannelCallCount(fallbackChannel.Id, 1)
-				c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
-				c.Set("is_retry_attempt", true)
-				processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), fallbackError, relayInfo)
+				// 兜底失败：绝不向用户暴露兜底渠道返回的错误（商业机密）。
+			// 内部仍记录兜底渠道错误到 processChannelError（管理员可见，用于运维排查），
+			// 但返回给用户的 newAPIError 改用首次主请求失败错误 firstPrimaryError。
+			fallbackError := service.NormalizeViolationFeeError(newAPIError)
+			fallbackError = service.NormalizeSensitiveWordsError(fallbackError)
+			relayInfo.LastError = fallbackError
+			model.UpdateChannelCallCount(fallbackChannel.Id, 1)
+			c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
+			c.Set("is_retry_attempt", true)
+			processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), fallbackError, relayInfo)
+			// 用首次主请求失败错误作为最终返回，隐藏兜底渠道信息
+			if firstPrimaryError != nil {
+				newAPIError = firstPrimaryError
+			} else {
 				newAPIError = fallbackError
-				fallbackErrorReturned = true
 			}
-		} else if fallbackErr != nil {
-			if isContextCancelledAPIError(fallbackErr) {
-				requestContextCancelled = true
-				requestContextCancelDetail = fallbackErr.ErrorWithStatusCode()
-			}
-			common.SysLog(fmt.Sprintf("兜底渠道获取失败，返回兜底错误: %v", fallbackErr))
-			newAPIError = service.NormalizeViolationFeeError(fallbackErr)
-			newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
 			fallbackErrorReturned = true
 		}
+	} else if fallbackErr != nil {
+		if isContextCancelledAPIError(fallbackErr) {
+			requestContextCancelled = true
+			requestContextCancelDetail = fallbackErr.ErrorWithStatusCode()
+		}
+		common.SysLog(fmt.Sprintf("兜底渠道获取失败，返回主请求错误（不暴露兜底错误）: %v", fallbackErr))
+		// 兜底渠道获取失败同样不暴露兜底信息，改用首次主请求失败错误
+		if firstPrimaryError != nil {
+			newAPIError = firstPrimaryError
+		} else {
+			newAPIError = service.NormalizeViolationFeeError(fallbackErr)
+			newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
+		}
+		fallbackErrorReturned = true
+	}
 	}
 
 	if len(retryDelays) > 0 {
