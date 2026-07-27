@@ -1028,12 +1028,8 @@ func testAllChannels(notify bool) error {
 				shouldBanChannel = false
 			}
 
-			if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() && service.ShouldDelayDisableChannel(newAPIError) {
-				disable429Candidates = append(disable429Candidates, buildChannelTestDisableCandidate(channel, result, newAPIError))
-				channel.UpdateResponseTime(milliseconds)
-				time.Sleep(common.RequestInterval)
-				continue
-			}
+			// 延迟复测已关闭，401/429/503 错误直接走 ShouldDisableChannel 禁用逻辑
+			// 不再加入 disable429Candidates 候选列表
 
 			// 当错误检查通过，才检查响应时间
 			if common.AutomaticDisableChannelEnabled && !shouldBanChannel {

@@ -1516,10 +1516,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	}
 
 	if channelError.AutoBan {
-		// 401/429/503/invalid token 错误先经过 3 轮复测确认，全部失败才禁用
-		if service.ShouldDelayDisableChannel(err) {
-			service.StartRetryCheck(channelError, err.ErrorWithStatusCode(), nil)
-		} else if service.ShouldDisableChannel(err) {
+		// 401/429/503/invalid token 错误直接禁用，不再走延迟复测
+		if service.ShouldDisableChannel(err) {
 			gopool.Go(func() {
 				service.DisableChannel(channelError, err.ErrorWithStatusCode())
 			})

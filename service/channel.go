@@ -51,7 +51,9 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 		return false
 	}
 
-	if is429OrInvalidTokenError(err) || operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
+	// 401/429/invalid token 直接禁用，不再走延迟复测
+	// 注意：503 不触发禁用（上游临时不可用，可能很快恢复）
+	if err.StatusCode == http.StatusUnauthorized || is429OrInvalidTokenError(err) || operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
 		return true
 	}
 	lowerError := strings.ToLower(err.Error())
@@ -100,11 +102,8 @@ func HardDisableChannel(channelError types.ChannelError, err *types.NewAPIError)
 }
 
 func ShouldDelayDisableChannel(err *types.NewAPIError) bool {
-	if err == nil {
-		return false
-	}
-	// 401/429/503/invalid token 都走延迟禁用复测
-	return err.StatusCode == 401 || err.StatusCode == 503 || is429OrInvalidTokenError(err)
+	// 延迟复测功能已关闭，401/429/503/invalid token 直接走 ShouldDisableChannel 禁用
+	return false
 }
 
 func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
