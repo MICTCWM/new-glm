@@ -48,6 +48,12 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 		hasThinkTags = normalizeStreamThinkTags(info, &lastStreamResponse)
 	}
 
+	// 安抚性思考 chunk：跳过所有转换逻辑，直接以 reasoning_content 字段发送，
+	// 避免 Observation:/Hypothesis:/Next step: 等安抚内容被转成 content 污染正文
+	if info != nil && info.IsNoticeChunk {
+		return helper.ObjectData(c, lastStreamResponse)
+	}
+
 	// 自动兜底：当 reasoning_content 非空但 content 为空时，将 reasoning_content 转为 content
 	// 确保不支持 reasoning_content 字段的下游客户端能看到内容
 	hasReasoningConversion := false

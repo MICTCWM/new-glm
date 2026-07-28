@@ -885,7 +885,12 @@ func sendOpenAIChatRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.Rela
 			logger.LogWarn(c, "failed to marshal rpm queue notice: "+err.Error())
 			return false
 		}
-		if err := openai.HandleStreamFormat(c, info, string(data), info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+		// 标记为安抚性思考 chunk，跳过 sendStreamData 的自动兜底转换和 think 标签包装，
+		// 避免安抚内容被转成 content 污染正文
+		info.IsNoticeChunk = true
+		err = openai.HandleStreamFormat(c, info, string(data), info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+		info.IsNoticeChunk = false
+		if err != nil {
 			logger.LogWarn(c, "failed to send rpm queue notice: "+err.Error())
 			return false
 		}
@@ -897,7 +902,12 @@ func sendOpenAIChatRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.Rela
 			logger.LogWarn(c, "failed to marshal rpm queue notice: "+err.Error())
 			return false
 		}
-		if err := openai.HandleStreamFormat(c, info, string(data), false, false); err != nil {
+		// 标记为安抚性思考 chunk，跳过 sendStreamData 的自动兜底转换和 think 标签包装，
+		// 避免安抚内容被转成 content 污染正文
+		info.IsNoticeChunk = true
+		err = openai.HandleStreamFormat(c, info, string(data), false, false)
+		info.IsNoticeChunk = false
+		if err != nil {
 			logger.LogWarn(c, "failed to send rpm queue notice: "+err.Error())
 			return false
 		}
@@ -1006,7 +1016,12 @@ func sendOpenAIChatVisionRouteNotice(c *gin.Context, info *relaycommon.RelayInfo
 		logger.LogWarn(c, "failed to marshal vision route notice: "+err.Error())
 		return false
 	}
-	if err := openai.HandleStreamFormat(c, info, string(data), info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+	// 标记为安抚性思考 chunk，跳过 sendStreamData 的自动兜底转换和 think 标签包装，
+	// 避免安抚内容被转成 content 污染正文
+	info.IsNoticeChunk = true
+	err = openai.HandleStreamFormat(c, info, string(data), info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+	info.IsNoticeChunk = false
+	if err != nil {
 		logger.LogWarn(c, "failed to send vision route notice: "+err.Error())
 		return false
 	}
