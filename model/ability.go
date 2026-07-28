@@ -182,6 +182,10 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 		if err = DB.First(&candidateChannel, "id = ?", ability_.ChannelId).Error; err != nil {
 			return nil, err
 		}
+		// 排除兜底渠道，确保兜底渠道只被兜底逻辑使用，不被跨渠道重试消耗
+		if isFallbackModelEnabledSetting(candidateChannel.Setting) {
+			continue
+		}
 		if !candidateChannel.AllowsSpecialUser(requestUserId) {
 			anySpecialUserRestricted = true
 			continue

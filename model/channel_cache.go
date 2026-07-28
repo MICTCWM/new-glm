@@ -258,6 +258,10 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 			if channel.Status != common.ChannelStatusEnabled {
 				continue
 			}
+			// 排除兜底渠道，确保兜底渠道只被兜底逻辑使用，不被跨渠道重试消耗
+			if isFallbackModelEnabledSetting(channel.Setting) {
+				continue
+			}
 		}
 		availableChannels = append(availableChannels, channelId)
 	}
