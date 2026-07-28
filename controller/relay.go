@@ -1324,6 +1324,11 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			fallbackModel := fallbackSetting.FallbackModel
 			info.FallbackReasoningEffort = ""
 			if fallbackModel != "" {
+				// 确保 ChannelMeta 已初始化，避免访问 info.UpstreamModelName 等嵌入字段时 nil panic
+				// 触发场景：非视觉路由请求 + retry=0 + overload_protection_triggered，此时 info.ChannelMeta 可能为 nil
+				if info.ChannelMeta == nil {
+					info.InitChannelMeta(c)
+				}
 				info.FallbackReasoningEffort = fallbackSetting.FallbackModelReasoningEffort
 				info.UpstreamModelName = fallbackModel
 				info.IsModelMapped = true
