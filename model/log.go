@@ -451,6 +451,26 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
+// SumTodayConsumeQuota returns the consume-log quota for the local calendar
+// day containing now. The end of the window is exclusive so a request exactly
+// at midnight belongs only to the new day.
+func SumTodayConsumeQuota(now time.Time) (int, error) {
+	location := now.Location()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
+	end := start.AddDate(0, 0, 1)
+
+	var quota int
+	err := LOG_DB.Table("logs").
+		Select("COALESCE(SUM(quota), 0)").
+		Where("type = ? AND created_at >= ? AND created_at < ?", LogTypeConsume, start.Unix(), end.Unix()).
+		Scan(&quota).Error
+	if err != nil {
+		common.SysLog("failed to query today's consume quota: " + err.Error())
+		return 0, errors.New("查询今日用量失败")
+	}
+	return quota, nil
+}
+
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
 	tx := LOG_DB.Table("logs").Select("sum(quota) quota")
 

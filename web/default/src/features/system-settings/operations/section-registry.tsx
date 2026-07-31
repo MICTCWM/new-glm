@@ -35,6 +35,7 @@ const OPERATIONS_SECTIONS = [
       <SystemBehaviorSection
         defaultValues={{
           OverloadProtectionRPM: settings.OverloadProtectionRPM,
+          DailyUsageLimit: settings.DailyUsageLimit,
           RenewPotentialPassScore: settings.RenewPotentialPassScore,
           LowQuotaAlertPercent: settings.LowQuotaAlertPercent,
           ShortExpiryDays: settings.ShortExpiryDays,

@@ -43,7 +43,7 @@ func sendThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo, notice stri
 		if info.RelayMode == relayconstant.RelayModeGemini {
 			return sendGeminiThinkingNotice(c, info, notice, logLabel)
 		}
-	case types.RelayFormatOpenAI:
+	case types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses, types.RelayFormatOpenAIResponsesCompaction:
 		if info.RelayMode == relayconstant.RelayModeResponses || info.RelayMode == relayconstant.RelayModeResponsesCompact {
 			return sendResponsesThinkingNotice(c, info, notice, logLabel)
 		}
@@ -262,7 +262,7 @@ func sendContentNotice(c *gin.Context, info *relaycommon.RelayInfo, notice strin
 		if info.RelayMode == relayconstant.RelayModeGemini {
 			return sendGeminiContentNotice(c, info, notice, logLabel)
 		}
-	case types.RelayFormatOpenAI:
+	case types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses, types.RelayFormatOpenAIResponsesCompaction:
 		if info.RelayMode == relayconstant.RelayModeResponses || info.RelayMode == relayconstant.RelayModeResponsesCompact {
 			return sendResponsesContentNotice(c, info, notice, logLabel)
 		}

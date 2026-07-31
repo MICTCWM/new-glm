@@ -201,6 +201,9 @@ type RelayInfo struct {
 	ClaudeRpmQueueThinkingOpen   bool
 	ClaudeRpmQueueMergedThinking bool
 	ClaudeRpmQueueIndexOffset    int
+	// EmergencyPlanThinkingNoticeSent prevents the emergency preamble from
+	// being emitted again when the request retries another emergency channel.
+	EmergencyPlanThinkingNoticeSent bool
 
 	// IsNoticeChunk 标记当前 chunk 是安抚性思考（reasoning_content）通知，
 	// sendStreamData 检测到该标志时跳过自动兜底和 think 标签包装，避免污染正文 content

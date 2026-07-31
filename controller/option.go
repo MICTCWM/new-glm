@@ -42,6 +42,11 @@ func isPositiveOptionValue(value string) bool {
 	return err == nil && floatValue > 0
 }
 
+func isNonNegativeIntegerOptionValue(value string) bool {
+	intValue, err := strconv.Atoi(strings.TrimSpace(value))
+	return err == nil && intValue >= 0
+}
+
 func isVisiblePublicKeyOption(key string) bool {
 	switch key {
 	case "WaffoPancakeWebhookPublicKey", "WaffoPancakeWebhookTestKey":
@@ -150,6 +155,11 @@ func UpdateOption(c *gin.Context) {
 	case "QuotaForInviter", "QuotaForInvitee":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
 			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
+			return
+		}
+	case "DailyUsageLimit":
+		if !isNonNegativeIntegerOptionValue(option.Value.(string)) {
+			common.ApiErrorMsg(c, "日用量限制必须是大于等于 0 的整数")
 			return
 		}
 	default:

@@ -38,6 +38,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const behaviorSchema = z.object({
   OverloadProtectionRPM: z.coerce.number().int().min(0).max(100000),
+  DailyUsageLimit: z.coerce.number().int().min(0).max(2147483647),
   RenewPotentialPassScore: z.coerce.number().min(0).max(100),
   LowQuotaAlertPercent: z.coerce.number().min(0).max(100),
   ShortExpiryDays: z.coerce.number().min(1).max(365),
@@ -111,6 +112,33 @@ export function SystemBehaviorSection({
             )}
           />
 
+          <FormField
+            control={form.control}
+            name='DailyUsageLimit'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Daily Usage Limit')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min='0'
+                    max='2147483647'
+                    value={field.value as number}
+                    onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    name={field.name}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    "When today's consume-log quota reaches this value (internal quota units), new normal requests use fallback channels (0 = disabled)"
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
           <FormField
             control={form.control}
             name='RenewPotentialPassScore'

@@ -151,6 +151,10 @@ var AutomaticEnableChannelEnabled = false
 var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 
+// DailyUsageLimit is the maximum consume-log quota allowed during the
+// current local calendar day. A value <= 0 disables daily usage routing.
+var DailyUsageLimit = 0
+
 // RetryTimes is the number of additional channel selections performed by the
 // outer relay loop. Upstream retries are handled inside each relay handler;
 // keeping this at zero guarantees that a failed primary request goes directly

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -354,7 +355,7 @@ func TestSendRpmQueueThinkingNoticeByRelayFormat(t *testing.T) {
 		},
 		{
 			name:   "responses",
-			format: types.RelayFormatOpenAI,
+			format: types.RelayFormatOpenAIResponses,
 			mode:   relayconstant.RelayModeResponses,
 			path:   "/v1/responses",
 			assertions: []string{
@@ -390,6 +391,41 @@ func TestSendRpmQueueThinkingNoticeByRelayFormat(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSendEmergencyPlanThinkingNoticeUsesHardInferencePreambleAndReassurance(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		IsStream:        true,
+		RelayFormat:     types.RelayFormatOpenAI,
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+		OriginModelName: "emergency-model",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+
+	require.True(t, sendEmergencyPlanThinkingNoticeWithDelay(ctx, info, 0))
+	require.True(t, info.EmergencyPlanThinkingNoticeSent)
+	require.True(t, info.RpmQueueThinkingNoticeSent)
+	require.Equal(t, 2, strings.Count(recorder.Body.String(), `"reasoning_content"`))
+
+	bodyAfterFirstSend := recorder.Body.String()
+	require.False(t, sendEmergencyPlanThinkingNoticeWithDelay(ctx, info, 0))
+	require.Equal(t, bodyAfterFirstSend, recorder.Body.String())
+	firstNotice := strings.Index(bodyAfterFirstSend, common.UserMessageRpmQueuedThinking)
+	require.NotEqual(t, -1, firstNotice)
+	require.Greater(t, strings.LastIndex(bodyAfterFirstSend, `"reasoning_content"`), firstNotice)
+}
+
+func TestSendEmergencyPlanThinkingNoticeStopsWaitingWhenRequestIsCanceled(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, cancel := context.WithCancel(context.Background())
+	ginCtx, _ := gin.CreateTestContext(recorder)
+	ginCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(ctx)
+
+	cancel()
+	require.False(t, waitForEmergencyPlanThinkingNotice(ginCtx, time.Hour))
 }
 
 func TestWaitForRpmQueueSendsStreamNoticeAfterEnqueue(t *testing.T) {

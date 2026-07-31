@@ -48,6 +48,23 @@ func skipGlobalRpmOverloadTransfer(c *gin.Context) bool {
 	return ok && channel != nil && channel.IsExcludedFromRpmOverloadTransfer()
 }
 
+func dailyUsageLimitExceeded(c *gin.Context) bool {
+	if common.DailyUsageLimit <= 0 || skipGlobalRpmOverloadTransfer(c) {
+		return false
+	}
+
+	usedQuota, err := model.SumTodayConsumeQuota(time.Now())
+	if err != nil {
+		common.SysLog("日用量限制检查失败，继续使用普通渠道: " + err.Error())
+		return false
+	}
+	return usedQuota >= common.DailyUsageLimit
+}
+
+func fallbackTransferTriggered(c *gin.Context) bool {
+	return c.GetBool("overload_protection_triggered") || c.GetBool("daily_usage_limit_triggered")
+}
+
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
 	switch info.RelayMode {
@@ -83,6 +100,9 @@ func getRetryDelay(retryCount int) time.Duration {
 const (
 	fallbackInputTokenLimit = 360000
 	contextTooLongMessage   = "上下文过长"
+	// Give the emergency preamble a short display window before starting the
+	// upstream request. This matches the first configured retry wait interval.
+	emergencyPlanThinkingDelay = 3 * time.Second
 )
 
 func shouldReplaceFallbackWithRetry(info *relaycommon.RelayInfo) bool {
@@ -468,6 +488,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				c.Set("fallback_force_next", true)
 			}
 		}
+		if !c.GetBool("daily_usage_limit_triggered") && model.HasAvailableFallbackChannels() && dailyUsageLimitExceeded(c) {
+			c.Set("daily_usage_limit_triggered", true)
+			c.Set("fallback_force_next", true)
+			common.SysLog(fmt.Sprintf("今日用量已达到限制，转向兜底渠道: limit=%d", common.DailyUsageLimit))
+		}
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			// Check if all channels are RPM-full -> enter queue
@@ -487,11 +512,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
 			break
-		}
-		// 应急预案渠道标记
-		if channel != nil && channel.IsEmergencyPlanEnabled() {
-			c.Set("emergency_used", true)
-			c.Set("emergency_channel_id", channel.Id)
 		}
 		retryParam.InitialSelectionDone = true
 
@@ -539,7 +559,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			acquiredTrackers = append(acquiredTrackers, tracker)
 		}
 
-		if c.GetBool("fallback_triggered") && !c.GetBool("overload_protection_triggered") {
+		if c.GetBool("fallback_triggered") && !fallbackTransferTriggered(c) {
 			if channel.MaxRPM > 0 && len(acquiredTrackers) > 0 {
 				tracker := acquiredTrackers[len(acquiredTrackers)-1]
 				tracker.Decrement()
@@ -564,6 +584,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
+		// 应急预案渠道标记与思考前缀必须在 RPM、请求体检查均通过后发送，
+		// 确保只有真正要调用该渠道时才会向下游输出提示。
+		if channel != nil && channel.IsEmergencyPlanEnabled() {
+			c.Set("emergency_used", true)
+			c.Set("emergency_channel_id", channel.Id)
+			sendEmergencyPlanThinkingNotice(c, relayInfo)
+		}
 
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
@@ -644,7 +671,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// an oversized context, replace that fallback slot with one more request to
 	// the channel that is already selected. This also prevents a primary
 	// failure from turning into a fallback retry.
-	canFallback := (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) &&
+	canFallback := (c.GetBool("source_channel_supports_fallback") || fallbackTransferTriggered(c)) &&
 		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds)
 	if canFallback && shouldReplaceFallbackWithRetry(relayInfo) {
 		common.SysLog(fmt.Sprintf("输入 token 超过兜底限制，跳过兜底并对当前渠道额外重试: tokens=%d, limit=%d",
@@ -703,6 +730,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 				} else {
 					c.Request.Body = io.NopCloser(bodyStorage)
+					if fallbackChannel.IsEmergencyPlanEnabled() {
+						c.Set("emergency_used", true)
+						c.Set("emergency_channel_id", fallbackChannel.Id)
+						sendEmergencyPlanThinkingNotice(c, relayInfo)
+					}
 					switch relayFormat {
 					case types.RelayFormatOpenAIRealtime:
 						newAPIError = relay.WssHelper(c, relayInfo)
@@ -737,38 +769,38 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				}
 
 				// 兜底失败：绝不向用户暴露兜底渠道返回的错误（商业机密）。
-			// 内部仍记录兜底渠道错误到 processChannelError（管理员可见，用于运维排查），
-			// 但返回给用户的 newAPIError 改用首次主请求失败错误 firstPrimaryError。
-			fallbackError := service.NormalizeViolationFeeError(newAPIError)
-			fallbackError = service.NormalizeSensitiveWordsError(fallbackError)
-			relayInfo.LastError = fallbackError
-			model.UpdateChannelCallCount(fallbackChannel.Id, 1)
-			c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
-			c.Set("is_retry_attempt", true)
-			processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), fallbackError, relayInfo)
-			// 用首次主请求失败错误作为最终返回，隐藏兜底渠道信息
+				// 内部仍记录兜底渠道错误到 processChannelError（管理员可见，用于运维排查），
+				// 但返回给用户的 newAPIError 改用首次主请求失败错误 firstPrimaryError。
+				fallbackError := service.NormalizeViolationFeeError(newAPIError)
+				fallbackError = service.NormalizeSensitiveWordsError(fallbackError)
+				relayInfo.LastError = fallbackError
+				model.UpdateChannelCallCount(fallbackChannel.Id, 1)
+				c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
+				c.Set("is_retry_attempt", true)
+				processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), fallbackError, relayInfo)
+				// 用首次主请求失败错误作为最终返回，隐藏兜底渠道信息
+				if firstPrimaryError != nil {
+					newAPIError = firstPrimaryError
+				} else {
+					newAPIError = fallbackError
+				}
+				fallbackErrorReturned = true
+			}
+		} else if fallbackErr != nil {
+			if isContextCancelledAPIError(fallbackErr) {
+				requestContextCancelled = true
+				requestContextCancelDetail = fallbackErr.ErrorWithStatusCode()
+			}
+			common.SysLog(fmt.Sprintf("兜底渠道获取失败，返回主请求错误（不暴露兜底错误）: %v", fallbackErr))
+			// 兜底渠道获取失败同样不暴露兜底信息，改用首次主请求失败错误
 			if firstPrimaryError != nil {
 				newAPIError = firstPrimaryError
 			} else {
-				newAPIError = fallbackError
+				newAPIError = service.NormalizeViolationFeeError(fallbackErr)
+				newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
 			}
 			fallbackErrorReturned = true
 		}
-	} else if fallbackErr != nil {
-		if isContextCancelledAPIError(fallbackErr) {
-			requestContextCancelled = true
-			requestContextCancelDetail = fallbackErr.ErrorWithStatusCode()
-		}
-		common.SysLog(fmt.Sprintf("兜底渠道获取失败，返回主请求错误（不暴露兜底错误）: %v", fallbackErr))
-		// 兜底渠道获取失败同样不暴露兜底信息，改用首次主请求失败错误
-		if firstPrimaryError != nil {
-			newAPIError = firstPrimaryError
-		} else {
-			newAPIError = service.NormalizeViolationFeeError(fallbackErr)
-			newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
-		}
-		fallbackErrorReturned = true
-	}
 	}
 
 	if len(retryDelays) > 0 {
@@ -823,6 +855,64 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 }
 
+// sendEmergencyPlanThinkingNotice sends the same hard-inference preamble used
+// by the RPM queue, followed by one existing reassurance message. The helper
+// is intentionally stream-only: non-stream responses cannot expose an
+// incremental preamble without changing their response contract.
+func sendEmergencyPlanThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	return sendEmergencyPlanThinkingNoticeWithDelay(c, info, emergencyPlanThinkingDelay)
+}
+
+func sendEmergencyPlanThinkingNoticeWithDelay(c *gin.Context, info *relaycommon.RelayInfo, delay time.Duration) bool {
+	if info == nil || !info.IsStream || info.EmergencyPlanThinkingNoticeSent {
+		return false
+	}
+
+	// A retry may have selected a different channel while RelayInfo still holds
+	// the previous channel metadata. Refresh it before encoding protocol-specific
+	// notice fields such as force_format and thinking_to_content.
+	currentChannelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+	if info.ChannelMeta != nil && info.ChannelMeta.ChannelId != currentChannelID {
+		info.ChannelMeta = nil
+	}
+	if info.ChannelMeta == nil {
+		info.InitChannelMeta(c)
+	}
+
+	if !info.RpmQueueThinkingNoticeSent && !sendRpmQueueThinkingNotice(c, info) {
+		return false
+	}
+
+	if !waitForEmergencyPlanThinkingNotice(c, delay) {
+		info.EmergencyPlanThinkingNoticeSent = true
+		return true
+	}
+
+	// Reuse the established retry notice pipeline so each relay format appends
+	// the reassurance to the same thinking/reasoning stream.
+	relay.SendRetryWaitNotice(c, info)
+	info.EmergencyPlanThinkingNoticeSent = true
+	return true
+}
+
+func waitForEmergencyPlanThinkingNotice(c *gin.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return true
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	if c == nil || c.Request == nil {
+		<-timer.C
+		return true
+	}
+	select {
+	case <-timer.C:
+		return true
+	case <-c.Request.Context().Done():
+		return false
+	}
+}
+
 func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	if info == nil || !info.IsStream {
 		return false
@@ -841,7 +931,7 @@ func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) boo
 		if info.RelayMode == relayconstant.RelayModeGemini {
 			return sendGeminiRpmQueueThinkingNotice(c, info)
 		}
-	case types.RelayFormatOpenAI:
+	case types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses, types.RelayFormatOpenAIResponsesCompaction:
 		if info.RelayMode == relayconstant.RelayModeResponses || info.RelayMode == relayconstant.RelayModeResponsesCompact {
 			return sendResponsesRpmQueueThinkingNotice(c, info)
 		}
@@ -1275,12 +1365,13 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
-	// 兜底模型逻辑：故障转移时触发一次；防超载模式下每次重试都优先使用兜底渠道。
+	// 兜底模型逻辑：故障转移时触发一次；全局超载或日用量超限时每次重试都优先使用兜底渠道。
 	// 注意：跨渠道重试由外层循环通过 CacheGetRandomSatisfiedChannel 选择相同模型
 	// 的其他渠道完成；本分支仅在 fallback_force_next（兜底强制触发）或
-	// overload_protection_triggered（超载保护）时进入，避免循环内最后一次迭代
+	// overload_protection_triggered/daily_usage_limit_triggered 时进入，避免循环内最后一次迭代
 	// 因 retry>=2 而误触发兜底（误选兜底渠道而非相同模型渠道）。
-	if (c.GetBool("overload_protection_triggered") || !c.GetBool("fallback_triggered")) && (c.GetBool("source_channel_supports_fallback") || c.GetBool("overload_protection_triggered")) && (c.GetBool("fallback_force_next") || c.GetBool("overload_protection_triggered")) {
+	forceFallback := fallbackTransferTriggered(c)
+	if (forceFallback || !c.GetBool("fallback_triggered")) && (c.GetBool("source_channel_supports_fallback") || forceFallback) && (c.GetBool("fallback_force_next") || forceFallback) {
 		fallbackChannels := model.GetFallbackChannels()
 		// 排除已使用的渠道
 		availableFallback := make([]*model.Channel, 0, len(fallbackChannels))

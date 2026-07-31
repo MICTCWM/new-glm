@@ -29,6 +29,7 @@ import {
 
 const defaultOperationsSettings: OperationsSettings = {
   OverloadProtectionRPM: 30,
+  DailyUsageLimit: 0,
   RenewPotentialPassScore: 60,
   LowQuotaAlertPercent: 20,
   ShortExpiryDays: 7,

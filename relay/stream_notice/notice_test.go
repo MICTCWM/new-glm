@@ -54,7 +54,7 @@ func TestSendRetryWaitNoticeByRelayFormat(t *testing.T) {
 		},
 		{
 			name:   "responses",
-			format: types.RelayFormatOpenAI,
+			format: types.RelayFormatOpenAIResponses,
 			mode:   relayconstant.RelayModeResponses,
 			path:   "/v1/responses",
 			assertions: []string{

@@ -83,3 +83,75 @@ func TestGetChannelFallbackKeepsRequestModelPricing(t *testing.T) {
 	require.Equal(t, 1.0, info.PriceData.ModelPrice,
 		"fallback routing must not replace the request model's billing price")
 }
+
+func TestGetChannelDailyUsageLimitForcesFallback(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+	})
+
+	fallbackChannel := &model.Channel{
+		Id:     902,
+		Type:   constant.ChannelTypeOpenAI,
+		Key:    "sk-daily-fallback",
+		Name:   "daily-fallback-channel",
+		Status: common.ChannelStatusEnabled,
+		Models: "daily-fallback-model",
+		Group:  "default",
+	}
+	fallbackChannel.SetSetting(dto.ChannelSettings{
+		FallbackModelEnabled: true,
+		FallbackModel:        "daily-fallback-model",
+	})
+	require.NoError(t, db.Create(fallbackChannel).Error)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("daily_usage_limit_triggered", true)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "requested-daily-model",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	retryParam := &service.RetryParam{
+		Ctx:            ctx,
+		TokenGroup:     "default",
+		ModelName:      "requested-daily-model",
+		Retry:          common.GetPointer(0),
+		UsedChannelIds: []int{},
+	}
+
+	channel, apiErr := getChannel(ctx, info, retryParam)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, channel)
+	require.Equal(t, fallbackChannel.Id, channel.Id)
+}
+
+func TestDailyUsageLimitSkipsExcludedChannels(t *testing.T) {
+	oldDailyUsageLimit := common.DailyUsageLimit
+	common.DailyUsageLimit = 1
+	t.Cleanup(func() {
+		common.DailyUsageLimit = oldDailyUsageLimit
+	})
+
+	tests := []struct {
+		name    string
+		setting dto.ChannelSettings
+	}{
+		{name: "gpt", setting: dto.ChannelSettings{GptModeRequired: true}},
+		{name: "emergency", setting: dto.ChannelSettings{EmergencyPlanEnabled: true}},
+		{name: "fallback", setting: dto.ChannelSettings{FallbackModelEnabled: true}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			channel := &model.Channel{}
+			channel.SetSetting(test.setting)
+			common.SetContextKey(ctx, constant.ContextKeySelectedChannel, channel)
+
+			require.False(t, dailyUsageLimitExceeded(ctx))
+		})
+	}
+}
