@@ -81,8 +81,8 @@ const HARD_CODED_TOKEN_PRICES: Record<
   { input: number; cache: number; output: number }
 > = {
   'gpt-5.6-sol': { input: 5, cache: 0.5, output: 30 },
-  'gpt-5.6-terra': { input: 2.5, cache: 0.25, output: 15 },
-  'gpt-5.6-luna': { input: 1, cache: 0.1, output: 6 },
+  'gpt-5.6-terra': { input: 2, cache: 0.2, output: 12 },
+  'gpt-5.6-luna': { input: 0.2, cache: 0.02, output: 1.2 },
 }
 
 export function getHardcodedTokenPrice(

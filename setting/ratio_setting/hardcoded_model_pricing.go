@@ -12,10 +12,10 @@ type hardcodedModelPricing struct {
 var hardcodedModelPricingMap = map[string]hardcodedModelPricing{
 	// GPT-5.6 Sol: $5 input, $0.50 cached input, $30 output per 1M tokens.
 	"gpt-5.6-sol": {ModelRatio: 2.5, CompletionRatio: 6, CacheRatio: 0.1},
-	// GPT-5.6 Terra: $2.50 input, $0.25 cached input, $15 output per 1M tokens.
-	"gpt-5.6-terra": {ModelRatio: 1.25, CompletionRatio: 6, CacheRatio: 0.1},
-	// GPT-5.6 Luna: $1 input, $0.10 cached input, $6 output per 1M tokens.
-	"gpt-5.6-luna": {ModelRatio: 0.5, CompletionRatio: 6, CacheRatio: 0.1},
+	// GPT-5.6 Terra: $2 input, $0.20 cached input, $12 output per 1M tokens.
+	"gpt-5.6-terra": {ModelRatio: 1.0, CompletionRatio: 6, CacheRatio: 0.1},
+	// GPT-5.6 Luna: $0.20 input, $0.02 cached input, $1.20 output per 1M tokens.
+	"gpt-5.6-luna": {ModelRatio: 0.1, CompletionRatio: 6, CacheRatio: 0.1},
 }
 
 func getHardcodedModelPricing(name string) (hardcodedModelPricing, bool) {

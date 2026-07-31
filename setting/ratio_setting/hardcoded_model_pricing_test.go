@@ -31,8 +31,8 @@ func TestGPT56PricingCannotBeOverriddenByEditableSettings(t *testing.T) {
 
 	expected := map[string]hardcodedModelPricing{
 		"gpt-5.6-sol":   {ModelRatio: 2.5, CompletionRatio: 6, CacheRatio: 0.1},
-		"gpt-5.6-terra": {ModelRatio: 1.25, CompletionRatio: 6, CacheRatio: 0.1},
-		"gpt-5.6-luna":  {ModelRatio: 0.5, CompletionRatio: 6, CacheRatio: 0.1},
+		"gpt-5.6-terra": {ModelRatio: 1.0, CompletionRatio: 6, CacheRatio: 0.1},
+		"gpt-5.6-luna":  {ModelRatio: 0.1, CompletionRatio: 6, CacheRatio: 0.1},
 	}
 
 	for model, pricing := range expected {
@@ -56,8 +56,8 @@ func TestGPT56PricingIsExposedWithFixedValues(t *testing.T) {
 	modelPrices := GetModelPriceCopy()
 
 	require.Equal(t, 2.5, modelRatios["gpt-5.6-sol"])
-	require.Equal(t, 1.25, modelRatios["gpt-5.6-terra"])
-	require.Equal(t, 0.5, modelRatios["gpt-5.6-luna"])
+	require.Equal(t, 1.0, modelRatios["gpt-5.6-terra"])
+	require.Equal(t, 0.1, modelRatios["gpt-5.6-luna"])
 	require.Equal(t, 6.0, completionRatios["gpt-5.6-sol"])
 	require.Equal(t, 0.1, cacheRatios["gpt-5.6-sol"])
 	_, exists := modelPrices["gpt-5.6-sol"]

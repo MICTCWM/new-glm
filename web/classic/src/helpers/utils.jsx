@@ -612,8 +612,8 @@ export const selectFilter = (input, option) => {
 // ratio_config 或浏览器缓存导致模型广场显示错误价格。
 const HARD_CODED_TOKEN_PRICES = {
   'gpt-5.6-sol': { input: 5, cache: 0.5, output: 30 },
-  'gpt-5.6-terra': { input: 2.5, cache: 0.25, output: 15 },
-  'gpt-5.6-luna': { input: 1, cache: 0.1, output: 6 },
+  'gpt-5.6-terra': { input: 2, cache: 0.2, output: 12 },
+  'gpt-5.6-luna': { input: 0.2, cache: 0.02, output: 1.2 },
 };
 
 export const calculateModelPrice = ({

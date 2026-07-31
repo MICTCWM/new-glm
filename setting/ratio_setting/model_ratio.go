@@ -95,8 +95,8 @@ var defaultModelRatio = map[string]float64{
 	"gpt-5-2025-08-07":                 0.625,
 	"gpt-5-chat-latest":                0.625,
 	"gpt-5.6-sol":                      2.5,  // $5 / 1M input tokens
-	"gpt-5.6-terra":                    1.25, // $2.5 / 1M input tokens
-	"gpt-5.6-luna":                     0.5,  // $1 / 1M input tokens
+	"gpt-5.6-terra":                    1.0,  // $2 / 1M input tokens
+	"gpt-5.6-luna":                     0.1,  // $0.2 / 1M input tokens
 	"gpt-5-mini":                       0.125,
 	"gpt-5-mini-2025-08-07":            0.125,
 	"gpt-5-nano":                       0.025,
