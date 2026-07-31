@@ -152,6 +152,7 @@ import {
   formatModelsArray,
   extractRedirectModels,
   extractMappingSourceModels,
+  getMappedModelName,
   getFallbackReasoningOptions,
   hasModelConfigChanged,
   findMissingModelsInMapping,
@@ -248,19 +249,19 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.priority ||
     values.weight ||
     values.proxy?.trim() ||
-  values.system_prompt?.trim() ||
-  values.responses_protocol ||
-  values.force_format ||
-  values.thinking_to_content ||
-  values.pass_through_body_enabled ||
-  values.system_prompt_override ||
-  values.claude_beta_query ||
-  values.emergency_plan_enabled ||
-  values.fallback_model_enabled ||
-  values.support_fallback ||
-  values.upstream_model_update_check_enabled ||
-  values.upstream_model_update_auto_sync_enabled ||
-  values.upstream_model_update_ignored_models?.trim()
+    values.system_prompt?.trim() ||
+    values.responses_protocol ||
+    values.force_format ||
+    values.thinking_to_content ||
+    values.pass_through_body_enabled ||
+    values.system_prompt_override ||
+    values.claude_beta_query ||
+    values.emergency_plan_enabled ||
+    values.fallback_model_enabled ||
+    values.support_fallback ||
+    values.upstream_model_update_check_enabled ||
+    values.upstream_model_update_auto_sync_enabled ||
+    values.upstream_model_update_ignored_models?.trim()
   )
 }
 
@@ -618,7 +619,7 @@ export function ChannelMutateDrawer({
         Array<{ source: string; target: string }>
       >((acc, [rawSource, rawTarget]) => {
         const source = String(rawSource).trim()
-        const target = String(rawTarget ?? '').trim()
+        const target = getMappedModelName(rawTarget)
 
         if (!source || !target) {
           return acc
@@ -2368,7 +2369,7 @@ export function ChannelMutateDrawer({
                               {t('Fill All Models')}
                             </Button>
 
-                    {MODEL_FETCHABLE_TYPES.has(currentType) && (
+                            {MODEL_FETCHABLE_TYPES.has(currentType) && (
                               <Button
                                 type='button'
                                 variant='outline'
@@ -2519,6 +2520,7 @@ export function ChannelMutateDrawer({
                           value={field.value || ''}
                           onChange={field.onChange}
                           disabled={isSubmitting}
+                          showReasoningEffort={emergencyPlanEnabled}
                         />
                       </FormControl>
                       <FormDescription>

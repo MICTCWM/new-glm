@@ -24,6 +24,9 @@ func (info *RelayInfo) GetFallbackReasoningEffort() string {
 	if info == nil {
 		return ""
 	}
+	if effort := NormalizeFallbackReasoningEffort(info.MappedReasoningEffort); effort != "" {
+		return effort
+	}
 	return NormalizeFallbackReasoningEffort(info.FallbackReasoningEffort)
 }
 

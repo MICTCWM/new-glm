@@ -22,24 +22,39 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  getMappedModelName,
+  getMappedReasoningEffort,
+} from '../lib/model-mapping-validation'
 
 type ModelMappingEditorProps = {
   value: string
   onChange: (value: string) => void
   disabled?: boolean
+  showReasoningEffort?: boolean
 }
 
 type MappingRow = {
   id: string
   from: string
   to: string
+  reasoningEffort: string
 }
 
 export function ModelMappingEditor({
   value,
   onChange,
   disabled = false,
+  showReasoningEffort = false,
 }: ModelMappingEditorProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'visual' | 'json'>('visual')
@@ -57,7 +72,8 @@ export function ModelMappingEditor({
         ([from, to], index) => ({
           id: `${Date.now()}-${index}`,
           from,
-          to: String(to),
+          to: getMappedModelName(to),
+          reasoningEffort: getMappedReasoningEffort(to) || 'inherit',
         })
       )
       setRows(newRows)
@@ -77,10 +93,22 @@ export function ModelMappingEditor({
     if (updatedRows.length === 0) {
       return ''
     }
-    const obj: Record<string, string> = {}
+    const obj: Record<
+      string,
+      string | { model: string; reasoning_effort: string }
+    > = {}
     updatedRows.forEach((row) => {
       if (row.from.trim()) {
-        obj[row.from.trim()] = row.to.trim()
+        const targetModel = row.to.trim()
+        if (!targetModel) return
+        if (row.reasoningEffort && row.reasoningEffort !== 'inherit') {
+          obj[row.from.trim()] = {
+            model: targetModel,
+            reasoning_effort: row.reasoningEffort,
+          }
+        } else {
+          obj[row.from.trim()] = targetModel
+        }
       }
     })
     return JSON.stringify(obj, null, 2)
@@ -91,6 +119,7 @@ export function ModelMappingEditor({
       id: `${Date.now()}`,
       from: '',
       to: '',
+      reasoningEffort: 'inherit',
     }
     const updatedRows = [...rows, newRow]
     setRows(updatedRows)
@@ -106,7 +135,7 @@ export function ModelMappingEditor({
 
   const handleRowChange = (
     id: string,
-    field: 'from' | 'to',
+    field: 'from' | 'to' | 'reasoningEffort',
     newValue: string
   ) => {
     const updatedRows = rows.map((row) =>
@@ -149,6 +178,14 @@ export function ModelMappingEditor({
     }
   }
 
+  const reasoningOptions = [
+    { value: 'inherit', label: t('Default') },
+    { value: 'low', label: t('Low') },
+    { value: 'medium', label: t('Medium') },
+    { value: 'high', label: t('High') },
+    { value: 'xhigh', label: t('X High') },
+  ]
+
   return (
     <div className='space-y-2'>
       <div className='flex items-center justify-between'>
@@ -189,15 +226,28 @@ export function ModelMappingEditor({
         <div className='space-y-2'>
           {rows.length > 0 ? (
             <div className='space-y-2'>
-              <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
+              <div
+                className={cn(
+                  'grid gap-2 text-sm font-medium',
+                  showReasoningEffort
+                    ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem_auto]'
+                    : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
+                )}
+              >
                 <div>{t('Original Model')}</div>
                 <div>{t('Replacement Model')}</div>
+                {showReasoningEffort && <div>{t('Reasoning Effort')}</div>}
                 <div className='w-10'></div>
               </div>
               {rows.map((row) => (
                 <div
                   key={row.id}
-                  className='grid grid-cols-[1fr_1fr_auto] gap-2'
+                  className={cn(
+                    'grid gap-2',
+                    showReasoningEffort
+                      ? 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem_auto]'
+                      : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'
+                  )}
                 >
                   <Input
                     value={row.from}
@@ -215,6 +265,38 @@ export function ModelMappingEditor({
                     placeholder='gpt-3.5-turbo-0125'
                     disabled={disabled}
                   />
+                  {showReasoningEffort && (
+                    <Select
+                      value={
+                        reasoningOptions.some(
+                          (option) => option.value === row.reasoningEffort
+                        )
+                          ? row.reasoningEffort
+                          : 'inherit'
+                      }
+                      onValueChange={(newValue) =>
+                        handleRowChange(
+                          row.id,
+                          'reasoningEffort',
+                          newValue ?? 'inherit'
+                        )
+                      }
+                      disabled={disabled}
+                    >
+                      <SelectTrigger className='w-full'>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          {reasoningOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  )}
                   <Button
                     type='button'
                     variant='ghost'
@@ -251,7 +333,13 @@ export function ModelMappingEditor({
         <Textarea
           value={jsonValue}
           onChange={(e) => handleJsonChange(e.target.value)}
-          placeholder={t('{"original-model": "replacement-model"}')}
+          placeholder={
+            showReasoningEffort
+              ? t(
+                  '{"original-model": {"model": "replacement-model", "reasoning_effort": "high"}}'
+                )
+              : t('{"original-model": "replacement-model"}')
+          }
           disabled={disabled}
           rows={8}
           className={cn('font-mono text-sm')}

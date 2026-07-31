@@ -46,6 +46,32 @@ export function normalizeModelName(model: string): string {
   return typeof model === 'string' ? model.trim() : ''
 }
 
+type ModelMappingTargetObject = {
+  model?: unknown
+  reasoning_effort?: unknown
+}
+
+function isModelMappingTargetObject(
+  value: unknown
+): value is ModelMappingTargetObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Extract the actual upstream model from either legacy or extended mapping values. */
+export function getMappedModelName(value: unknown): string {
+  if (typeof value === 'string') return value.trim()
+  if (!isModelMappingTargetObject(value)) return ''
+  return typeof value.model === 'string' ? value.model.trim() : ''
+}
+
+/** Extract the optional reasoning level from an extended mapping value. */
+export function getMappedReasoningEffort(value: unknown): string {
+  if (!isModelMappingTargetObject(value)) return ''
+  return typeof value.reasoning_effort === 'string'
+    ? value.reasoning_effort.trim().toLowerCase()
+    : ''
+}
+
 /**
  * Extract source keys from model_mapping JSON
  * (the keys of the mapping object — models being remapped FROM)
@@ -87,7 +113,7 @@ export function extractRedirectModels(modelMapping: string): string[] {
     }
 
     const values = Object.values(parsed)
-      .map((value) => (typeof value === 'string' ? value.trim() : undefined))
+      .map((value) => getMappedModelName(value))
       .filter((value): value is string => Boolean(value))
 
     return Array.from(new Set(values))
@@ -177,6 +203,50 @@ export function validateModelMappingJson(modelMapping: string): {
       return {
         valid: false,
         error: 'Model mapping must be a valid JSON object',
+      }
+    }
+
+    const supportedEfforts = new Set([
+      '',
+      'inherit',
+      'none',
+      'minimal',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+      'thinking',
+    ])
+    for (const value of Object.values(parsed)) {
+      if (typeof value === 'string') continue
+      if (!isModelMappingTargetObject(value)) {
+        return {
+          valid: false,
+          error: 'Model mapping targets must be model names or objects',
+        }
+      }
+      if (!getMappedModelName(value)) {
+        return {
+          valid: false,
+          error: 'Model mapping target must include a model name',
+        }
+      }
+      if (
+        'reasoning_effort' in value &&
+        typeof value.reasoning_effort !== 'string'
+      ) {
+        return {
+          valid: false,
+          error: 'Model mapping reasoning effort is invalid',
+        }
+      }
+      const effort = getMappedReasoningEffort(value)
+      if (!supportedEfforts.has(effort)) {
+        return {
+          valid: false,
+          error: 'Model mapping reasoning effort is invalid',
+        }
       }
     }
     return { valid: true }

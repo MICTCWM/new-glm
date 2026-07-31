@@ -122,6 +122,7 @@ type RelayInfo struct {
 	AudioUsage              bool
 	ReasoningEffort         string
 	FallbackReasoningEffort string `json:"-"` // 兜底渠道专用思考等级，覆盖用户原请求设置
+	MappedReasoningEffort   string `json:"-"` // 模型映射目标模型专用思考等级，覆盖用户原请求设置
 	UserSetting             dto.UserSetting
 	UserEmail               string
 	UserQuota               int

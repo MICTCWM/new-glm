@@ -21,6 +21,21 @@ func TestApplyFallbackReasoningToOpenAIRequest(t *testing.T) {
 	}
 }
 
+func TestApplyFallbackReasoningPrefersModelMappingEffort(t *testing.T) {
+	info := &RelayInfo{
+		FallbackReasoningEffort: "low",
+		MappedReasoningEffort:   "xhigh",
+		ChannelMeta:             &ChannelMeta{ChannelType: constant.ChannelTypeOpenAI},
+	}
+	request := &dto.GeneralOpenAIRequest{}
+
+	info.ApplyFallbackReasoningToOpenAIRequest(request)
+
+	if request.ReasoningEffort != "xhigh" {
+		t.Fatalf("ReasoningEffort = %q, want xhigh", request.ReasoningEffort)
+	}
+}
+
 func TestApplyFallbackReasoningToDeepSeekRequestUsesThinkingObject(t *testing.T) {
 	info := &RelayInfo{
 		FallbackReasoningEffort: "max",
