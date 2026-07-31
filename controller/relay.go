@@ -98,8 +98,9 @@ func getRetryDelay(retryCount int) time.Duration {
 }
 
 const (
-	fallbackInputTokenLimit = 360000
-	contextTooLongMessage   = "上下文过长"
+	fallbackInputTokenLimit    = 360000
+	contextTooLongMessage      = "上下文过长"
+	emergencyPlanFailedMessage = "该模型请求失败，请稍后再次请求。"
 	// Give the emergency preamble a short display window before starting the
 	// upstream request. This matches the first configured retry wait interval.
 	emergencyPlanThinkingDelay = 3 * time.Second
@@ -116,6 +117,31 @@ func newContextTooLongError() *types.NewAPIError {
 		http.StatusBadRequest,
 		types.ErrOptionWithSkipRetry(),
 	)
+}
+
+func newEmergencyPlanFallbackError() *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		errors.New(emergencyPlanFailedMessage),
+		types.ErrorCodeDoRequestFailed,
+		http.StatusInternalServerError,
+	)
+}
+
+func finalFallbackError(c *gin.Context, primaryError, fallbackError *types.NewAPIError) *types.NewAPIError {
+	if c.GetBool("emergency_used") {
+		return newEmergencyPlanFallbackError()
+	}
+	if primaryError != nil {
+		return primaryError
+	}
+	return fallbackError
+}
+
+func maskEmergencyPlanError(c *gin.Context, err *types.NewAPIError) *types.NewAPIError {
+	if err != nil && c.GetBool("emergency_used") {
+		return newEmergencyPlanFallbackError()
+	}
+	return err
 }
 
 // retryCurrentChannelOnce sends one additional request to the channel that is
@@ -778,12 +804,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				c.Set("upstream_retry_count", relayInfo.UpstreamRetryCount)
 				c.Set("is_retry_attempt", true)
 				processChannelError(c, *types.NewChannelError(fallbackChannel.Id, fallbackChannel.Type, fallbackChannel.Name, fallbackChannel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), fallbackChannel.GetAutoBan()), fallbackError, relayInfo)
-				// 用首次主请求失败错误作为最终返回，隐藏兜底渠道信息
-				if firstPrimaryError != nil {
-					newAPIError = firstPrimaryError
-				} else {
-					newAPIError = fallbackError
-				}
+				// 应急渠道及兜底渠道都失败时，向用户返回固定错误；普通渠道仍使用首次主请求错误。
+				newAPIError = finalFallbackError(c, firstPrimaryError, fallbackError)
 				fallbackErrorReturned = true
 			}
 		} else if fallbackErr != nil {
@@ -792,13 +814,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				requestContextCancelDetail = fallbackErr.ErrorWithStatusCode()
 			}
 			common.SysLog(fmt.Sprintf("兜底渠道获取失败，返回主请求错误（不暴露兜底错误）: %v", fallbackErr))
-			// 兜底渠道获取失败同样不暴露兜底信息，改用首次主请求失败错误
-			if firstPrimaryError != nil {
-				newAPIError = firstPrimaryError
-			} else {
-				newAPIError = service.NormalizeViolationFeeError(fallbackErr)
-				newAPIError = service.NormalizeSensitiveWordsError(newAPIError)
-			}
+			// 应急渠道及兜底渠道都失败时，向用户返回固定错误；普通渠道仍使用首次主请求错误。
+			fallbackError := service.NormalizeViolationFeeError(fallbackErr)
+			fallbackError = service.NormalizeSensitiveWordsError(fallbackError)
+			newAPIError = finalFallbackError(c, firstPrimaryError, fallbackError)
 			fallbackErrorReturned = true
 		}
 	}
@@ -813,9 +832,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
-		// A request-context cancellation is not a relay-side 500. Return HTTP 200
-		// and retain the original detail in the admin log. Do not mask a real
-		// fallback error (for example, a fallback upstream 500).
+		if c.GetBool("emergency_used") {
+			// 应急渠道单次请求失败且最终未成功时，也不向用户暴露上游错误。
+			newAPIError = maskEmergencyPlanError(c, newAPIError)
+			fallbackErrorReturned = true
+		}
+
+		// For non-emergency requests, a client/request-context cancellation is not
+		// a relay-side 500. Return HTTP 200 and retain the original detail in the
+		// admin log. Do not mask a real fallback error (for example, a fallback
+		// upstream 500).
 		if isContextCancelledAPIError(newAPIError) || (requestContextCancelled && !fallbackErrorReturned) {
 			if requestContextCancelDetail == "" {
 				requestContextCancelDetail = newAPIError.ErrorWithStatusCode()

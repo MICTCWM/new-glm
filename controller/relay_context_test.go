@@ -41,6 +41,62 @@ func TestNewContextTooLongErrorIsClientErrorAndSkipsRetry(t *testing.T) {
 	require.Equal(t, contextTooLongMessage, err.Error())
 }
 
+func TestFinalFallbackErrorMasksUpstreamErrorsForEmergencyChannel(t *testing.T) {
+	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginContext.Set("emergency_used", true)
+	primaryError := types.NewErrorWithStatusCode(
+		context.Canceled,
+		types.ErrorCodeDoRequestFailed,
+		http.StatusBadGateway,
+	)
+	fallbackError := types.NewErrorWithStatusCode(
+		context.DeadlineExceeded,
+		types.ErrorCodeDoRequestFailed,
+		http.StatusGatewayTimeout,
+	)
+
+	err := finalFallbackError(ginContext, primaryError, fallbackError)
+
+	require.Equal(t, http.StatusInternalServerError, err.StatusCode)
+	require.Equal(t, types.ErrorCodeDoRequestFailed, err.GetErrorCode())
+	require.Equal(t, emergencyPlanFailedMessage, err.Error())
+	require.Equal(t, emergencyPlanFailedMessage, err.GetUserFriendlyMessage())
+	require.Equal(t, emergencyPlanFailedMessage, err.ToOpenAIError().Message)
+}
+
+func TestFinalFallbackErrorPreservesOrdinaryFallbackBehavior(t *testing.T) {
+	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	primaryError := types.NewErrorWithStatusCode(
+		context.Canceled,
+		types.ErrorCodeDoRequestFailed,
+		http.StatusBadGateway,
+	)
+	fallbackError := types.NewErrorWithStatusCode(
+		context.DeadlineExceeded,
+		types.ErrorCodeDoRequestFailed,
+		http.StatusGatewayTimeout,
+	)
+
+	require.Same(t, primaryError, finalFallbackError(ginContext, primaryError, fallbackError))
+	require.Same(t, fallbackError, finalFallbackError(ginContext, nil, fallbackError))
+}
+
+func TestMaskEmergencyPlanErrorMasksSingleRequestFailure(t *testing.T) {
+	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ginContext.Set("emergency_used", true)
+	upstreamError := types.NewErrorWithStatusCode(
+		context.DeadlineExceeded,
+		types.ErrorCodeDoRequestFailed,
+		http.StatusGatewayTimeout,
+	)
+
+	err := maskEmergencyPlanError(ginContext, upstreamError)
+
+	require.Equal(t, http.StatusInternalServerError, err.StatusCode)
+	require.Equal(t, emergencyPlanFailedMessage, err.Error())
+	require.Equal(t, emergencyPlanFailedMessage, err.GetUserFriendlyMessage())
+}
+
 func TestDetachCancelledRequestContextForFallback(t *testing.T) {
 	oldRequestMaxDuration := common.RequestMaxDuration
 	common.RequestMaxDuration = 30
