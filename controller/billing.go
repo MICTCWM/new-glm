@@ -147,16 +147,30 @@ func GetV1UsageQuota(c *gin.Context) {
 			if sub.Subscription == nil {
 				continue
 			}
-			// 跳过无限额度订阅（AmountTotal <= 0）
-			if sub.Subscription.AmountTotal <= 0 {
+			limit := sub.Subscription.AmountTotal
+			used := sub.Subscription.AmountUsed
+			resetTime := sub.Subscription.NextResetTime
+			if sub.Subscription.SpecialQuotaEnabled {
+				if sub.Subscription.HourlyLimitEnabled {
+					limit = sub.Subscription.HourlyAmountLimit
+					used = sub.Subscription.HourlyAmountUsed
+					resetTime = sub.Subscription.HourlyPeriodEnd
+				} else {
+					limit = sub.Subscription.SpecialWeeklyAmountLimit
+					used = sub.Subscription.SpecialWeeklyAmountUsed
+					resetTime = sub.Subscription.SpecialWeeklyPeriodEnd
+				}
+			}
+			// 跳过无限额度订阅（limit <= 0）
+			if limit <= 0 {
 				continue
 			}
-			ratio := float64(sub.Subscription.AmountUsed) / float64(sub.Subscription.AmountTotal)
+			ratio := float64(used) / float64(limit)
 			if ratio > maxRatio {
 				maxRatio = ratio
-				selectedLimit = sub.Subscription.AmountTotal
-				selectedRemaining = sub.Subscription.AmountTotal - sub.Subscription.AmountUsed
-				selectedResetTime = sub.Subscription.NextResetTime
+				selectedLimit = limit
+				selectedRemaining = limit - used
+				selectedResetTime = resetTime
 				foundSubscription = true
 			}
 		}

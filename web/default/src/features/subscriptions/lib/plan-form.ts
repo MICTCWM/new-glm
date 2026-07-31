@@ -21,30 +21,67 @@ import type { TFunction } from 'i18next'
 import type { SubscriptionPlan, PlanPayload } from '../types'
 
 export function getPlanFormSchema(t: TFunction) {
-  return z.object({
-    title: z.string().min(1, t('Please enter plan title')),
-    subtitle: z.string().optional(),
-    price_amount: z.coerce.number().min(0, t('Please enter amount')),
-    duration_unit: z.enum(['year', 'month', 'day', 'hour', 'custom']),
-    duration_value: z.coerce.number().min(1),
-    custom_seconds: z.coerce.number().min(0).optional(),
-    quota_reset_period: z.enum([
-      'never',
-      'daily',
-      'weekly',
-      'monthly',
-      'custom',
-    ]),
-    quota_reset_custom_seconds: z.coerce.number().min(0).optional(),
-    enabled: z.boolean(),
-    sort_order: z.coerce.number(),
-    max_purchase_per_user: z.coerce.number().min(0),
-    total_amount: z.coerce.number().min(0),
-    weekly_amount_limit: z.coerce.number().min(0).default(0),
-    upgrade_group: z.string().optional(),
-    stripe_price_id: z.string().optional(),
-    creem_product_id: z.string().optional(),
-  })
+  return z
+    .object({
+      title: z.string().min(1, t('Please enter plan title')),
+      subtitle: z.string().optional(),
+      price_amount: z.coerce.number().min(0, t('Please enter amount')),
+      duration_unit: z.enum(['year', 'month', 'day', 'hour', 'custom']),
+      duration_value: z.coerce.number().min(1),
+      custom_seconds: z.coerce.number().min(0).optional(),
+      quota_reset_period: z.enum([
+        'never',
+        'daily',
+        'weekly',
+        'monthly',
+        'custom',
+      ]),
+      quota_reset_custom_seconds: z.coerce.number().min(0).optional(),
+      enabled: z.boolean(),
+      sort_order: z.coerce.number(),
+      max_purchase_per_user: z.coerce.number().min(0),
+      total_amount: z.coerce.number().min(0),
+      weekly_amount_limit: z.coerce.number().min(0).default(0),
+      special_quota_enabled: z.boolean().default(false),
+      hourly_reset_hours: z.coerce.number().min(0).default(5),
+      hourly_amount_limit: z.coerce.number().min(0).default(0),
+      special_weekly_reset_weeks: z.coerce.number().min(0).default(1),
+      special_weekly_amount_limit: z.coerce.number().min(0).default(0),
+      upgrade_group: z.string().optional(),
+      stripe_price_id: z.string().optional(),
+      creem_product_id: z.string().optional(),
+    })
+    .superRefine((values, ctx) => {
+      if (!values.special_quota_enabled) return
+      if (values.hourly_reset_hours <= 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['hourly_reset_hours'],
+          message: t('Hourly reset period must be greater than 0'),
+        })
+      }
+      if (values.hourly_amount_limit <= 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['hourly_amount_limit'],
+          message: t('Hourly quota must be greater than 0'),
+        })
+      }
+      if (![1, 2].includes(values.special_weekly_reset_weeks)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['special_weekly_reset_weeks'],
+          message: t('Weekly reset period must be 1 or 2 weeks'),
+        })
+      }
+      if (values.special_weekly_amount_limit <= 0) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['special_weekly_amount_limit'],
+          message: t('Special weekly quota must be greater than 0'),
+        })
+      }
+    })
 }
 
 export type PlanFormValues = z.infer<ReturnType<typeof getPlanFormSchema>>
@@ -63,6 +100,11 @@ export const PLAN_FORM_DEFAULTS: PlanFormValues = {
   max_purchase_per_user: 0,
   total_amount: 0,
   weekly_amount_limit: 0,
+  special_quota_enabled: false,
+  hourly_reset_hours: 5,
+  hourly_amount_limit: 0,
+  special_weekly_reset_weeks: 1,
+  special_weekly_amount_limit: 0,
   upgrade_group: '',
   stripe_price_id: '',
   creem_product_id: '',
@@ -83,6 +125,11 @@ export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
     max_purchase_per_user: Number(plan.max_purchase_per_user || 0),
     total_amount: Number(plan.total_amount || 0),
     weekly_amount_limit: Number(plan.weekly_amount_limit ?? 0),
+    special_quota_enabled: plan.special_quota_enabled === true,
+    hourly_reset_hours: Number(plan.hourly_reset_hours || 5),
+    hourly_amount_limit: Number(plan.hourly_amount_limit || 0),
+    special_weekly_reset_weeks: Number(plan.special_weekly_reset_weeks || 1),
+    special_weekly_amount_limit: Number(plan.special_weekly_amount_limit || 0),
     upgrade_group: plan.upgrade_group || '',
     stripe_price_id: plan.stripe_price_id || '',
     creem_product_id: plan.creem_product_id || '',
@@ -106,6 +153,15 @@ export function formValuesToPlanPayload(values: PlanFormValues): PlanPayload {
       max_purchase_per_user: Number(values.max_purchase_per_user || 0),
       total_amount: Number(values.total_amount || 0),
       weekly_amount_limit: Number(values.weekly_amount_limit || 0),
+      special_quota_enabled: values.special_quota_enabled === true,
+      hourly_reset_hours: Number(values.hourly_reset_hours || 0),
+      hourly_amount_limit: Number(values.hourly_amount_limit || 0),
+      special_weekly_reset_weeks: Number(
+        values.special_weekly_reset_weeks || 0
+      ),
+      special_weekly_amount_limit: Number(
+        values.special_weekly_amount_limit || 0
+      ),
       upgrade_group: values.upgrade_group || '',
     },
   }

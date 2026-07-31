@@ -26,6 +26,7 @@ import type {
   SubscriptionPayResponse,
   SubscriptionPayRequest,
   SelfSubscriptionData,
+  HourlyLimitPreferenceRequest,
 } from './types'
 
 // ============================================================================
@@ -161,6 +162,17 @@ export async function updateBillingPreference(
   const res = await api.put('/api/subscription/self/preference', {
     billing_preference: preference,
   })
+  return res.data
+}
+
+export async function updateSubscriptionHourlyLimit(
+  subscriptionId: number,
+  data: HourlyLimitPreferenceRequest
+): Promise<ApiResponse<{ enabled: boolean }>> {
+  const res = await api.put(
+    `/api/subscription/self/${subscriptionId}/hourly-limit`,
+    data
+  )
   return res.data
 }
 

@@ -94,6 +94,11 @@ const AddEditSubscriptionModal = ({
     sort_order: 0,
     max_purchase_per_user: 0,
     total_amount: 0,
+    special_quota_enabled: false,
+    hourly_reset_hours: 5,
+    hourly_amount_limit: 0,
+    special_weekly_reset_weeks: 1,
+    special_weekly_amount_limit: 0,
     upgrade_group: '',
     stripe_price_id: '',
     creem_product_id: '',
@@ -119,6 +124,15 @@ const AddEditSubscriptionModal = ({
       max_purchase_per_user: Number(p.max_purchase_per_user || 0),
       total_amount: Number(
         quotaToDisplayAmount(p.total_amount || 0).toFixed(2),
+      ),
+      special_quota_enabled: p.special_quota_enabled === true,
+      hourly_reset_hours: Number(p.hourly_reset_hours || 5),
+      hourly_amount_limit: Number(
+        quotaToDisplayAmount(p.hourly_amount_limit || 0).toFixed(2),
+      ),
+      special_weekly_reset_weeks: Number(p.special_weekly_reset_weeks || 1),
+      special_weekly_amount_limit: Number(
+        quotaToDisplayAmount(p.special_weekly_amount_limit || 0).toFixed(2),
       ),
       upgrade_group: p.upgrade_group || '',
       stripe_price_id: p.stripe_price_id || '',
@@ -163,6 +177,15 @@ const AddEditSubscriptionModal = ({
           sort_order: Number(values.sort_order || 0),
           max_purchase_per_user: Number(values.max_purchase_per_user || 0),
           total_amount: displayAmountToQuota(values.total_amount),
+          special_quota_enabled: values.special_quota_enabled === true,
+          hourly_reset_hours: Number(values.hourly_reset_hours || 0),
+          hourly_amount_limit: displayAmountToQuota(values.hourly_amount_limit),
+          special_weekly_reset_weeks: Number(
+            values.special_weekly_reset_weeks || 0,
+          ),
+          special_weekly_amount_limit: displayAmountToQuota(
+            values.special_weekly_amount_limit,
+          ),
           upgrade_group: values.upgrade_group || '',
         },
       };
@@ -313,6 +336,7 @@ const AddEditSubscriptionModal = ({
                         label={t('总额度')}
                         required
                         min={0}
+                        disabled={values.special_quota_enabled}
                         precision={2}
                         rules={[{ required: true, message: t('请输入总额度') }]}
                         extraText={`${t('0 表示不限')} · ${t('原生额度')}：${displayAmountToQuota(
@@ -464,10 +488,75 @@ const AddEditSubscriptionModal = ({
                   </div>
 
                   <Row gutter={12}>
+                    <Col span={24}>
+                      <Form.Switch
+                        field='special_quota_enabled'
+                        label={t('开启特殊额度模式')}
+                        size='large'
+                      />
+                      <Text type='tertiary'>
+                        {t('用户可在小时限制和特殊周限制之间切换')}
+                      </Text>
+                    </Col>
+                    {values.special_quota_enabled && (
+                      <>
+                        <Col span={12}>
+                          <Form.InputNumber
+                            field='hourly_reset_hours'
+                            label={t('小时重置周期')}
+                            min={1}
+                            precision={0}
+                            required
+                            style={{ width: '100%' }}
+                          />
+                        </Col>
+                        <Col span={12}>
+                          <Form.InputNumber
+                            field='hourly_amount_limit'
+                            label={t('小时额度')}
+                            min={1}
+                            precision={2}
+                            required
+                            extraText={`${t('原生额度')}：${displayAmountToQuota(
+                              values.hourly_amount_limit,
+                            )}`}
+                            style={{ width: '100%' }}
+                          />
+                        </Col>
+                        <Col span={12}>
+                          <Form.Select
+                            field='special_weekly_reset_weeks'
+                            label={t('特殊周重置周期')}
+                            required
+                          >
+                            <Select.Option value={1}>
+                              {t('每1周')}
+                            </Select.Option>
+                            <Select.Option value={2}>
+                              {t('每2周')}
+                            </Select.Option>
+                          </Form.Select>
+                        </Col>
+                        <Col span={12}>
+                          <Form.InputNumber
+                            field='special_weekly_amount_limit'
+                            label={t('特殊周额度')}
+                            min={1}
+                            precision={2}
+                            required
+                            extraText={`${t('原生额度')}：${displayAmountToQuota(
+                              values.special_weekly_amount_limit,
+                            )}`}
+                            style={{ width: '100%' }}
+                          />
+                        </Col>
+                      </>
+                    )}
                     <Col span={12}>
                       <Form.Select
                         field='quota_reset_period'
                         label={t('重置周期')}
+                        disabled={values.special_quota_enabled}
                       >
                         {resetPeriodOptions.map((o) => (
                           <Select.Option key={o.value} value={o.value}>
@@ -484,6 +573,7 @@ const AddEditSubscriptionModal = ({
                           required
                           min={60}
                           precision={0}
+                          disabled={values.special_quota_enabled}
                           rules={[{ required: true, message: t('请输入秒数') }]}
                           style={{ width: '100%' }}
                         />
@@ -494,7 +584,10 @@ const AddEditSubscriptionModal = ({
                           min={0}
                           precision={0}
                           style={{ width: '100%' }}
-                          disabled
+                          disabled={
+                            values.special_quota_enabled ||
+                            values.quota_reset_period !== 'custom'
+                          }
                         />
                       )}
                     </Col>

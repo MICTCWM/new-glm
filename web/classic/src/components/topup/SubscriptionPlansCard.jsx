@@ -26,6 +26,7 @@ import {
   Select,
   Skeleton,
   Space,
+  Switch,
   Tag,
   Tooltip,
   Typography,
@@ -89,6 +90,7 @@ const SubscriptionPlansCard = ({
   const [paying, setPaying] = useState(false);
   const [selectedEpayMethod, setSelectedEpayMethod] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [hourlyTogglePending, setHourlyTogglePending] = useState(null);
 
   const epayMethods = useMemo(() => getEpayMethods(payMethods), [payMethods]);
 
@@ -110,6 +112,25 @@ const SubscriptionPlansCard = ({
       await reloadSubscriptionSelf?.();
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleHourlyLimitChange = async (subscriptionId, enabled) => {
+    setHourlyTogglePending(subscriptionId);
+    try {
+      const res = await API.put(
+        `/api/subscription/self/${subscriptionId}/hourly-limit`,
+        { enabled },
+      );
+      if (res.data?.success) {
+        await reloadSubscriptionSelf?.();
+      } else {
+        showError(res.data?.message || t('更新失败'));
+      }
+    } catch (e) {
+      showError(t('请求失败'));
+    } finally {
+      setHourlyTogglePending(null);
     }
   };
 
@@ -391,6 +412,31 @@ const SubscriptionPlansCard = ({
                       planTitleMap.get(subscription?.plan_id) || '';
                     const remainDays = getRemainingDays(sub);
                     const usagePercent = getUsagePercent(sub);
+                    const specialQuotaEnabled =
+                      subscription?.special_quota_enabled === true;
+                    const specialQuotaAvailable =
+                      specialQuotaEnabled ||
+                      (Number(subscription?.hourly_amount_limit || 0) > 0 &&
+                        Number(subscription?.special_weekly_amount_limit || 0) >
+                          0);
+                    const hourlyLimit = Number(
+                      subscription?.hourly_amount_limit || 0,
+                    );
+                    const hourlyUsed = Number(
+                      subscription?.hourly_amount_used || 0,
+                    );
+                    const hourlyPeriodEnd = Number(
+                      subscription?.hourly_period_end || 0,
+                    );
+                    const specialWeeklyLimit = Number(
+                      subscription?.special_weekly_amount_limit || 0,
+                    );
+                    const specialWeeklyUsed = Number(
+                      subscription?.special_weekly_amount_used || 0,
+                    );
+                    const specialWeeklyPeriodEnd = Number(
+                      subscription?.special_weekly_period_end || 0,
+                    );
                     const now = Date.now() / 1000;
                     const isExpired = (subscription?.end_time || 0) < now;
                     const isCancelled = subscription?.status === 'cancelled';
@@ -442,6 +488,28 @@ const SubscriptionPlansCard = ({
                             (subscription?.end_time || 0) * 1000,
                           ).toLocaleString()}
                         </div>
+                        {specialQuotaAvailable && (
+                          <div className='flex items-center justify-between text-xs text-gray-500 mb-2 border rounded px-2 py-1.5'>
+                            <span>{t('小时限制')}</span>
+                            <Switch
+                              checked={
+                                subscription?.hourly_limit_enabled !== false
+                              }
+                              disabled={
+                                !isActive ||
+                                !specialQuotaEnabled ||
+                                hourlyTogglePending === subscription?.id
+                              }
+                              onChange={(checked) =>
+                                subscription?.id &&
+                                handleHourlyLimitChange(
+                                  subscription.id,
+                                  checked,
+                                )
+                              }
+                            />
+                          </div>
+                        )}
                         {isActive && subscription?.next_reset_time > 0 && (
                           <div className='text-xs text-gray-500 mb-2'>
                             {t('下一次重置')}:{' '}
@@ -450,27 +518,36 @@ const SubscriptionPlansCard = ({
                             ).toLocaleString()}
                           </div>
                         )}
-                        <div className='text-xs text-gray-500 mb-2'>
-                          {t('总额度')}:{' '}
-                          {totalAmount > 0 ? (
-                            <Tooltip
-                              content={`${t('原生额度')}：${usedAmount}/${totalAmount} · ${t('剩余')} ${remainAmount}`}
-                            >
-                              <span>
-                                {renderQuota(usedAmount)}/
-                                {renderQuota(totalAmount)} · {t('剩余')}{' '}
-                                {renderQuota(remainAmount)}
+                        {specialQuotaEnabled && isActive && (
+                          <div className='text-xs text-gray-500 mb-2'>
+                            {subscription?.hourly_limit_enabled !== false
+                              ? `${t('小时用量')}: ${renderQuota(hourlyUsed)}/${renderQuota(hourlyLimit)} · ${t('剩余')} ${renderQuota(Math.max(0, hourlyLimit - hourlyUsed))}${hourlyPeriodEnd > 0 ? ` · ${t('重置于')} ${new Date(hourlyPeriodEnd * 1000).toLocaleString()}` : ''}`
+                              : `${t('特殊周用量')}: ${renderQuota(specialWeeklyUsed)}/${renderQuota(specialWeeklyLimit)} · ${t('剩余')} ${renderQuota(Math.max(0, specialWeeklyLimit - specialWeeklyUsed))}${specialWeeklyPeriodEnd > 0 ? ` · ${t('重置于')} ${new Date(specialWeeklyPeriodEnd * 1000).toLocaleString()}` : ''}`}
+                          </div>
+                        )}
+                        {!specialQuotaEnabled && (
+                          <div className='text-xs text-gray-500 mb-2'>
+                            {t('总额度')}:{' '}
+                            {totalAmount > 0 ? (
+                              <Tooltip
+                                content={`${t('原生额度')}：${usedAmount}/${totalAmount} · ${t('剩余')} ${remainAmount}`}
+                              >
+                                <span>
+                                  {renderQuota(usedAmount)}/
+                                  {renderQuota(totalAmount)} · {t('剩余')}{' '}
+                                  {renderQuota(remainAmount)}
+                                </span>
+                              </Tooltip>
+                            ) : (
+                              t('不限')
+                            )}
+                            {totalAmount > 0 && (
+                              <span className='ml-2'>
+                                {t('已用')} {usagePercent}%
                               </span>
-                            </Tooltip>
-                          ) : (
-                            t('不限')
-                          )}
-                          {totalAmount > 0 && (
-                            <span className='ml-2'>
-                              {t('已用')} {usagePercent}%
-                            </span>
-                          )}
-                        </div>
+                            )}
+                          </div>
+                        )}
                         {!isLast && <Divider margin={12} />}
                       </div>
                     );

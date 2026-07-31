@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -92,6 +93,48 @@ func UpdateSubscriptionPreference(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"billing_preference": pref})
 }
 
+type HourlyLimitPreferenceRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
+// UpdateSubscriptionHourlyLimit changes only the user's active enforcement
+// bucket. The usage buckets themselves are never reset by this operation.
+func UpdateSubscriptionHourlyLimit(c *gin.Context) {
+	userId := c.GetInt("id")
+	subscriptionId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || subscriptionId <= 0 {
+		common.ApiErrorMsg(c, "无效的订阅ID")
+		return
+	}
+	var req HourlyLimitPreferenceRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+	now := common.GetTimestamp()
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		var sub model.UserSubscription
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Where("id = ? AND user_id = ? AND status = ? AND end_time > ?", subscriptionId, userId, "active", now).
+			First(&sub).Error; err != nil {
+			return err
+		}
+		plan, err := model.GetSubscriptionPlanById(sub.PlanId)
+		if err != nil {
+			return err
+		}
+		if !plan.SpecialQuotaEnabled {
+			return fmt.Errorf("该订阅当前未启用小时限制模式")
+		}
+		return tx.Model(&sub).Update("hourly_limit_enabled", *req.Enabled).Error
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"enabled": *req.Enabled})
+}
+
 // ---- Admin APIs ----
 
 func AdminListSubscriptionPlans(c *gin.Context) {
@@ -156,6 +199,16 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 	}
 	if req.Plan.WeeklyAmountLimit < 0 {
 		common.ApiErrorMsg(c, "周限额不能为负数")
+		return
+	}
+	if req.Plan.HourlyResetHours == 0 {
+		req.Plan.HourlyResetHours = 5
+	}
+	if req.Plan.SpecialWeeklyResetWeeks == 0 {
+		req.Plan.SpecialWeeklyResetWeeks = 1
+	}
+	if err := model.ValidateSpecialQuotaPlan(&req.Plan); err != nil {
+		common.ApiErrorMsg(c, err.Error())
 		return
 	}
 	req.Plan.UpgradeGroup = strings.TrimSpace(req.Plan.UpgradeGroup)
@@ -229,6 +282,16 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, "周限额不能为负数")
 		return
 	}
+	if req.Plan.HourlyResetHours == 0 {
+		req.Plan.HourlyResetHours = 5
+	}
+	if req.Plan.SpecialWeeklyResetWeeks == 0 {
+		req.Plan.SpecialWeeklyResetWeeks = 1
+	}
+	if err := model.ValidateSpecialQuotaPlan(&req.Plan); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	req.Plan.UpgradeGroup = strings.TrimSpace(req.Plan.UpgradeGroup)
 	if req.Plan.UpgradeGroup != "" {
 		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.UpgradeGroup]; !ok {
@@ -242,27 +305,47 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		return
 	}
 
-	err := model.DB.Transaction(func(tx *gorm.DB) error {
+	previousPlan, err := model.GetSubscriptionPlanById(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	specialConfigChanged := previousPlan.SpecialQuotaEnabled != req.Plan.SpecialQuotaEnabled ||
+		previousPlan.HourlyResetHours != req.Plan.HourlyResetHours ||
+		previousPlan.HourlyAmountLimit != req.Plan.HourlyAmountLimit ||
+		previousPlan.SpecialWeeklyResetWeeks != req.Plan.SpecialWeeklyResetWeeks ||
+		previousPlan.SpecialWeeklyAmountLimit != req.Plan.SpecialWeeklyAmountLimit
+	specialConfigUpdatedAt := previousPlan.SpecialConfigUpdatedAt
+	if specialConfigChanged || specialConfigUpdatedAt == 0 {
+		specialConfigUpdatedAt = common.GetTimestamp()
+	}
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		// update plan (allow zero values updates with map)
 		updateMap := map[string]interface{}{
-			"title":                      req.Plan.Title,
-			"subtitle":                   req.Plan.Subtitle,
-			"price_amount":               req.Plan.PriceAmount,
-			"currency":                   req.Plan.Currency,
-			"duration_unit":              req.Plan.DurationUnit,
-			"duration_value":             req.Plan.DurationValue,
-			"custom_seconds":             req.Plan.CustomSeconds,
-			"enabled":                    req.Plan.Enabled,
-			"sort_order":                 req.Plan.SortOrder,
-			"stripe_price_id":            req.Plan.StripePriceId,
-			"creem_product_id":           req.Plan.CreemProductId,
-			"max_purchase_per_user":      req.Plan.MaxPurchasePerUser,
-			"total_amount":               req.Plan.TotalAmount,
-			"weekly_amount_limit":        req.Plan.WeeklyAmountLimit,
-			"upgrade_group":              req.Plan.UpgradeGroup,
-			"quota_reset_period":         req.Plan.QuotaResetPeriod,
-			"quota_reset_custom_seconds": req.Plan.QuotaResetCustomSeconds,
-			"updated_at":                 common.GetTimestamp(),
+			"title":                       req.Plan.Title,
+			"subtitle":                    req.Plan.Subtitle,
+			"price_amount":                req.Plan.PriceAmount,
+			"currency":                    req.Plan.Currency,
+			"duration_unit":               req.Plan.DurationUnit,
+			"duration_value":              req.Plan.DurationValue,
+			"custom_seconds":              req.Plan.CustomSeconds,
+			"enabled":                     req.Plan.Enabled,
+			"sort_order":                  req.Plan.SortOrder,
+			"stripe_price_id":             req.Plan.StripePriceId,
+			"creem_product_id":            req.Plan.CreemProductId,
+			"max_purchase_per_user":       req.Plan.MaxPurchasePerUser,
+			"total_amount":                req.Plan.TotalAmount,
+			"weekly_amount_limit":         req.Plan.WeeklyAmountLimit,
+			"special_quota_enabled":       req.Plan.SpecialQuotaEnabled,
+			"hourly_reset_hours":          req.Plan.HourlyResetHours,
+			"hourly_amount_limit":         req.Plan.HourlyAmountLimit,
+			"special_weekly_reset_weeks":  req.Plan.SpecialWeeklyResetWeeks,
+			"special_weekly_amount_limit": req.Plan.SpecialWeeklyAmountLimit,
+			"special_config_updated_at":   specialConfigUpdatedAt,
+			"upgrade_group":               req.Plan.UpgradeGroup,
+			"quota_reset_period":          req.Plan.QuotaResetPeriod,
+			"quota_reset_custom_seconds":  req.Plan.QuotaResetCustomSeconds,
+			"updated_at":                  common.GetTimestamp(),
 		}
 		if err := tx.Model(&model.SubscriptionPlan{}).Where("id = ?", id).Updates(updateMap).Error; err != nil {
 			return err

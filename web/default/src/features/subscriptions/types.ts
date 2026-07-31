@@ -38,6 +38,11 @@ export const subscriptionPlanSchema = z.object({
   max_purchase_per_user: z.number(),
   total_amount: z.number(),
   weekly_amount_limit: z.number(),
+  special_quota_enabled: z.boolean().optional(),
+  hourly_reset_hours: z.number().optional(),
+  hourly_amount_limit: z.number().optional(),
+  special_weekly_reset_weeks: z.number().optional(),
+  special_weekly_amount_limit: z.number().optional(),
   upgrade_group: z.string().optional(),
   stripe_price_id: z.string().optional(),
   creem_product_id: z.string().optional(),
@@ -68,6 +73,19 @@ export const userSubscriptionSchema = z.object({
   weekly_amount_used: z.number().optional(),
   weekly_period_start: z.number().optional(),
   weekly_period_end: z.number().optional(),
+  hourly_limit_enabled: z.boolean().optional(),
+  special_quota_enabled: z.boolean().optional(),
+  hourly_reset_hours: z.number().optional(),
+  hourly_amount_limit: z.number().optional(),
+  hourly_amount_used: z.number().optional(),
+  hourly_period_start: z.number().optional(),
+  hourly_period_end: z.number().optional(),
+  special_weekly_reset_weeks: z.number().optional(),
+  special_weekly_amount_limit: z.number().optional(),
+  special_weekly_amount_used: z.number().optional(),
+  special_weekly_period_start: z.number().optional(),
+  special_weekly_period_end: z.number().optional(),
+  effective_quota_mode: z.string().optional(),
 })
 
 export type UserSubscription = z.infer<typeof userSubscriptionSchema>
@@ -117,6 +135,10 @@ export interface SelfSubscriptionData {
   billing_preference: string
   subscriptions: UserSubscriptionRecord[]
   all_subscriptions: UserSubscriptionRecord[]
+}
+
+export interface HourlyLimitPreferenceRequest {
+  enabled: boolean
 }
 
 // ============================================================================

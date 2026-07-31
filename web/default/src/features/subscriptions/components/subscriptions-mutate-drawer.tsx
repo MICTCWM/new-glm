@@ -103,6 +103,7 @@ export function SubscriptionsMutateDrawer({
 
   const durationUnit = form.watch('duration_unit')
   const resetPeriod = form.watch('quota_reset_period')
+  const specialQuotaEnabled = form.watch('special_quota_enabled')
 
   const onSubmit = async (values: PlanFormValues) => {
     setIsSubmitting(true)
@@ -234,6 +235,7 @@ export function SubscriptionsMutateDrawer({
                           {...field}
                           type='number'
                           min={0}
+                          disabled={specialQuotaEnabled}
                           onChange={(e) =>
                             field.onChange(parseFloat(e.target.value) || 0)
                           }
@@ -259,6 +261,7 @@ export function SubscriptionsMutateDrawer({
                         {...field}
                         type='number'
                         min={0}
+                        disabled={specialQuotaEnabled}
                         onChange={(e) =>
                           field.onChange(parseFloat(e.target.value) || 0)
                         }
@@ -387,6 +390,136 @@ export function SubscriptionsMutateDrawer({
                 {t('Duration Settings')}
               </h3>
 
+              <FormField
+                control={form.control}
+                name='special_quota_enabled'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center gap-2 rounded-md border p-3'>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div>
+                      <FormLabel className='!mt-0'>
+                        {t('Enable Special Quota Mode')}
+                      </FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Users can switch between hourly and special weekly limits.'
+                        )}
+                      </FormDescription>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
+              {specialQuotaEnabled && (
+                <div className='space-y-3 rounded-md border p-3'>
+                  <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+                    <FormField
+                      control={form.control}
+                      name='hourly_reset_hours'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Hourly Reset Hours')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min={1}
+                              onChange={(e) =>
+                                field.onChange(
+                                  parseInt(e.target.value, 10) || 0
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='hourly_amount_limit'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Hourly Quota')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min={1}
+                              onChange={(e) =>
+                                field.onChange(parseFloat(e.target.value) || 0)
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='special_weekly_reset_weeks'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Special Weekly Reset')}</FormLabel>
+                          <Select
+                            items={[
+                              { value: '1', label: t('Every 1 week') },
+                              { value: '2', label: t('Every 2 weeks') },
+                            ]}
+                            value={String(field.value)}
+                            onValueChange={(value) =>
+                              field.onChange(Number(value || 1))
+                            }
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent alignItemWithTrigger={false}>
+                              <SelectGroup>
+                                <SelectItem value='1'>
+                                  {t('Every 1 week')}
+                                </SelectItem>
+                                <SelectItem value='2'>
+                                  {t('Every 2 weeks')}
+                                </SelectItem>
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='special_weekly_amount_limit'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Special Weekly Quota')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              type='number'
+                              min={1}
+                              onChange={(e) =>
+                                field.onChange(parseFloat(e.target.value) || 0)
+                              }
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
                 <FormField
                   control={form.control}
@@ -493,6 +626,7 @@ export function SubscriptionsMutateDrawer({
                         ]}
                         onValueChange={field.onChange}
                         value={field.value}
+                        disabled={specialQuotaEnabled}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -525,7 +659,9 @@ export function SubscriptionsMutateDrawer({
                           {...field}
                           type='number'
                           min={0}
-                          disabled={resetPeriod !== 'custom'}
+                          disabled={
+                            specialQuotaEnabled || resetPeriod !== 'custom'
+                          }
                           onChange={(e) =>
                             field.onChange(parseInt(e.target.value, 10) || 0)
                           }

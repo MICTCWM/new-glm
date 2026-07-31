@@ -175,6 +175,15 @@ type SubscriptionPlan struct {
 	// 与quota_reset_period独立叠加，按订阅起始日计算每7天一个周期
 	WeeklyAmountLimit int64 `json:"weekly_amount_limit" gorm:"type:bigint;not null;default:0"`
 
+	// Special quota mode. When enabled, users choose whether the hourly or
+	// special-weekly bucket is the active enforcement bucket.
+	SpecialQuotaEnabled      bool  `json:"special_quota_enabled" gorm:"default:false"`
+	HourlyResetHours         int   `json:"hourly_reset_hours" gorm:"type:int;default:5"`
+	HourlyAmountLimit        int64 `json:"hourly_amount_limit" gorm:"type:bigint;not null;default:0"`
+	SpecialWeeklyResetWeeks  int   `json:"special_weekly_reset_weeks" gorm:"type:int;default:1"`
+	SpecialWeeklyAmountLimit int64 `json:"special_weekly_amount_limit" gorm:"type:bigint;not null;default:0"`
+	SpecialConfigUpdatedAt   int64 `json:"special_config_updated_at" gorm:"type:bigint;default:0"`
+
 	// Quota reset period for plan
 	QuotaResetPeriod        string `json:"quota_reset_period" gorm:"type:varchar(16);default:'never'"`
 	QuotaResetCustomSeconds int64  `json:"quota_reset_custom_seconds" gorm:"type:bigint;default:0"`
@@ -187,6 +196,15 @@ func (p *SubscriptionPlan) BeforeCreate(tx *gorm.DB) error {
 	now := common.GetTimestamp()
 	p.CreatedAt = now
 	p.UpdatedAt = now
+	if p.HourlyResetHours <= 0 {
+		p.HourlyResetHours = 5
+	}
+	if p.SpecialWeeklyResetWeeks <= 0 {
+		p.SpecialWeeklyResetWeeks = 1
+	}
+	if p.SpecialConfigUpdatedAt == 0 {
+		p.SpecialConfigUpdatedAt = now
+	}
 	return nil
 }
 
@@ -262,6 +280,26 @@ type UserSubscription struct {
 	// WeeklyPeriodEnd: 当前周周期终点（unix秒），定时任务用索引
 	WeeklyPeriodEnd int64 `json:"weekly_period_end" gorm:"type:bigint;default:0;index"`
 
+	// Special mode preference. It is deliberately stored on the subscription,
+	// while the plan's feature flag and limits remain live configuration.
+	HourlyLimitEnabled bool `json:"hourly_limit_enabled" gorm:"default:true"`
+
+	// The following fields are calculated from the current plan and usage
+	// buckets for API responses; they are not persisted on user_subscriptions.
+	SpecialQuotaEnabled      bool   `json:"special_quota_enabled" gorm:"-"`
+	SpecialConfigUpdatedAt   int64  `json:"special_config_updated_at" gorm:"-"`
+	HourlyResetHours         int    `json:"hourly_reset_hours" gorm:"-"`
+	HourlyAmountLimit        int64  `json:"hourly_amount_limit" gorm:"-"`
+	HourlyAmountUsed         int64  `json:"hourly_amount_used" gorm:"-"`
+	HourlyPeriodStart        int64  `json:"hourly_period_start" gorm:"-"`
+	HourlyPeriodEnd          int64  `json:"hourly_period_end" gorm:"-"`
+	SpecialWeeklyResetWeeks  int    `json:"special_weekly_reset_weeks" gorm:"-"`
+	SpecialWeeklyAmountLimit int64  `json:"special_weekly_amount_limit" gorm:"-"`
+	SpecialWeeklyAmountUsed  int64  `json:"special_weekly_amount_used" gorm:"-"`
+	SpecialWeeklyPeriodStart int64  `json:"special_weekly_period_start" gorm:"-"`
+	SpecialWeeklyPeriodEnd   int64  `json:"special_weekly_period_end" gorm:"-"`
+	EffectiveQuotaMode       string `json:"effective_quota_mode" gorm:"-"`
+
 	UpgradeGroup  string `json:"upgrade_group" gorm:"type:varchar(64);default:''"`
 	PrevUserGroup string `json:"prev_user_group" gorm:"type:varchar(64);default:''"`
 
@@ -283,6 +321,37 @@ func (s *UserSubscription) BeforeUpdate(tx *gorm.DB) error {
 
 type SubscriptionSummary struct {
 	Subscription *UserSubscription `json:"subscription"`
+}
+
+const (
+	SubscriptionUsageBucketHourly = "hourly"
+	SubscriptionUsageBucketWeekly = "weekly"
+)
+
+// SubscriptionUsageBucket is an immutable time-window identity with a mutable
+// usage total. Keeping one row per window preserves usage across mode switches
+// and lets a plan change start a new bucket without rewriting history.
+type SubscriptionUsageBucket struct {
+	Id                 int    `json:"id"`
+	UserSubscriptionId int    `json:"user_subscription_id" gorm:"index;uniqueIndex:idx_subscription_usage_bucket,priority:1"`
+	BucketType         string `json:"bucket_type" gorm:"type:varchar(16);uniqueIndex:idx_subscription_usage_bucket,priority:2"`
+	PeriodStart        int64  `json:"period_start" gorm:"bigint;uniqueIndex:idx_subscription_usage_bucket,priority:3"`
+	PeriodEnd          int64  `json:"period_end" gorm:"bigint"`
+	AmountUsed         int64  `json:"amount_used" gorm:"type:bigint;not null;default:0"`
+	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt          int64  `json:"updated_at" gorm:"bigint"`
+}
+
+func (b *SubscriptionUsageBucket) BeforeCreate(tx *gorm.DB) error {
+	now := common.GetTimestamp()
+	b.CreatedAt = now
+	b.UpdatedAt = now
+	return nil
+}
+
+func (b *SubscriptionUsageBucket) BeforeUpdate(tx *gorm.DB) error {
+	b.UpdatedAt = common.GetTimestamp()
+	return nil
 }
 
 func calcPlanEndTime(start time.Time, plan *SubscriptionPlan) (int64, error) {
@@ -519,6 +588,7 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 		WeeklyAmountUsed:   0,
 		WeeklyPeriodStart:  weeklyPeriodStart,
 		WeeklyPeriodEnd:    weeklyPeriodEnd,
+		HourlyLimitEnabled: true,
 		UpgradeGroup:       upgradeGroup,
 		PrevUserGroup:      prevGroup,
 		CreatedAt:          common.GetTimestamp(),
@@ -743,6 +813,7 @@ func buildSubscriptionSummaries(subs []UserSubscription) []SubscriptionSummary {
 	result := make([]SubscriptionSummary, 0, len(subs))
 	for _, sub := range subs {
 		subCopy := sub
+		decorateSubscriptionWithSpecialUsage(&subCopy)
 		result = append(result, SubscriptionSummary{
 			Subscription: &subCopy,
 		})
@@ -937,6 +1008,8 @@ type SubscriptionPreConsumeRecord struct {
 	RequestId          string `json:"request_id" gorm:"type:varchar(64);uniqueIndex"`
 	UserId             int    `json:"user_id" gorm:"index"`
 	UserSubscriptionId int    `json:"user_subscription_id" gorm:"index"`
+	HourlyBucketId     int    `json:"hourly_bucket_id" gorm:"index;default:0"`
+	WeeklyBucketId     int    `json:"weekly_bucket_id" gorm:"index;default:0"`
 	PreConsumed        int64  `json:"pre_consumed" gorm:"type:bigint;not null;default:0"`
 	Status             string `json:"status" gorm:"type:varchar(32);index"` // consumed/refunded
 	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
@@ -1021,7 +1094,154 @@ func maybeResetWeeklyQuotaTx(tx *gorm.DB, sub *UserSubscription, now int64) erro
 	}).Error
 }
 
-// PreConsumeUserSubscription pre-consumes from any active subscription total quota.
+func ValidateSpecialQuotaPlan(plan *SubscriptionPlan) error {
+	if plan == nil || !plan.SpecialQuotaEnabled {
+		return nil
+	}
+	if plan.HourlyResetHours <= 0 {
+		return errors.New("小时重置周期必须大于0")
+	}
+	if plan.HourlyAmountLimit <= 0 {
+		return errors.New("小时额度必须大于0")
+	}
+	if plan.SpecialWeeklyResetWeeks != 1 && plan.SpecialWeeklyResetWeeks != 2 {
+		return errors.New("特殊周重置周期只能为1或2周")
+	}
+	if plan.SpecialWeeklyAmountLimit <= 0 {
+		return errors.New("特殊周额度必须大于0")
+	}
+	return nil
+}
+
+func specialBucketWindow(sub *UserSubscription, plan *SubscriptionPlan, bucketType string, now int64) (int64, int64, error) {
+	if sub == nil || plan == nil {
+		return 0, 0, errors.New("invalid special bucket args")
+	}
+	duration := int64(0)
+	switch bucketType {
+	case SubscriptionUsageBucketHourly:
+		if plan.HourlyResetHours <= 0 {
+			return 0, 0, errors.New("invalid hourly reset period")
+		}
+		duration = int64(plan.HourlyResetHours) * 3600
+	case SubscriptionUsageBucketWeekly:
+		if plan.SpecialWeeklyResetWeeks != 1 && plan.SpecialWeeklyResetWeeks != 2 {
+			return 0, 0, errors.New("invalid special weekly reset period")
+		}
+		duration = int64(plan.SpecialWeeklyResetWeeks) * 7 * 24 * 3600
+	default:
+		return 0, 0, errors.New("invalid special bucket type")
+	}
+	base := sub.StartTime
+	if plan.SpecialConfigUpdatedAt > base {
+		base = plan.SpecialConfigUpdatedAt
+	}
+	if base <= 0 {
+		base = now
+	}
+	if now < base {
+		now = base
+	}
+	index := (now - base) / duration
+	start := base + index*duration
+	end := start + duration
+	if sub.EndTime > 0 && end > sub.EndTime {
+		end = sub.EndTime
+	}
+	return start, end, nil
+}
+
+func getSpecialUsageBucketTx(tx *gorm.DB, sub *UserSubscription, plan *SubscriptionPlan, bucketType string, now int64) (*SubscriptionUsageBucket, error) {
+	if tx == nil {
+		return nil, errors.New("tx is nil")
+	}
+	start, end, err := specialBucketWindow(sub, plan, bucketType, now)
+	if err != nil {
+		return nil, err
+	}
+	var bucket SubscriptionUsageBucket
+	query := tx.Set("gorm:query_option", "FOR UPDATE").
+		Where("user_subscription_id = ? AND bucket_type = ? AND period_start = ?", sub.Id, bucketType, start).
+		First(&bucket)
+	if query.Error == nil {
+		return &bucket, nil
+	}
+	if !errors.Is(query.Error, gorm.ErrRecordNotFound) {
+		return nil, query.Error
+	}
+	bucket = SubscriptionUsageBucket{
+		UserSubscriptionId: sub.Id,
+		BucketType:         bucketType,
+		PeriodStart:        start,
+		PeriodEnd:          end,
+	}
+	if err := tx.Create(&bucket).Error; err != nil {
+		return nil, err
+	}
+	return &bucket, nil
+}
+
+func getCurrentSpecialUsageBucket(sub *UserSubscription, plan *SubscriptionPlan, bucketType string, now int64) (*SubscriptionUsageBucket, error) {
+	start, end, err := specialBucketWindow(sub, plan, bucketType, now)
+	if err != nil {
+		return nil, err
+	}
+	var bucket SubscriptionUsageBucket
+	query := DB.Where("user_subscription_id = ? AND bucket_type = ? AND period_start = ?", sub.Id, bucketType, start).
+		First(&bucket)
+	if errors.Is(query.Error, gorm.ErrRecordNotFound) {
+		return &SubscriptionUsageBucket{
+			UserSubscriptionId: sub.Id,
+			BucketType:         bucketType,
+			PeriodStart:        start,
+			PeriodEnd:          end,
+		}, nil
+	}
+	if query.Error != nil {
+		return nil, query.Error
+	}
+	return &bucket, nil
+}
+
+func decorateSubscriptionWithSpecialUsage(sub *UserSubscription) {
+	if sub == nil {
+		return
+	}
+	plan, err := GetSubscriptionPlanById(sub.PlanId)
+	if err != nil || plan == nil {
+		return
+	}
+	sub.SpecialQuotaEnabled = plan.SpecialQuotaEnabled
+	sub.SpecialConfigUpdatedAt = plan.SpecialConfigUpdatedAt
+	sub.HourlyResetHours = plan.HourlyResetHours
+	sub.HourlyAmountLimit = plan.HourlyAmountLimit
+	sub.SpecialWeeklyResetWeeks = plan.SpecialWeeklyResetWeeks
+	sub.SpecialWeeklyAmountLimit = plan.SpecialWeeklyAmountLimit
+	if !plan.SpecialQuotaEnabled {
+		sub.EffectiveQuotaMode = "normal"
+		return
+	}
+	now := GetDBTimestamp()
+	hourly, hourlyErr := getCurrentSpecialUsageBucket(sub, plan, SubscriptionUsageBucketHourly, now)
+	weekly, weeklyErr := getCurrentSpecialUsageBucket(sub, plan, SubscriptionUsageBucketWeekly, now)
+	if hourlyErr == nil && hourly != nil {
+		sub.HourlyAmountUsed = hourly.AmountUsed
+		sub.HourlyPeriodStart = hourly.PeriodStart
+		sub.HourlyPeriodEnd = hourly.PeriodEnd
+	}
+	if weeklyErr == nil && weekly != nil {
+		sub.SpecialWeeklyAmountUsed = weekly.AmountUsed
+		sub.SpecialWeeklyPeriodStart = weekly.PeriodStart
+		sub.SpecialWeeklyPeriodEnd = weekly.PeriodEnd
+	}
+	if sub.HourlyLimitEnabled {
+		sub.EffectiveQuotaMode = SubscriptionUsageBucketHourly
+	} else {
+		sub.EffectiveQuotaMode = SubscriptionUsageBucketWeekly
+	}
+}
+
+// PreConsumeUserSubscription pre-consumes from any active subscription quota.
 func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
@@ -1081,18 +1301,42 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			if err := maybeResetWeeklyQuotaTx(tx, &sub, now); err != nil {
 				return err
 			}
+
+			var hourlyBucket *SubscriptionUsageBucket
+			var weeklyBucket *SubscriptionUsageBucket
 			usedBefore := sub.AmountUsed
-			// 检查总额限制（0=不限制）
-			if sub.AmountTotal > 0 {
-				remain := sub.AmountTotal - usedBefore
-				if remain < amount {
+			effectiveLimit := sub.AmountTotal
+			if plan.SpecialQuotaEnabled {
+				// Both buckets receive every real consumption. Only the user's
+				// selected bucket is enforced, so toggling cannot reset either one.
+				hourlyBucket, err = getSpecialUsageBucketTx(tx, &sub, plan, SubscriptionUsageBucketHourly, now)
+				if err != nil {
+					return err
+				}
+				weeklyBucket, err = getSpecialUsageBucketTx(tx, &sub, plan, SubscriptionUsageBucketWeekly, now)
+				if err != nil {
+					return err
+				}
+				if sub.HourlyLimitEnabled {
+					usedBefore = hourlyBucket.AmountUsed
+					effectiveLimit = plan.HourlyAmountLimit
+					if effectiveLimit > 0 && effectiveLimit-usedBefore < amount {
+						continue
+					}
+				} else {
+					usedBefore = weeklyBucket.AmountUsed
+					effectiveLimit = plan.SpecialWeeklyAmountLimit
+					if effectiveLimit > 0 && effectiveLimit-usedBefore < amount {
+						continue
+					}
+				}
+			} else {
+				// Existing subscription behavior remains unchanged outside the
+				// special mode.
+				if sub.AmountTotal > 0 && sub.AmountTotal-sub.AmountUsed < amount {
 					continue
 				}
-			}
-			// 检查周限额（仅WeeklyAmountLimit>0时启用，不足则回退到下一个订阅或钱包）
-			if sub.WeeklyAmountLimit > 0 {
-				weeklyRemain := sub.WeeklyAmountLimit - sub.WeeklyAmountUsed
-				if weeklyRemain < amount {
+				if sub.WeeklyAmountLimit > 0 && sub.WeeklyAmountLimit-sub.WeeklyAmountUsed < amount {
 					continue
 				}
 			}
@@ -1102,6 +1346,12 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				UserSubscriptionId: sub.Id,
 				PreConsumed:        amount,
 				Status:             "consumed",
+			}
+			if hourlyBucket != nil {
+				record.HourlyBucketId = hourlyBucket.Id
+			}
+			if weeklyBucket != nil {
+				record.WeeklyBucketId = weeklyBucket.Id
 			}
 			if err := tx.Create(record).Error; err != nil {
 				var dup SubscriptionPreConsumeRecord
@@ -1119,18 +1369,29 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				return err
 			}
 			sub.AmountUsed += amount
-			// 启用周限额时同步预扣周已用额度
-			if sub.WeeklyAmountLimit > 0 {
+			if !plan.SpecialQuotaEnabled && sub.WeeklyAmountLimit > 0 {
 				sub.WeeklyAmountUsed += amount
 			}
 			if err := tx.Save(&sub).Error; err != nil {
 				return err
 			}
+			if hourlyBucket != nil {
+				hourlyBucket.AmountUsed += amount
+				if err := tx.Save(hourlyBucket).Error; err != nil {
+					return err
+				}
+			}
+			if weeklyBucket != nil {
+				weeklyBucket.AmountUsed += amount
+				if err := tx.Save(weeklyBucket).Error; err != nil {
+					return err
+				}
+			}
 			returnValue.UserSubscriptionId = sub.Id
 			returnValue.PreConsumed = amount
-			returnValue.AmountTotal = sub.AmountTotal
+			returnValue.AmountTotal = effectiveLimit
 			returnValue.AmountUsedBefore = usedBefore
-			returnValue.AmountUsedAfter = sub.AmountUsed
+			returnValue.AmountUsedAfter = usedBefore + amount
 			return nil
 		}
 		return fmt.Errorf("subscription quota insufficient, need=%d", amount)
@@ -1159,12 +1420,48 @@ func RefundSubscriptionPreConsume(requestId string) error {
 			record.Status = "refunded"
 			return tx.Save(&record).Error
 		}
-		if err := PostConsumeUserSubscriptionDelta(record.UserSubscriptionId, -record.PreConsumed); err != nil {
+		if err := adjustSubscriptionUsageByRecordTx(tx, &record, -record.PreConsumed); err != nil {
 			return err
 		}
 		record.Status = "refunded"
 		return tx.Save(&record).Error
 	})
+}
+
+func adjustUsageBucketByIdTx(tx *gorm.DB, bucketId int, delta int64) error {
+	if bucketId <= 0 || delta == 0 {
+		return nil
+	}
+	var bucket SubscriptionUsageBucket
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("id = ?", bucketId).First(&bucket).Error; err != nil {
+		return err
+	}
+	bucket.AmountUsed += delta
+	if bucket.AmountUsed < 0 {
+		bucket.AmountUsed = 0
+	}
+	return tx.Save(&bucket).Error
+}
+
+func adjustSubscriptionUsageByRecordTx(tx *gorm.DB, record *SubscriptionPreConsumeRecord, delta int64) error {
+	if tx == nil || record == nil {
+		return errors.New("invalid subscription usage record")
+	}
+	if err := adjustUsageBucketByIdTx(tx, record.HourlyBucketId, delta); err != nil {
+		return err
+	}
+	if err := adjustUsageBucketByIdTx(tx, record.WeeklyBucketId, delta); err != nil {
+		return err
+	}
+	var sub UserSubscription
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("id = ?", record.UserSubscriptionId).First(&sub).Error; err != nil {
+		return err
+	}
+	sub.AmountUsed += delta
+	if sub.AmountUsed < 0 {
+		sub.AmountUsed = 0
+	}
+	return tx.Save(&sub).Error
 }
 
 // ResetDueSubscriptions resets subscriptions whose next_reset_time has passed.
@@ -1291,11 +1588,8 @@ func GetSubscriptionPlanInfoByUserSubscriptionId(userSubscriptionId int) (*Subsc
 }
 
 // PostConsumeUserSubscriptionDelta 调整订阅已用额度（delta>0补扣，delta<0退还）。
-// 周限额设计取舍：此处不调用 maybeResetWeeklyQuotaTx。若调用时周周期已切换，
-// delta 会被 clamp 到 0（退还场景）或计入新周期（补扣场景），与业务预期不符。
-// 保留当前行为：PostConsume 紧随 PreConsume（同一请求生命周期），周期切换概率极低；
-// 即使发生，退款"丢失"不会导致数据不一致，新周期从 0 开始是正确的。
-// 退款仅影响当前所在周期，周期切换后退款不会累积到新周期。
+// Special mode updates both usage buckets so later mode switches inherit the
+// complete settled amount.
 func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error {
 	if userSubscriptionId <= 0 {
 		return errors.New("invalid userSubscriptionId")
@@ -1310,16 +1604,42 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 			First(&sub).Error; err != nil {
 			return err
 		}
+		plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
+		if err != nil {
+			return err
+		}
 		newUsed := sub.AmountUsed + delta
 		if newUsed < 0 {
 			newUsed = 0
 		}
-		if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
+		if !plan.SpecialQuotaEnabled && sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
 			return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
 		}
 		sub.AmountUsed = newUsed
-		// 启用周限额时同步调整周已用额度（delta>0补扣，delta<0退还，退还不能小于0）
-		if sub.WeeklyAmountLimit > 0 {
+		if plan.SpecialQuotaEnabled {
+			hourly, err := getSpecialUsageBucketTx(tx, &sub, plan, SubscriptionUsageBucketHourly, GetDBTimestamp())
+			if err != nil {
+				return err
+			}
+			weekly, err := getSpecialUsageBucketTx(tx, &sub, plan, SubscriptionUsageBucketWeekly, GetDBTimestamp())
+			if err != nil {
+				return err
+			}
+			hourly.AmountUsed += delta
+			weekly.AmountUsed += delta
+			if hourly.AmountUsed < 0 {
+				hourly.AmountUsed = 0
+			}
+			if weekly.AmountUsed < 0 {
+				weekly.AmountUsed = 0
+			}
+			if err := tx.Save(hourly).Error; err != nil {
+				return err
+			}
+			if err := tx.Save(weekly).Error; err != nil {
+				return err
+			}
+		} else if sub.WeeklyAmountLimit > 0 {
 			newWeeklyUsed := sub.WeeklyAmountUsed + delta
 			if newWeeklyUsed < 0 {
 				newWeeklyUsed = 0

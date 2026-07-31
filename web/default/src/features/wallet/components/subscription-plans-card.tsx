@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { TitledCard } from '@/components/ui/titled-card'
 import {
   Tooltip,
@@ -49,6 +50,7 @@ import {
 import {
   getPublicPlans,
   getSelfSubscriptionFull,
+  updateSubscriptionHourlyLimit,
   updateBillingPreference,
 } from '@/features/subscriptions/api'
 import { SubscriptionPurchaseDialog } from '@/features/subscriptions/components/dialogs/subscription-purchase-dialog'
@@ -105,6 +107,9 @@ export function SubscriptionPlansCard({
     useState('subscription_first')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [hourlyTogglePending, setHourlyTogglePending] = useState<number | null>(
+    null
+  )
 
   const [purchaseOpen, setPurchaseOpen] = useState(false)
   const [selectedPlan, setSelectedPlan] = useState<PlanRecord | null>(null)
@@ -177,6 +182,27 @@ export function SubscriptionPlansCard({
     } catch {
       toast.error(t('Request failed'))
       setBillingPreference(previous)
+    }
+  }
+
+  const handleHourlyLimitChange = async (
+    subscriptionId: number,
+    enabled: boolean
+  ) => {
+    setHourlyTogglePending(subscriptionId)
+    try {
+      const res = await updateSubscriptionHourlyLimit(subscriptionId, {
+        enabled,
+      })
+      if (res.success) {
+        await fetchSelfSubscription()
+      } else {
+        toast.error(res.message || t('Update failed'))
+      }
+    } catch {
+      toast.error(t('Request failed'))
+    } finally {
+      setHourlyTogglePending(null)
     }
   }
 
@@ -398,15 +424,46 @@ export function SubscriptionPlansCard({
                     planTitleMap.get(subscription?.plan_id) || ''
                   const remainDays = getRemainingDays(sub)
                   const usagePercent = getUsagePercent(sub)
-                  const weeklyLimit = Number(subscription?.weekly_amount_limit || 0)
-                  const weeklyUsed = Number(subscription?.weekly_amount_used || 0)
+                  const weeklyLimit = Number(
+                    subscription?.weekly_amount_limit || 0
+                  )
+                  const weeklyUsed = Number(
+                    subscription?.weekly_amount_used || 0
+                  )
                   const weeklyRemain =
                     weeklyLimit > 0 ? Math.max(0, weeklyLimit - weeklyUsed) : 0
                   const weeklyPercent =
                     weeklyLimit > 0
                       ? Math.round((weeklyUsed / weeklyLimit) * 100)
                       : 0
-                  const weeklyPeriodEnd = Number(subscription?.weekly_period_end || 0)
+                  const weeklyPeriodEnd = Number(
+                    subscription?.weekly_period_end || 0
+                  )
+                  const specialQuotaEnabled =
+                    subscription?.special_quota_enabled === true
+                  const specialQuotaAvailable =
+                    specialQuotaEnabled ||
+                    (Number(subscription?.hourly_amount_limit || 0) > 0 &&
+                      Number(subscription?.special_weekly_amount_limit || 0) >
+                        0)
+                  const hourlyLimit = Number(
+                    subscription?.hourly_amount_limit || 0
+                  )
+                  const hourlyUsed = Number(
+                    subscription?.hourly_amount_used || 0
+                  )
+                  const hourlyPeriodEnd = Number(
+                    subscription?.hourly_period_end || 0
+                  )
+                  const specialWeeklyLimit = Number(
+                    subscription?.special_weekly_amount_limit || 0
+                  )
+                  const specialWeeklyUsed = Number(
+                    subscription?.special_weekly_amount_used || 0
+                  )
+                  const specialWeeklyPeriodEnd = Number(
+                    subscription?.special_weekly_period_end || 0
+                  )
                   const now = Date.now() / 1000
                   const isExpired = (subscription?.end_time || 0) < now
                   const isCancelled = subscription?.status === 'cancelled'
@@ -463,6 +520,25 @@ export function SubscriptionPlansCard({
                           (subscription?.end_time || 0) * 1000
                         ).toLocaleString()}
                       </div>
+                      {specialQuotaAvailable && (
+                        <div className='mt-2 flex items-center justify-between rounded-md border px-2 py-1.5'>
+                          <span>{t('Hourly Limit')}</span>
+                          <Switch
+                            checked={
+                              subscription?.hourly_limit_enabled !== false
+                            }
+                            disabled={
+                              !isActive ||
+                              !specialQuotaEnabled ||
+                              hourlyTogglePending === subscription?.id
+                            }
+                            onCheckedChange={(checked) =>
+                              subscription?.id &&
+                              handleHourlyLimitChange(subscription.id, checked)
+                            }
+                          />
+                        </div>
+                      )}
                       {isActive && (subscription?.next_reset_time ?? 0) > 0 && (
                         <div className='text-muted-foreground mt-1'>
                           {t('Next reset')}:{' '}
@@ -471,66 +547,118 @@ export function SubscriptionPlansCard({
                           ).toLocaleString()}
                         </div>
                       )}
-                      <div className='text-muted-foreground mt-1'>
-                        {t('Total Quota')}:{' '}
-                        {totalAmount > 0 ? (
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={<span className='cursor-help' />}
-                            >
-                              {formatQuota(usedAmount)}/
-                              {formatQuota(totalAmount)} · {t('Remaining')}{' '}
-                              {formatQuota(remainAmount)}
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t('Raw Quota')}: {usedAmount}/{totalAmount} ·{' '}
-                              {t('Remaining')} {remainAmount}
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          t('Unlimited')
-                        )}
-                        {totalAmount > 0 && (
-                          <span className='ml-2'>
-                            {t('Used')} {usagePercent}%
-                          </span>
-                        )}
-                      </div>
-                      {totalAmount > 0 && isActive && (
-                        <Progress value={usagePercent} className='mt-2 h-1.5' />
+                      {specialQuotaEnabled && isActive && (
+                        <div className='text-muted-foreground mt-2 space-y-1'>
+                          {subscription?.hourly_limit_enabled !== false ? (
+                            <>
+                              <div>
+                                {t('Hourly Usage')}: {formatQuota(hourlyUsed)}/
+                                {formatQuota(hourlyLimit)} · {t('Remaining')}{' '}
+                                {formatQuota(
+                                  Math.max(0, hourlyLimit - hourlyUsed)
+                                )}
+                              </div>
+                              {hourlyPeriodEnd > 0 && (
+                                <div>
+                                  {t('Resets at')}{' '}
+                                  {formatTimestampToDate(hourlyPeriodEnd)}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div>
+                              {t('Special Weekly Usage')}:{' '}
+                              {formatQuota(specialWeeklyUsed)}/
+                              {formatQuota(specialWeeklyLimit)} ·{' '}
+                              {t('Remaining')}{' '}
+                              {formatQuota(
+                                Math.max(
+                                  0,
+                                  specialWeeklyLimit - specialWeeklyUsed
+                                )
+                              )}
+                              {specialWeeklyPeriodEnd > 0 && (
+                                <span className='ml-2'>
+                                  {t('Resets at')}{' '}
+                                  {formatTimestampToDate(
+                                    specialWeeklyPeriodEnd
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       )}
-                      {weeklyLimit > 0 && isActive && (
-                        <div className='mt-2 space-y-1'>
-                          <div className='text-muted-foreground'>
-                            {t('Weekly Usage')}:{' '}
+                      {!specialQuotaEnabled && (
+                        <div className='text-muted-foreground mt-1'>
+                          {t('Total Quota')}:{' '}
+                          {totalAmount > 0 ? (
                             <Tooltip>
                               <TooltipTrigger
                                 render={<span className='cursor-help' />}
                               >
-                                {formatQuota(weeklyUsed)}/
-                                {formatQuota(weeklyLimit)} ·{' '}
-                                {t('Weekly Remaining')}{' '}
-                                {formatQuota(weeklyRemain)}
+                                {formatQuota(usedAmount)}/
+                                {formatQuota(totalAmount)} · {t('Remaining')}{' '}
+                                {formatQuota(remainAmount)}
                               </TooltipTrigger>
                               <TooltipContent>
-                                {t('Raw Quota')}: {weeklyUsed}/{weeklyLimit} ·{' '}
-                                {t('Weekly Remaining')} {weeklyRemain}
+                                {t('Raw Quota')}: {usedAmount}/{totalAmount} ·{' '}
+                                {t('Remaining')} {remainAmount}
                               </TooltipContent>
                             </Tooltip>
-                            <span className='ml-2'>
-                              {t('Used')} {weeklyPercent}%
-                            </span>
-                          </div>
-                          <Progress
-                            value={weeklyPercent}
-                            className='h-1.5'
-                          />
-                          {weeklyPeriodEnd > 0 && (
-                            <div className='text-muted-foreground'>
-                              {t('Resets at')}{' '}
-                              {formatTimestampToDate(weeklyPeriodEnd)}
-                            </div>
+                          ) : (
+                            t('Unlimited')
                           )}
+                          {totalAmount > 0 && (
+                            <span className='ml-2'>
+                              {t('Used')} {usagePercent}%
+                            </span>
+                          )}
+                          {totalAmount > 0 &&
+                            isActive &&
+                            !specialQuotaEnabled && (
+                              <Progress
+                                value={usagePercent}
+                                className='mt-2 h-1.5'
+                              />
+                            )}
+                          {weeklyLimit > 0 &&
+                            isActive &&
+                            !specialQuotaEnabled && (
+                              <div className='mt-2 space-y-1'>
+                                <div className='text-muted-foreground'>
+                                  {t('Weekly Usage')}:{' '}
+                                  <Tooltip>
+                                    <TooltipTrigger
+                                      render={<span className='cursor-help' />}
+                                    >
+                                      {formatQuota(weeklyUsed)}/
+                                      {formatQuota(weeklyLimit)} ·{' '}
+                                      {t('Weekly Remaining')}{' '}
+                                      {formatQuota(weeklyRemain)}
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {t('Raw Quota')}: {weeklyUsed}/
+                                      {weeklyLimit} · {t('Weekly Remaining')}{' '}
+                                      {weeklyRemain}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <span className='ml-2'>
+                                    {t('Used')} {weeklyPercent}%
+                                  </span>
+                                </div>
+                                <Progress
+                                  value={weeklyPercent}
+                                  className='h-1.5'
+                                />
+                                {weeklyPeriodEnd > 0 && (
+                                  <div className='text-muted-foreground'>
+                                    {t('Resets at')}{' '}
+                                    {formatTimestampToDate(weeklyPeriodEnd)}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                         </div>
                       )}
                     </div>
