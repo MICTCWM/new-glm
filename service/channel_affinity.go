@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -611,6 +612,12 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			return 0, false
 		}
 		if found {
+			// 兜底渠道只能由故障转移流程选中，不能被亲和缓存作为普通渠道复用。
+			// 在这里过滤还能避免为被跳过的兜底渠道设置亲和重试策略。
+			if preferred, channelErr := model.CacheGetChannel(channelID); channelErr == nil && preferred != nil && preferred.GetSetting().FallbackModelEnabled {
+				common.SysLog(fmt.Sprintf("channel affinity skipped fallback channel: channel_id=%d", channelID))
+				return 0, false
+			}
 			return channelID, true
 		}
 		return 0, false

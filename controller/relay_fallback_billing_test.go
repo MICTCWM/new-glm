@@ -158,6 +158,67 @@ func TestGetChannelSelectsFallbackChannelsInOrder(t *testing.T) {
 	}
 }
 
+func TestGetChannelSkipsFallbackPreselectionForNormalRequest(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+	})
+
+	normalChannel := &model.Channel{
+		Id:      915,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "sk-normal",
+		Name:    "normal-channel",
+		Status:  common.ChannelStatusEnabled,
+		Models:  "normal-model",
+		Group:   "default",
+		AutoBan: common.GetPointer(1),
+	}
+	fallbackChannel := &model.Channel{
+		Id:      916,
+		Type:    constant.ChannelTypeOpenAI,
+		Key:     "sk-fallback",
+		Name:    "fallback-channel",
+		Status:  common.ChannelStatusEnabled,
+		Models:  "normal-model",
+		Group:   "default",
+		AutoBan: common.GetPointer(1),
+	}
+	fallbackChannel.SetSetting(dto.ChannelSettings{
+		FallbackModelEnabled: true,
+		FallbackModel:        "fallback-model",
+	})
+	require.NoError(t, db.Create(normalChannel).Error)
+	require.NoError(t, db.Create(fallbackChannel).Error)
+	priority := int64(1)
+	require.NoError(t, db.Create(&model.Ability{
+		Group:     "default",
+		Model:     "normal-model",
+		ChannelId: normalChannel.Id,
+		Enabled:   true,
+		Priority:  &priority,
+	}).Error)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeySelectedChannel, fallbackChannel)
+	common.SetContextKey(ctx, constant.ContextKeyChannelId, fallbackChannel.Id)
+	info := &relaycommon.RelayInfo{OriginModelName: "normal-model", TokenGroup: "default"}
+	retryParam := &service.RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "default",
+		ModelName:  "normal-model",
+		Retry:      common.GetPointer(0),
+	}
+
+	channel, apiErr := getChannel(ctx, info, retryParam)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, channel)
+	require.Equal(t, normalChannel.Id, channel.Id)
+}
+
 func TestGetChannelDailyUsageLimitForcesFallback(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	oldMemoryCacheEnabled := common.MemoryCacheEnabled

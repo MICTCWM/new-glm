@@ -1445,6 +1445,20 @@ func executeFallbackChannel(c *gin.Context, info *relaycommon.RelayInfo, channel
 	}
 }
 
+func shouldSkipFallbackChannelForNormalSelection(c *gin.Context, channel *model.Channel) bool {
+	if channel == nil || !channel.GetSetting().FallbackModelEnabled {
+		return false
+	}
+	// specific_channel_id is an explicit administrator override. Automatic
+	// channel selection must never use a fallback channel directly.
+	if _, ok := c.Get("specific_channel_id"); ok {
+		return false
+	}
+	return !c.GetBool("fallback_triggered") &&
+		!c.GetBool("fallback_force_next") &&
+		!fallbackTransferTriggered(c)
+}
+
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	// 兜底模型逻辑：故障转移时按顺序逐个尝试可用兜底渠道；全局超载或日用量
 	// 超限时每次选择也优先使用尚未尝试的兜底渠道。
@@ -1557,7 +1571,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		if retryParam.GetRetry() == 0 && !retryParam.InitialSelectionDone {
 			// 首次调用：使用 distributor 预选的渠道
 			if channel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel); ok && channel != nil {
-				return channel, nil
+				if !shouldSkipFallbackChannelForNormalSelection(c, channel) {
+					return channel, nil
+				}
+				common.SysLog(fmt.Sprintf("普通请求跳过兜底预选渠道: channel_id=%d", channel.Id))
 			}
 			// fallback 从 context 字段构造 Channel（兼容旧路径）
 			autoBan := c.GetBool("auto_ban")
@@ -1565,12 +1582,19 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			if !autoBan {
 				autoBanInt = 0
 			}
-			return &model.Channel{
-				Id:      c.GetInt("channel_id"),
-				Type:    c.GetInt("channel_type"),
-				Name:    c.GetString("channel_name"),
-				AutoBan: &autoBanInt,
-			}, nil
+			legacyChannelID := c.GetInt("channel_id")
+			if legacyChannelID > 0 {
+				if legacyChannel, err := model.CacheGetChannel(legacyChannelID); err == nil && shouldSkipFallbackChannelForNormalSelection(c, legacyChannel) {
+					common.SysLog(fmt.Sprintf("普通请求跳过兜底旧路径预选渠道: channel_id=%d", legacyChannelID))
+				} else {
+					return &model.Channel{
+						Id:      legacyChannelID,
+						Type:    c.GetInt("channel_type"),
+						Name:    c.GetString("channel_name"),
+						AutoBan: &autoBanInt,
+					}, nil
+				}
+			}
 		}
 
 		// 重试时：强制选新渠道，从 usedChannelIds 排除已试渠道

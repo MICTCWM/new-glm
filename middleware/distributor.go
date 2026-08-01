@@ -120,7 +120,7 @@ func Distribute() func(c *gin.Context) {
 
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, resolvedModelName, usingGroup); found {
 					preferred, err := model.CacheGetChannel(preferredChannelID)
-					if err == nil && preferred != nil {
+					if err == nil && preferred != nil && !preferred.GetSetting().FallbackModelEnabled {
 						// 从 context 读取用户 setting，获取 GPT 模式状态
 						userSettingVal, _ := common.GetContextKey(c, constant.ContextKeyUserSetting)
 						userSetting, _ := userSettingVal.(dto.UserSetting)
