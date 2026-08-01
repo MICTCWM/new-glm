@@ -66,6 +66,13 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
+	// Channel-specific per-request pricing takes precedence over global pricing.
+	// Keep tiered_expr evaluation below this guard so channels without a configured
+	// special price continue to use the existing global billing behavior.
+	if priceData, ok := channelSpecialPriceData(info, promptTokens, groupRatioInfo); ok {
+		info.PriceData = priceData
+		return priceData, nil
+	}
 	// Check if this model uses tiered_expr billing
 	if !ratio_setting.IsHardcodedModelPricing(info.OriginModelName) &&
 		billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
@@ -226,14 +233,14 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 }
 
 func channelSpecialPriceData(info *relaycommon.RelayInfo, inputTokens int, groupRatioInfo types.GroupRatioInfo) (types.PriceData, bool) {
-	if info == nil || info.ChannelId <= 0 || model.DB == nil {
+	if info == nil || info.ChannelMeta == nil || info.ChannelId <= 0 {
 		return types.PriceData{}, false
 	}
-	channel, err := model.GetChannelById(info.ChannelId, true)
-	if err != nil || channel == nil {
-		return types.PriceData{}, false
-	}
-	settings := channel.GetSetting()
+
+	// The selected channel settings are already attached to RelayInfo during
+	// routing. Use that snapshot instead of querying the database for every
+	// request; it also keeps pricing helpers usable in isolated unit tests.
+	settings := info.ChannelMeta.ChannelSetting
 	price, ok := settings.ResolveSpecialBillingPrice(info.OriginModelName, inputTokens)
 	if !ok {
 		return types.PriceData{}, false

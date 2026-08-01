@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -14,6 +15,39 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestModelPriceHelperUsesChannelSpecialPrice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("group", "default")
+
+	limit := int64(272000)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "special-model",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId: 1,
+			ChannelSetting: dto.ChannelSettings{
+				SpecialBilling: true,
+				SpecialBillingPrices: map[string][]dto.SpecialBillingPrice{
+					"special-model": {
+						{MaxInputTokens: &limit, Price: 1},
+						{Price: 2},
+					},
+				},
+			},
+		},
+	}
+
+	priceData, err := ModelPriceHelper(ctx, info, 272001, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	require.True(t, priceData.UsePrice)
+	require.Equal(t, float64(2), priceData.ModelPrice)
+	require.Equal(t, int(2*common.QuotaPerUnit), priceData.QuotaToPreConsume)
+}
 
 func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	gin.SetMode(gin.TestMode)

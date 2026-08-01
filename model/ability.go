@@ -27,12 +27,13 @@ type AbilityWithChannel struct {
 	Ability
 	ChannelType    int     `json:"channel_type"`
 	ChannelSetting *string `json:"channel_setting"`
+	ChannelName    string  `json:"channel_name"`
 }
 
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
 	err := DB.Table("abilities").
-		Select("abilities.*, channels.type as channel_type, channels.setting as channel_setting").
+		Select("abilities.*, channels.type as channel_type, channels.setting as channel_setting, channels.name as channel_name").
 		Joins("left join channels on abilities.channel_id = channels.id").
 		Where("abilities.enabled = ?", true).
 		Scan(&abilities).Error
@@ -82,6 +83,39 @@ func GetAllEnableAbilities() []Ability {
 	var abilities []Ability
 	DB.Find(&abilities, "enabled = ?", true)
 	return abilities
+}
+
+// SearchAbilities returns a paginated and filtered list of abilities joined with their channel info,
+// including the channel name so the frontend can display it.
+func SearchAbilities(offset int, limit int, group string, model string, channelId int, onlyEnabled bool) ([]AbilityWithChannel, int64, error) {
+	query := DB.Table("abilities").
+		Select("abilities.*, channels.type as channel_type, channels.setting as channel_setting, channels.name as channel_name").
+		Joins("left join channels on abilities.channel_id = channels.id")
+
+	if group != "" {
+		query = query.Where("abilities.group = ?", group)
+	}
+	if model != "" {
+		query = query.Where("abilities.model = ?", model)
+	}
+	if channelId != 0 {
+		query = query.Where("abilities.channel_id = ?", channelId)
+	}
+	if onlyEnabled {
+		query = query.Where("abilities.enabled = ?", true)
+	}
+
+	var total int64
+	if err := query.Distinct("abilities.id").Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var abilities []AbilityWithChannel
+	if err := query.Order("abilities.group asc, abilities.model asc, abilities.channel_id asc").
+		Offset(offset).Limit(limit).Scan(&abilities).Error; err != nil {
+		return nil, 0, err
+	}
+	return abilities, total, nil
 }
 
 func getPriority(group string, model string, retry int) (int, error) {

@@ -89,6 +89,11 @@ export function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
           icon: Sparkles,
           items: getGptSectionNavItems(t),
         },
+        {
+          title: t('Channel Abilities'),
+          icon: Box,
+          url: '/system-settings/ability/',
+        },
       ],
     },
   ]

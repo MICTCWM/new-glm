@@ -175,6 +175,11 @@ import { SpecialUserPickerDialog } from '../dialogs/special-user-picker-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
 
+type SpecialBillingTier = {
+  max_input_tokens: number | null
+  price: number
+}
+
 type ChannelMutateDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -442,13 +447,111 @@ export function ChannelMutateDrawer({
   const fallbackModelEnabled = form.watch('fallback_model_enabled')
   const gptModeRequired = form.watch('gpt_mode_required')
   const specialBilling = form.watch('special_billing')
-  const specialBillingPrices = form.watch('special_billing_prices') || {}
-  const [specialBillingDraft, setSpecialBillingDraft] = useState('[]')
+  const watchedSpecialBillingPrices = form.watch('special_billing_prices')
+  const specialBillingPrices = useMemo(
+    () => watchedSpecialBillingPrices ?? {},
+    [watchedSpecialBillingPrices]
+  )
+  const [specialBillingDraft, setSpecialBillingDraft] = useState<
+    SpecialBillingTier[]
+  >([])
   useEffect(() => {
-    if (specialBillingModel) {
-      setSpecialBillingDraft(JSON.stringify(specialBillingPrices[specialBillingModel] || [{ max_input_tokens: 272000, price: 1 }, { max_input_tokens: null, price: 2 }], null, 2))
-    }
+    if (!specialBillingModel) return
+    const configured = specialBillingPrices[specialBillingModel]
+    const tiers = configured?.length
+      ? configured.map((tier) => ({
+          max_input_tokens:
+            tier.max_input_tokens == null ? null : Number(tier.max_input_tokens),
+          price: Number(tier.price),
+        }))
+      : [
+          { max_input_tokens: 272000, price: 1 },
+          { max_input_tokens: null, price: 2 },
+        ]
+    setSpecialBillingDraft(tiers)
   }, [specialBillingModel, specialBillingPrices])
+
+  const updateSpecialBillingTier = useCallback(
+    (index: number, patch: Partial<SpecialBillingTier>) => {
+      setSpecialBillingDraft((current) =>
+        current.map((tier, tierIndex) =>
+          tierIndex === index ? { ...tier, ...patch } : tier
+        )
+      )
+    },
+    []
+  )
+
+  const addSpecialBillingTier = useCallback(() => {
+    setSpecialBillingDraft((current) => {
+      const openEndedIndex = current.findIndex(
+        (tier) => tier.max_input_tokens === null
+      )
+      const next = [...current]
+      if (openEndedIndex >= 0) {
+        next.splice(openEndedIndex, 0, { max_input_tokens: 1000000, price: 0 })
+      } else {
+        next.push({ max_input_tokens: null, price: 0 })
+      }
+      return next
+    })
+  }, [])
+
+  const removeSpecialBillingTier = useCallback((index: number) => {
+    setSpecialBillingDraft((current) =>
+      current.length <= 1 ? current : current.filter((_, tierIndex) => tierIndex !== index)
+    )
+  }, [])
+
+  const saveSpecialBillingTiers = useCallback(() => {
+    if (!specialBillingModel) return
+    if (specialBillingDraft.length === 0) {
+      toast.error(t('Add at least one price tier'))
+      return
+    }
+    const finiteTiers = specialBillingDraft.filter(
+      (tier) => tier.max_input_tokens !== null
+    )
+    if (specialBillingDraft.some((tier) => !Number.isFinite(tier.price) || tier.price < 0)) {
+      toast.error(t('Prices must be non-negative numbers'))
+      return
+    }
+    if (finiteTiers.some((tier) => !Number.isInteger(tier.max_input_tokens) || tier.max_input_tokens! <= 0)) {
+      toast.error(t('Context limits must be positive integers'))
+      return
+    }
+    const sorted = [...specialBillingDraft].sort((a, b) => {
+      if (a.max_input_tokens === null) return 1
+      if (b.max_input_tokens === null) return -1
+      return a.max_input_tokens - b.max_input_tokens
+    })
+    for (let index = 1; index < sorted.length; index += 1) {
+      const previous = sorted[index - 1]
+      const current = sorted[index]
+      if (
+        previous.max_input_tokens !== null &&
+        current.max_input_tokens !== null &&
+        previous.max_input_tokens >= current.max_input_tokens
+      ) {
+        toast.error(t('Context limits must be strictly increasing'))
+        return
+      }
+    }
+    if (sorted.filter((tier) => tier.max_input_tokens === null).length > 1) {
+      toast.error(t('Only one unlimited tier is allowed'))
+      return
+    }
+    if (!sorted.some((tier) => tier.max_input_tokens === null)) {
+      toast.error(t('Add an unlimited tier to cover larger requests'))
+      return
+    }
+    form.setValue(
+      'special_billing_prices',
+      { ...specialBillingPrices, [specialBillingModel]: sorted },
+      { shouldDirty: true }
+    )
+    setSpecialBillingModel(null)
+  }, [form, specialBillingDraft, specialBillingModel, specialBillingPrices, t])
   // 兜底/GPT 模式开启时不允许自动禁用，避免兜底通道被误禁用导致整体不可用
   const autoBanLocked = fallbackModelEnabled || gptModeRequired
   useEffect(() => {
@@ -1250,13 +1353,98 @@ export function ChannelMutateDrawer({
   return (
     <>
       {specialBillingModel && (
-        <Sheet open={true} onOpenChange={(value) => !value && setSpecialBillingModel(null)}>
-          <SheetContent>
-            <SheetHeader><SheetTitle>{t('Set Model Price')}: {specialBillingModel}</SheetTitle><SheetDescription>{t('JSON array of input token tiers and fixed per-request prices')}</SheetDescription></SheetHeader>
-            <div className='p-4 space-y-3'>
-              <Textarea value={specialBillingDraft} onChange={(event) => setSpecialBillingDraft(event.target.value)} rows={12} />
-              <Button type='button' onClick={() => { try { const parsed = JSON.parse(specialBillingDraft); form.setValue('special_billing_prices', { ...specialBillingPrices, [specialBillingModel]: parsed }, { shouldDirty: true }); setSpecialBillingModel(null) } catch { toast.error(t('Invalid price configuration JSON')) } }}>{t('Save')}</Button>
+        <Sheet
+          open={true}
+          onOpenChange={(value) => !value && setSpecialBillingModel(null)}
+        >
+          <SheetContent className='sm:max-w-xl'>
+            <SheetHeader>
+              <SheetTitle>
+                {t('Set Model Price')}: {specialBillingModel}
+              </SheetTitle>
+              <SheetDescription>
+                {t('Set a fixed per-request price by input context length.')}
+              </SheetDescription>
+            </SheetHeader>
+            <div className='space-y-4 overflow-y-auto px-4 py-4'>
+              <div className='rounded-lg border'>
+                <div className='text-muted-foreground grid grid-cols-[1fr_1fr_auto] gap-3 border-b px-3 py-2 text-xs font-medium'>
+                  <span>{t('Maximum input tokens')}</span>
+                  <span>{t('Price per request')}</span>
+                  <span className='w-8' />
+                </div>
+                <div className='space-y-2 p-3'>
+                  {specialBillingDraft.map((tier, index) => (
+                    <div
+                      key={`${index}-${tier.max_input_tokens ?? 'unlimited'}`}
+                      className='grid grid-cols-[1fr_1fr_auto] items-center gap-3'
+                    >
+                      <div className='flex items-center gap-2'>
+                        <Input
+                          type='number'
+                          min={1}
+                          step={1}
+                          value={tier.max_input_tokens ?? ''}
+                          disabled={tier.max_input_tokens === null}
+                          placeholder={t('Unlimited')}
+                          onChange={(event) =>
+                            updateSpecialBillingTier(index, {
+                              max_input_tokens:
+                                event.target.value === ''
+                                  ? null
+                                  : Number(event.target.value),
+                            })
+                          }
+                        />
+                        <span className='text-muted-foreground shrink-0 text-xs'>
+                          {tier.max_input_tokens === null ? t('Unlimited') : 'tokens'}
+                        </span>
+                      </div>
+                      <Input
+                        type='number'
+                        min={0}
+                        step='any'
+                        value={tier.price}
+                        onChange={(event) =>
+                          updateSpecialBillingTier(index, {
+                            price: Number(event.target.value),
+                          })
+                        }
+                      />
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='icon-sm'
+                        disabled={specialBillingDraft.length <= 1}
+                        onClick={() => removeSpecialBillingTier(index)}
+                        aria-label={t('Delete price tier')}
+                      >
+                        <Trash2 className='h-4 w-4' />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <Button
+                type='button'
+                variant='outline'
+                onClick={addSpecialBillingTier}
+              >
+                <Plus className='mr-2 h-4 w-4' />
+                {t('Add price tier')}
+              </Button>
+              <div className='text-muted-foreground rounded-lg bg-muted/50 p-3 text-xs'>
+                {t('The unlimited tier applies to requests above all configured limits.')} 
+              </div>
             </div>
+            <SheetFooter>
+              <SheetClose render={<Button type='button' variant='outline' />}>
+                {t('Cancel')}
+              </SheetClose>
+              <Button type='button' onClick={saveSpecialBillingTiers}>
+                {t('Save')}
+              </Button>
+            </SheetFooter>
           </SheetContent>
         </Sheet>
       )}

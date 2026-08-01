@@ -229,6 +229,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.GET("/search", controller.SearchChannels)
 			channelRoute.GET("/models", controller.ChannelListModels)
 			channelRoute.GET("/models_enabled", controller.EnabledListModels)
+			channelRoute.GET("/ability", controller.GetAbilityList)
 			// GPT 渠道管理（需在 /:id 之前注册，避免 gpt 被当作 id 匹配）
 			channelRoute.GET("/gpt", controller.GetGptChannels)
 			channelRoute.PUT("/gpt", controller.BatchSetGptChannels)
