@@ -24,7 +24,7 @@ const abilitySearchSchema = z.object({
   filter: z.string().optional().catch(''),
 })
 
-export const Route = createFileRoute('/_authenticated/system-settings/ability/')(
+export const Route = createFileRoute('/_authenticated/system-settings/ability/')({
   validateSearch: abilitySearchSchema,
   component: Ability,
 })

@@ -17,15 +17,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { type ColumnDef, getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { getRouteApi } from '@tanstack/react-router'
 import { DataTablePage } from '@/components/data-table'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { getAbilities } from '../api'
 import type { Ability } from '../types'
 
+const route = getRouteApi('/_authenticated/system-settings/ability/')
+
 export function AbilityTable() {
-  const navigate = useNavigate({ from: '/system-settings/ability/' })
-  const search = useSearch({ from: '/system-settings/ability/' })
+  const navigate = route.useNavigate()
+  const search = route.useSearch()
 
   const { globalFilter, onGlobalFilterChange, pagination, onPaginationChange } =
     useTableUrlState({
