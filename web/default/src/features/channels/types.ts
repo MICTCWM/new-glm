@@ -83,7 +83,14 @@ export type Channel = z.infer<typeof channelSchema>
 // Channel Settings Types
 // ============================================================================
 
+export interface SpecialBillingPrice {
+  max_input_tokens?: number | null
+  price: number
+}
+
 export interface ChannelSettings {
+  special_billing?: boolean
+  special_billing_prices?: Record<string, SpecialBillingPrice[]>
   responses_protocol?: boolean
   force_format?: boolean
   thinking_to_content?: boolean

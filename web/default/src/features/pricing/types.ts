@@ -53,6 +53,8 @@ export type PricingModel = {
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
   billing_expr?: string
+  special_billing?: boolean
+  special_billing_prices?: Record<string, { max_input_tokens?: number | null; price: number }[]>
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /**

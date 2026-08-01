@@ -1,5 +1,12 @@
 package dto
 
+import "sort"
+
+type SpecialBillingPrice struct {
+	MaxInputTokens *int64  `json:"max_input_tokens,omitempty"`
+	Price          float64 `json:"price"`
+}
+
 type ChannelSettings struct {
 	// ResponsesProtocol explicitly selects the OpenAI Responses (RE) protocol
 	// for this channel. When false, OpenAI-compatible channels use Chat
@@ -10,21 +17,49 @@ type ChannelSettings struct {
 	// before ResponsesProtocol was introduced. Keep reading it so existing
 	// fallback channels configured with "responses" do not silently switch to
 	// Chat Completions after an upgrade.
-	UpstreamProtocol             string `json:"upstream_protocol,omitempty"`
-	ForceFormat                  bool   `json:"force_format,omitempty"`
-	ThinkingToContent            bool   `json:"thinking_to_content,omitempty"`
-	Proxy                        string `json:"proxy"`
-	PassThroughBodyEnabled       bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt                 string `json:"system_prompt,omitempty"`
-	SystemPromptOverride         bool   `json:"system_prompt_override,omitempty"`
-	SpecialUserEnabled           bool   `json:"special_user_enabled,omitempty"`
-	SpecialUserIds               []int  `json:"special_user_ids,omitempty"`
-	GptModeRequired              bool   `json:"gpt_mode_required,omitempty"`
-	EmergencyPlanEnabled         bool   `json:"emergency_plan_enabled,omitempty"`
-	FallbackModelEnabled         bool   `json:"fallback_model_enabled,omitempty"`          // 是否启用兜底模式
-	FallbackModel                string `json:"fallback_model,omitempty"`                  // 兜底模型名（上游实际请求的模型名）
-	FallbackModelReasoningEffort string `json:"fallback_model_reasoning_effort,omitempty"` // 兜底模型思考等级
-	SupportFallback              bool   `json:"support_fallback,omitempty"`                // 是否支持错误转移（该渠道失败时是否触发转移到兜底渠道）
+	UpstreamProtocol             string                           `json:"upstream_protocol,omitempty"`
+	ForceFormat                  bool                             `json:"force_format,omitempty"`
+	ThinkingToContent            bool                             `json:"thinking_to_content,omitempty"`
+	Proxy                        string                           `json:"proxy"`
+	PassThroughBodyEnabled       bool                             `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt                 string                           `json:"system_prompt,omitempty"`
+	SystemPromptOverride         bool                             `json:"system_prompt_override,omitempty"`
+	SpecialUserEnabled           bool                             `json:"special_user_enabled,omitempty"`
+	SpecialUserIds               []int                            `json:"special_user_ids,omitempty"`
+	GptModeRequired              bool                             `json:"gpt_mode_required,omitempty"`
+	EmergencyPlanEnabled         bool                             `json:"emergency_plan_enabled,omitempty"`
+	FallbackModelEnabled         bool                             `json:"fallback_model_enabled,omitempty"`          // 是否启用兜底模式
+	FallbackModel                string                           `json:"fallback_model,omitempty"`                  // 兜底模型名（上游实际请求的模型名）
+	FallbackModelReasoningEffort string                           `json:"fallback_model_reasoning_effort,omitempty"` // 兜底模型思考等级
+	SupportFallback              bool                             `json:"support_fallback,omitempty"`                // 是否支持错误转移（该渠道失败时是否触发转移到兜底渠道）
+	SpecialBilling               bool                             `json:"special_billing,omitempty"`
+	SpecialBillingPrices         map[string][]SpecialBillingPrice `json:"special_billing_prices,omitempty"`
+}
+
+func (s ChannelSettings) ResolveSpecialBillingPrice(model string, inputTokens int) (float64, bool) {
+	if !s.SpecialBilling {
+		return 0, false
+	}
+	prices, ok := s.SpecialBillingPrices[model]
+	if !ok || len(prices) == 0 {
+		return 0, false
+	}
+	ordered := append([]SpecialBillingPrice(nil), prices...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].MaxInputTokens == nil {
+			return false
+		}
+		if ordered[j].MaxInputTokens == nil {
+			return true
+		}
+		return *ordered[i].MaxInputTokens < *ordered[j].MaxInputTokens
+	})
+	for _, tier := range ordered {
+		if tier.MaxInputTokens == nil || int64(inputTokens) <= *tier.MaxInputTokens {
+			return tier.Price, tier.Price >= 0
+		}
+	}
+	return 0, false
 }
 
 type VertexKeyType string

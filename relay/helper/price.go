@@ -66,7 +66,6 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
-
 	// Check if this model uses tiered_expr billing
 	if !ratio_setting.IsHardcodedModelPricing(info.OriginModelName) &&
 		billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
@@ -165,6 +164,9 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types.PriceData, error) {
 	groupRatioInfo := HandleGroupRatio(c, info)
+	if priceData, ok := channelSpecialPriceData(info, info.GetEstimatePromptTokens(), groupRatioInfo); ok {
+		return priceData, nil
+	}
 
 	modelPrice, success := ratio_setting.GetModelPrice(info.OriginModelName, true)
 	usePrice := success
@@ -221,6 +223,27 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 		GroupRatioInfo: groupRatioInfo,
 	}
 	return priceData, nil
+}
+
+func channelSpecialPriceData(info *relaycommon.RelayInfo, inputTokens int, groupRatioInfo types.GroupRatioInfo) (types.PriceData, bool) {
+	if info == nil || info.ChannelId <= 0 || model.DB == nil {
+		return types.PriceData{}, false
+	}
+	channel, err := model.GetChannelById(info.ChannelId, true)
+	if err != nil || channel == nil {
+		return types.PriceData{}, false
+	}
+	settings := channel.GetSetting()
+	price, ok := settings.ResolveSpecialBillingPrice(info.OriginModelName, inputTokens)
+	if !ok {
+		return types.PriceData{}, false
+	}
+	quota := int(price * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+	freeModel := !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume && (groupRatioInfo.GroupRatio == 0 || price == 0)
+	if freeModel {
+		quota = 0
+	}
+	return types.PriceData{FreeModel: freeModel, ModelPrice: price, UsePrice: true, Quota: quota, QuotaToPreConsume: quota, GroupRatioInfo: groupRatioInfo}, true
 }
 
 func HasModelBillingConfig(modelName string) bool {

@@ -346,6 +346,7 @@ export function ChannelMutateDrawer({
   const [rateLimitingOpen, setRateLimitingOpen] = useState(false)
   const [paramOverrideEditorOpen, setParamOverrideEditorOpen] = useState(false)
   const [specialUserPickerOpen, setSpecialUserPickerOpen] = useState(false)
+  const [specialBillingModel, setSpecialBillingModel] = useState<string | null>(null)
 
   const isEditing = Boolean(currentRow)
   const channelId = currentRow?.id ?? null
@@ -440,6 +441,14 @@ export function ChannelMutateDrawer({
   const emergencyPlanEnabled = form.watch('emergency_plan_enabled')
   const fallbackModelEnabled = form.watch('fallback_model_enabled')
   const gptModeRequired = form.watch('gpt_mode_required')
+  const specialBilling = form.watch('special_billing')
+  const specialBillingPrices = form.watch('special_billing_prices') || {}
+  const [specialBillingDraft, setSpecialBillingDraft] = useState('[]')
+  useEffect(() => {
+    if (specialBillingModel) {
+      setSpecialBillingDraft(JSON.stringify(specialBillingPrices[specialBillingModel] || [{ max_input_tokens: 272000, price: 1 }, { max_input_tokens: null, price: 2 }], null, 2))
+    }
+  }, [specialBillingModel, specialBillingPrices])
   // 兜底/GPT 模式开启时不允许自动禁用，避免兜底通道被误禁用导致整体不可用
   const autoBanLocked = fallbackModelEnabled || gptModeRequired
   useEffect(() => {
@@ -1240,6 +1249,17 @@ export function ChannelMutateDrawer({
 
   return (
     <>
+      {specialBillingModel && (
+        <Sheet open={true} onOpenChange={(value) => !value && setSpecialBillingModel(null)}>
+          <SheetContent>
+            <SheetHeader><SheetTitle>{t('Set Model Price')}: {specialBillingModel}</SheetTitle><SheetDescription>{t('JSON array of input token tiers and fixed per-request prices')}</SheetDescription></SheetHeader>
+            <div className='p-4 space-y-3'>
+              <Textarea value={specialBillingDraft} onChange={(event) => setSpecialBillingDraft(event.target.value)} rows={12} />
+              <Button type='button' onClick={() => { try { const parsed = JSON.parse(specialBillingDraft); form.setValue('special_billing_prices', { ...specialBillingPrices, [specialBillingModel]: parsed }, { shouldDirty: true }); setSpecialBillingModel(null) } catch { toast.error(t('Invalid price configuration JSON')) } }}>{t('Save')}</Button>
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
       <Sheet open={open} onOpenChange={handleOpenChange}>
         <SheetContent className='flex h-dvh w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl'>
           <SheetHeader className='border-b px-4 py-3 text-start sm:px-6 sm:py-4'>
@@ -1342,6 +1362,20 @@ export function ChannelMutateDrawer({
                           }
                         />
                       </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name='special_billing'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between rounded-lg border px-4 py-3'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>{t('Special Billing')}</FormLabel>
+                        <FormDescription>{t('Use channel-specific per-request prices when configured')}</FormDescription>
+                      </div>
+                      <FormControl><Switch checked={field.value === true} onCheckedChange={field.onChange} /></FormControl>
                     </FormItem>
                   )}
                 />
@@ -2343,6 +2377,17 @@ export function ChannelMutateDrawer({
                           onChange={handleModelsChange}
                           placeholder={t('Select models or add custom ones')}
                         />
+                        {specialBilling && (
+                          <div className='mt-3 space-y-2 rounded-lg border p-3'>
+                            <div className='text-sm font-medium'>{t('Model prices')}</div>
+                            {currentModelsArray.map((modelName) => (
+                              <div key={modelName} className='flex items-center justify-between gap-2'>
+                                <span className='font-mono text-xs'>{modelName}</span>
+                                <Button type='button' variant='outline' size='sm' onClick={() => setSpecialBillingModel(modelName)}>{t('Set Model Price')}</Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </FormControl>
                       <FormDescription>
                         <div className='flex flex-col gap-2'>
