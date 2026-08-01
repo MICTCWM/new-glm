@@ -84,6 +84,80 @@ func TestGetChannelFallbackKeepsRequestModelPricing(t *testing.T) {
 		"fallback routing must not replace the request model's billing price")
 }
 
+func TestGetChannelSelectsFallbackChannelsInOrder(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+	})
+
+	for _, channel := range []*model.Channel{
+		{
+			Id:       911,
+			Type:     constant.ChannelTypeOpenAI,
+			Key:      "sk-fallback-a",
+			Name:     "fallback-a",
+			Status:   common.ChannelStatusEnabled,
+			Priority: common.GetPointer(int64(10)),
+		},
+		{
+			Id:       912,
+			Type:     constant.ChannelTypeOpenAI,
+			Key:      "sk-fallback-b",
+			Name:     "fallback-b",
+			Status:   common.ChannelStatusEnabled,
+			Priority: common.GetPointer(int64(40)),
+		},
+		{
+			Id:       913,
+			Type:     constant.ChannelTypeOpenAI,
+			Key:      "sk-fallback-c",
+			Name:     "fallback-c",
+			Status:   common.ChannelStatusEnabled,
+			Priority: common.GetPointer(int64(30)),
+		},
+		{
+			Id:       914,
+			Type:     constant.ChannelTypeOpenAI,
+			Key:      "sk-fallback-d",
+			Name:     "fallback-d",
+			Status:   common.ChannelStatusEnabled,
+			Priority: common.GetPointer(int64(20)),
+		},
+	} {
+		channel.SetSetting(dto.ChannelSettings{
+			FallbackModelEnabled: true,
+			FallbackModel:        "fallback-model",
+		})
+		require.NoError(t, db.Create(channel).Error)
+	}
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("source_channel_supports_fallback", true)
+	ctx.Set("fallback_force_next", true)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "requested-model",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	retryParam := &service.RetryParam{
+		Ctx:            ctx,
+		TokenGroup:     "default",
+		ModelName:      "requested-model",
+		Retry:          common.GetPointer(0),
+		UsedChannelIds: []int{},
+	}
+
+	for _, expectedID := range []int{912, 913, 914, 911} {
+		channel, apiErr := getChannel(ctx, info, retryParam)
+		require.Nil(t, apiErr)
+		require.Equal(t, expectedID, channel.Id)
+		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
+		ctx.Set("fallback_triggered", false)
+		ctx.Set("fallback_force_next", true)
+	}
+}
+
 func TestGetChannelDailyUsageLimitForcesFallback(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	oldMemoryCacheEnabled := common.MemoryCacheEnabled

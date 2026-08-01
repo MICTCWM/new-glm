@@ -41,7 +41,7 @@ func TestNewContextTooLongErrorIsClientErrorAndSkipsRetry(t *testing.T) {
 	require.Equal(t, contextTooLongMessage, err.Error())
 }
 
-func TestFinalFallbackErrorMasksUpstreamErrorsForEmergencyChannel(t *testing.T) {
+func TestFinalFallbackErrorPreservesPrimaryErrorForEmergencyChannel(t *testing.T) {
 	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ginContext.Set("emergency_used", true)
 	primaryError := types.NewErrorWithStatusCode(
@@ -57,14 +57,10 @@ func TestFinalFallbackErrorMasksUpstreamErrorsForEmergencyChannel(t *testing.T) 
 
 	err := finalFallbackError(ginContext, primaryError, fallbackError)
 
-	require.Equal(t, http.StatusInternalServerError, err.StatusCode)
-	require.Equal(t, types.ErrorCodeDoRequestFailed, err.GetErrorCode())
-	require.Equal(t, emergencyPlanFailedMessage, err.Error())
-	require.Equal(t, emergencyPlanFailedMessage, err.GetUserFriendlyMessage())
-	require.Equal(t, emergencyPlanFailedMessage, err.ToOpenAIError().Message)
+	require.Same(t, primaryError, err)
 }
 
-func TestFinalFallbackErrorPreservesOrdinaryFallbackBehavior(t *testing.T) {
+func TestFinalFallbackErrorMasksFallbackErrorWithoutPrimary(t *testing.T) {
 	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 	primaryError := types.NewErrorWithStatusCode(
 		context.Canceled,
@@ -78,7 +74,9 @@ func TestFinalFallbackErrorPreservesOrdinaryFallbackBehavior(t *testing.T) {
 	)
 
 	require.Same(t, primaryError, finalFallbackError(ginContext, primaryError, fallbackError))
-	require.Same(t, fallbackError, finalFallbackError(ginContext, nil, fallbackError))
+	err := finalFallbackError(ginContext, nil, fallbackError)
+	require.NotSame(t, fallbackError, err)
+	require.Equal(t, emergencyPlanFailedMessage, err.Error())
 }
 
 func TestMaskEmergencyPlanErrorMasksSingleRequestFailure(t *testing.T) {

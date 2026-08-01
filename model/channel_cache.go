@@ -20,6 +20,18 @@ var channelsIDM map[int]*Channel                     // all channels include dis
 var fallbackChannels []*Channel                      // 启用兜底模式的渠道（跨分组）
 var channelSyncLock sync.RWMutex
 
+func sortFallbackChannelsByPriority(channels []*Channel) {
+	sort.SliceStable(channels, func(i, j int) bool {
+		if channels[i] == nil || channels[j] == nil {
+			return channels[i] != nil
+		}
+		if channels[i].GetPriority() != channels[j].GetPriority() {
+			return channels[i].GetPriority() > channels[j].GetPriority()
+		}
+		return channels[i].Id < channels[j].Id
+	})
+}
+
 // GetFallbackChannels 返回所有启用兜底模式的渠道（跨分组）
 func GetFallbackChannels() []*Channel {
 	// 当内存缓存未启用时，直接走数据库回退查询，保证兜底功能可用
@@ -41,6 +53,7 @@ func GetFallbackChannels() []*Channel {
 			result = append(result, ch)
 		}
 	}
+	sortFallbackChannelsByPriority(result)
 	return result
 }
 
@@ -101,6 +114,7 @@ func GetFallbackChannelsFromDB() ([]*Channel, error) {
 			result = append(result, ch)
 		}
 	}
+	sortFallbackChannelsByPriority(result)
 	return result, nil
 }
 
@@ -129,6 +143,7 @@ func InitChannelCache() {
 			newFallbackChannels = append(newFallbackChannels, channel)
 		}
 	}
+	sortFallbackChannelsByPriority(newFallbackChannels)
 	var abilities []*Ability
 	DB.Find(&abilities)
 	groups := make(map[string]bool)
