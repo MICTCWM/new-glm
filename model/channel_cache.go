@@ -99,6 +99,110 @@ func HasAvailableFallbackChannelsExcludingUsed(usedChannelIds []int) bool {
 	return false
 }
 
+// GetSpecialBillingChannel returns the highest-priority enabled non-emergency
+// channel that has a special price for the requested model. It is used only as
+// a billing source when an emergency channel has taken over the route.
+func GetSpecialBillingChannel(group string, modelName string) (*Channel, error) {
+	if strings.TrimSpace(group) == "" || strings.TrimSpace(modelName) == "" {
+		return nil, nil
+	}
+
+	modelNames := channelModelCandidates(modelName)
+	if common.MemoryCacheEnabled {
+		channelSyncLock.RLock()
+		defer channelSyncLock.RUnlock()
+
+		channelIDs := make([]int, 0)
+		seen := make(map[int]struct{})
+		for _, candidateModel := range modelNames {
+			for _, channelID := range group2model2channels[group][candidateModel] {
+				if _, exists := seen[channelID]; exists {
+					continue
+				}
+				seen[channelID] = struct{}{}
+				channelIDs = append(channelIDs, channelID)
+			}
+		}
+
+		candidates := make([]*Channel, 0, len(channelIDs))
+		for _, channelID := range channelIDs {
+			if channel, ok := channelsIDM[channelID]; ok {
+				candidates = append(candidates, channel)
+			}
+		}
+		return findSpecialBillingChannel(candidates, modelName), nil
+	}
+
+	if DB == nil {
+		return nil, nil
+	}
+
+	var abilities []Ability
+	if err := DB.Where(commonGroupCol+" = ? AND model IN ? AND enabled = ?", group, modelNames, true).
+		Order("priority DESC, weight DESC, channel_id ASC").Find(&abilities).Error; err != nil {
+		return nil, err
+	}
+
+	candidates := make([]*Channel, 0, len(abilities))
+	seen := make(map[int]struct{})
+	for _, ability := range abilities {
+		if _, exists := seen[ability.ChannelId]; exists {
+			continue
+		}
+		seen[ability.ChannelId] = struct{}{}
+		channel, err := GetChannelById(ability.ChannelId, true)
+		if err != nil {
+			continue
+		}
+		candidates = append(candidates, channel)
+	}
+	return findSpecialBillingChannel(candidates, modelName), nil
+}
+
+func channelModelCandidates(modelName string) []string {
+	modelNames := []string{modelName}
+	if normalized := ratio_setting.FormatMatchingModelName(modelName); normalized != "" && normalized != modelName {
+		modelNames = append(modelNames, normalized)
+	}
+	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
+		plainModel := strings.TrimSuffix(modelName, ratio_setting.CompactModelSuffix)
+		if plainModel != "" && plainModel != modelName {
+			modelNames = append(modelNames, plainModel)
+		}
+	}
+	return modelNames
+}
+
+func findSpecialBillingChannel(channels []*Channel, modelName string) *Channel {
+	sort.SliceStable(channels, func(i, j int) bool {
+		if channels[i] == nil || channels[j] == nil {
+			return channels[i] != nil
+		}
+		if channels[i].GetPriority() != channels[j].GetPriority() {
+			return channels[i].GetPriority() > channels[j].GetPriority()
+		}
+		if channels[i].GetWeight() != channels[j].GetWeight() {
+			return channels[i].GetWeight() > channels[j].GetWeight()
+		}
+		return channels[i].Id < channels[j].Id
+	})
+	for _, channel := range channels {
+		if channel == nil || channel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		setting := channel.GetSetting()
+		if setting.EmergencyPlanEnabled || setting.FallbackModelEnabled || !setting.SpecialBilling {
+			continue
+		}
+		for _, candidateModel := range channelModelCandidates(modelName) {
+			if _, ok := setting.SpecialBillingPrices[candidateModel]; ok {
+				return channel
+			}
+		}
+	}
+	return nil
+}
+
 // GetFallbackChannelsFromDB 从数据库查询所有启用兜底模式且状态为启用的渠道。
 // 用于 MemoryCacheEnabled=false 时的兜底渠道查询回退路径。
 func GetFallbackChannelsFromDB() ([]*Channel, error) {

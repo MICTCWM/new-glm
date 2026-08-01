@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -258,14 +259,22 @@ func channelSpecialPriceData(info *relaycommon.RelayInfo, inputTokens int, group
 	if info.OriginModelName != "" && strings.HasSuffix(info.OriginModelName, ratio_setting.CompactModelSuffix) {
 		candidateModels = append(candidateModels, strings.TrimSuffix(info.OriginModelName, ratio_setting.CompactModelSuffix))
 	}
-	price, ok := 0.0, false
-	for _, m := range candidateModels {
-		if m == "" {
-			continue
+	price, ok := resolveChannelSpecialPrice(settings, candidateModels, inputTokens)
+	if !ok && settings.EmergencyPlanEnabled {
+		group := info.UsingGroup
+		if group == "" || group == "auto" {
+			group = info.TokenGroup
 		}
-		if p, found := settings.ResolveSpecialBillingPrice(m, inputTokens); found {
-			price, ok = p, true
-			break
+		if group == "" || group == "auto" {
+			group = info.UserGroup
+		}
+		if billingChannel, err := model.GetSpecialBillingChannel(group, info.OriginModelName); err != nil {
+			common.SysError(fmt.Sprintf("find emergency billing source failed: group=%s, model=%s, err=%v", group, info.OriginModelName, err))
+		} else if billingChannel != nil {
+			price, ok = resolveChannelSpecialPrice(billingChannel.GetSetting(), candidateModels, inputTokens)
+			if ok {
+				common.SysLog(fmt.Sprintf("emergency channel uses special billing source: emergency_channel_id=%d, billing_channel_id=%d, model=%s", info.ChannelId, billingChannel.Id, info.OriginModelName))
+			}
 		}
 	}
 	if !ok {
@@ -277,6 +286,18 @@ func channelSpecialPriceData(info *relaycommon.RelayInfo, inputTokens int, group
 		quota = 0
 	}
 	return types.PriceData{FreeModel: freeModel, ModelPrice: price, UsePrice: true, Quota: quota, QuotaToPreConsume: quota, GroupRatioInfo: groupRatioInfo}, true
+}
+
+func resolveChannelSpecialPrice(settings dto.ChannelSettings, candidateModels []string, inputTokens int) (float64, bool) {
+	for _, modelName := range candidateModels {
+		if modelName == "" {
+			continue
+		}
+		if price, found := settings.ResolveSpecialBillingPrice(modelName, inputTokens); found {
+			return price, true
+		}
+	}
+	return 0, false
 }
 
 func HasModelBillingConfig(modelName string) bool {
