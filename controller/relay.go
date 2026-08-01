@@ -401,45 +401,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, fmt.Sprintf("vision route: not triggered, model=%s, format=%s", relayInfo.OriginModelName, relayFormat))
 	}
 
-	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
-	if err != nil {
-		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
-		return
-	}
-
-	// 视觉路由触发时，按图片缓存状态覆盖预扣费
-	if relayInfo.VisionRouteTriggered {
-		feeQuota := service.CalcVisionRouteFeeQuotaByCache(
-			priceData.GroupRatioInfo.GroupRatio,
-			relayInfo.VisionRouteCacheCreated,
-			relayInfo.VisionRouteCacheHits,
-		)
-		priceData.QuotaToPreConsume = feeQuota
-		priceData.FreeModel = false
-	}
-
-	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
-
-	if priceData.FreeModel {
-		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.GetDisplayModelName()))
-	} else {
-		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
-		if newAPIError != nil {
-			return
-		}
-	}
-
-	defer func() {
-		// Only return quota if downstream failed and quota was actually pre-consumed
-		if newAPIError != nil {
-			newAPIError = service.NormalizeViolationFeeError(newAPIError)
-			if relayInfo.Billing != nil {
-				relayInfo.Billing.Refund(c)
-			}
-			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
-		}
-	}()
-
 	retryParam := &service.RetryParam{
 		Ctx:            c,
 		TokenGroup:     relayInfo.TokenGroup,
@@ -492,6 +453,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		if selectedChannel != nil || len(acquiredTrackers) > 0 {
 			service.GetRpmQueue().NotifyRpmRelease()
+		}
+	}()
+
+	defer func() {
+		// Only return quota if downstream failed and quota was actually pre-consumed.
+		// Pricing is resolved after channel selection, so this defer must be installed
+		// before the first channel can create the billing session.
+		if newAPIError != nil {
+			newAPIError = service.NormalizeViolationFeeError(newAPIError)
+			if relayInfo.Billing != nil {
+				relayInfo.Billing.Refund(c)
+			}
+			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
 		}
 	}()
 
@@ -597,6 +571,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			common.SysLog(fmt.Sprintf("主循环内选中兜底渠道，转交循环外兜底检查处理: fallback_channel_id=%d", channel.Id))
 			break
 		}
+
+		if priceErr := refreshRelayChannelPricing(c, relayInfo, tokens, meta); priceErr != nil {
+			newAPIError = priceErr
+			break
+		}
+		if priceErr := ensureRelayPreConsume(c, relayInfo); priceErr != nil {
+			newAPIError = priceErr
+			break
+		}
+
 		addUsedChannel(c, channel)
 		// 将当前渠道ID添加到已使用列表，以便下次重试时排除
 		retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
@@ -743,41 +727,49 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 
 			if rpmAcquired {
-				addUsedChannel(c, fallbackChannel)
-				retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, fallbackChannel.Id)
-				relayInfo.RetryIndex = retryParam.GetRetry()
-				// The fallback is a new upstream request, so do not carry the
-				// primary handler's internal retry counter into its billing/logging.
-				relayInfo.UpstreamRetryCount = 0
-				relayInfo.ActualApiCallCount = 0
-
-				bodyStorage, bodyErr := common.GetBodyStorage(c)
-				if bodyErr != nil {
-					newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+				priceErr := refreshRelayChannelPricing(c, relayInfo, tokens, meta)
+				if priceErr == nil {
+					priceErr = ensureRelayPreConsume(c, relayInfo)
+				}
+				if priceErr != nil {
+					newAPIError = priceErr
 				} else {
-					c.Request.Body = io.NopCloser(bodyStorage)
-					if fallbackChannel.IsEmergencyPlanEnabled() {
-						c.Set("emergency_used", true)
-						c.Set("emergency_channel_id", fallbackChannel.Id)
-						sendEmergencyPlanThinkingNotice(c, relayInfo)
-					}
-					switch relayFormat {
-					case types.RelayFormatOpenAIRealtime:
-						newAPIError = relay.WssHelper(c, relayInfo)
-					case types.RelayFormatClaude:
-						newAPIError = relay.ClaudeHelper(c, relayInfo)
-					case types.RelayFormatGemini:
-						newAPIError = geminiRelayHandler(c, relayInfo)
-					default:
-						// 诊断日志：兜底请求执行前的状态
-						common.SysLog(fmt.Sprintf("fallback request starting: fallback_triggered=%v, fallback_channel_id=%d, relayMode=%d, originModel=%q, upstreamModel=%q, channelId=%d",
-							c.GetBool("fallback_triggered"),
-							c.GetInt("fallback_channel_id"),
-							relayInfo.RelayMode,
-							relayInfo.OriginModelName,
-							relayInfo.UpstreamModelName,
-							relayInfo.ChannelId))
-						newAPIError = relayHandler(c, relayInfo)
+					addUsedChannel(c, fallbackChannel)
+					retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, fallbackChannel.Id)
+					relayInfo.RetryIndex = retryParam.GetRetry()
+					// The fallback is a new upstream request, so do not carry the
+					// primary handler's internal retry counter into its billing/logging.
+					relayInfo.UpstreamRetryCount = 0
+					relayInfo.ActualApiCallCount = 0
+
+					bodyStorage, bodyErr := common.GetBodyStorage(c)
+					if bodyErr != nil {
+						newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+					} else {
+						c.Request.Body = io.NopCloser(bodyStorage)
+						if fallbackChannel.IsEmergencyPlanEnabled() {
+							c.Set("emergency_used", true)
+							c.Set("emergency_channel_id", fallbackChannel.Id)
+							sendEmergencyPlanThinkingNotice(c, relayInfo)
+						}
+						switch relayFormat {
+						case types.RelayFormatOpenAIRealtime:
+							newAPIError = relay.WssHelper(c, relayInfo)
+						case types.RelayFormatClaude:
+							newAPIError = relay.ClaudeHelper(c, relayInfo)
+						case types.RelayFormatGemini:
+							newAPIError = geminiRelayHandler(c, relayInfo)
+						default:
+							// 诊断日志：兜底请求执行前的状态
+							common.SysLog(fmt.Sprintf("fallback request starting: fallback_triggered=%v, fallback_channel_id=%d, relayMode=%d, originModel=%q, upstreamModel=%q, channelId=%d",
+								c.GetBool("fallback_triggered"),
+								c.GetInt("fallback_channel_id"),
+								relayInfo.RelayMode,
+								relayInfo.OriginModelName,
+								relayInfo.UpstreamModelName,
+								relayInfo.ChannelId))
+							newAPIError = relayHandler(c, relayInfo)
+						}
 					}
 				}
 				if newAPIError == nil {
@@ -1390,6 +1382,46 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 	return meta
 }
 
+// refreshRelayChannelPricing resolves billing after the distributor has selected
+// the actual channel. Channel-level special prices must be visible before the
+// first balance check and before any upstream handler can settle the request.
+func refreshRelayChannelPricing(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) *types.NewAPIError {
+	if meta == nil {
+		meta = &types.TokenCountMeta{}
+	}
+
+	// getChannel updates the context when a retry or fallback changes channels.
+	// Rebuild the snapshot every time so pricing never uses the previous channel.
+	info.InitChannelMeta(c)
+	priceData, err := helper.ModelPriceHelper(c, info, promptTokens, meta)
+	if err != nil {
+		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
+	}
+
+	if info.VisionRouteTriggered {
+		priceData.QuotaToPreConsume = service.CalcVisionRouteFeeQuotaByCache(
+			priceData.GroupRatioInfo.GroupRatio,
+			info.VisionRouteCacheCreated,
+			info.VisionRouteCacheHits,
+		)
+		priceData.FreeModel = false
+		info.PriceData = priceData
+	}
+
+	return nil
+}
+
+func ensureRelayPreConsume(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+	if info.Billing != nil {
+		return nil
+	}
+	if info.PriceData.FreeModel {
+		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", info.GetDisplayModelName()))
+		return nil
+	}
+	return service.PreConsumeBilling(c, info.PriceData.QuotaToPreConsume, info)
+}
+
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	// 兜底模型逻辑：故障转移时触发一次；全局超载或日用量超限时每次重试都优先使用兜底渠道。
 	// 注意：跨渠道重试由外层循环通过 CacheGetRandomSatisfiedChannel 选择相同模型
@@ -1456,8 +1488,8 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 				c.Set("model_mapping", "")
 				c.Set("fallback_model", fallbackModel)
 				// 兜底只改变上游实际请求模型，不改变用户请求模型。
-				// PriceData 已按 OriginModelName（当前请求模型）计算，必须保留，
-				// 以免按兜底渠道的真实模型价格向用户计费。
+				// 计费会在 getChannel 返回后重新解析，仍以 OriginModelName 为基础，
+				// 同时允许该兜底渠道自己的特殊价格覆盖全局价格。
 			}
 			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 			return fallbackChannel, nil
