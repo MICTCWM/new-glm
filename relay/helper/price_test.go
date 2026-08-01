@@ -94,3 +94,40 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	require.Equal(t, billing_setting.BillingModeTieredExpr, info.TieredBillingSnapshot.BillingMode)
 	require.Equal(t, common.QuotaPerUnit, info.TieredBillingSnapshot.QuotaPerUnit)
 }
+
+// TestModelPriceHelperMatchesCompactSuffixedModel covers the real routing case:
+// RelayInfo.OriginModelName carries the "-openai-compact" suffix (added by the
+// ratio setting), but special billing prices are configured with the plain model
+// name. The channel-specific price must still win over the global price.
+func TestModelPriceHelperMatchesCompactSuffixedModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("group", "default")
+
+	limit := int64(272000)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "special-model-openai-compact",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelId: 1,
+			ChannelSetting: dto.ChannelSettings{
+				SpecialBilling: true,
+				SpecialBillingPrices: map[string][]dto.SpecialBillingPrice{
+					"special-model": {
+						{MaxInputTokens: &limit, Price: 1},
+						{Price: 2},
+					},
+				},
+			},
+		},
+	}
+
+	priceData, err := ModelPriceHelper(ctx, info, 272001, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	require.True(t, priceData.UsePrice)
+	require.Equal(t, float64(2), priceData.ModelPrice)
+	require.Equal(t, int(2*common.QuotaPerUnit), priceData.QuotaToPreConsume)
+}

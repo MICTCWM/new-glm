@@ -241,7 +241,33 @@ func channelSpecialPriceData(info *relaycommon.RelayInfo, inputTokens int, group
 	// routing. Use that snapshot instead of querying the database for every
 	// request; it also keeps pricing helpers usable in isolated unit tests.
 	settings := info.ChannelMeta.ChannelSetting
-	price, ok := settings.ResolveSpecialBillingPrice(info.OriginModelName, inputTokens)
+	// Try several candidate model names: a channel may apply model mapping,
+	// which rewrites OriginModelName to the upstream model, while the special
+	// billing prices were configured using the model name shown in the channel
+	// editor. Match any of the available names so the channel-specific price
+	// always takes precedence over the global price.
+	candidateModels := []string{
+		info.OriginModelName,
+		info.UpstreamModelName,
+		info.DisplayModelName,
+	}
+	// OriginModelName carries the "-openai-compact" suffix added by the ratio
+	// setting, while special billing prices are configured with the plain model
+	// name shown in the channel editor. Try the de-suffixed name too so the
+	// channel-specific price is matched.
+	if info.OriginModelName != "" && strings.HasSuffix(info.OriginModelName, ratio_setting.CompactModelSuffix) {
+		candidateModels = append(candidateModels, strings.TrimSuffix(info.OriginModelName, ratio_setting.CompactModelSuffix))
+	}
+	price, ok := 0.0, false
+	for _, m := range candidateModels {
+		if m == "" {
+			continue
+		}
+		if p, found := settings.ResolveSpecialBillingPrice(m, inputTokens); found {
+			price, ok = p, true
+			break
+		}
+	}
 	if !ok {
 		return types.PriceData{}, false
 	}

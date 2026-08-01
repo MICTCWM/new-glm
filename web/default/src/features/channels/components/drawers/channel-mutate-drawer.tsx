@@ -550,6 +550,7 @@ export function ChannelMutateDrawer({
       { ...specialBillingPrices, [specialBillingModel]: sorted },
       { shouldDirty: true }
     )
+    form.setValue('special_billing', true, { shouldDirty: true })
     setSpecialBillingModel(null)
   }, [form, specialBillingDraft, specialBillingModel, specialBillingPrices, t])
   // 兜底/GPT 模式开启时不允许自动禁用，避免兜底通道被误禁用导致整体不可用
