@@ -2377,18 +2377,18 @@ export function ChannelMutateDrawer({
                           onChange={handleModelsChange}
                           placeholder={t('Select models or add custom ones')}
                         />
-                        {specialBilling && (
-                          <div className='mt-3 space-y-2 rounded-lg border p-3'>
-                            <div className='text-sm font-medium'>{t('Model prices')}</div>
-                            {currentModelsArray.map((modelName) => (
-                              <div key={modelName} className='flex items-center justify-between gap-2'>
-                                <span className='font-mono text-xs'>{modelName}</span>
-                                <Button type='button' variant='outline' size='sm' onClick={() => setSpecialBillingModel(modelName)}>{t('Set Model Price')}</Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </FormControl>
+                      {specialBilling && (
+                        <div className='mt-3 space-y-2 rounded-lg border p-3'>
+                          <div className='text-sm font-medium'>{t('Model prices')}</div>
+                          {currentModelsArray.map((modelName) => (
+                            <div key={modelName} className='flex items-center justify-between gap-2'>
+                              <span className='font-mono text-xs'>{modelName}</span>
+                              <Button type='button' variant='outline' size='sm' onClick={() => setSpecialBillingModel(modelName)}>{t('Set Model Price')}</Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <FormDescription>
                         <div className='flex flex-col gap-2'>
                           <span>{t(FIELD_DESCRIPTIONS.MODELS)}</span>
