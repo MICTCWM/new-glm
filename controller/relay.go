@@ -183,6 +183,10 @@ func requestContextIsCancelled(c *gin.Context) bool {
 	return c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled)
 }
 
+func shouldRefundRelayBilling(c *gin.Context) bool {
+	return c == nil || !c.GetBool("request_context_cancelled")
+}
+
 // markContextCancelledResponse keeps the HTTP status successful while retaining
 // the original cancellation detail for the admin/error log. A cancellation can
 // be caused by the client disconnecting, so it must not be reported as a relay
@@ -460,7 +464,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// before the first channel can create the billing session.
 		if newAPIError != nil {
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
-			if relayInfo.Billing != nil {
+			if relayInfo.Billing != nil && shouldRefundRelayBilling(c) {
 				relayInfo.Billing.Refund(c)
 			}
 			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
