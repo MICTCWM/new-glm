@@ -3,16 +3,63 @@ package service
 import (
 	"encoding/base64"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 )
+
+// RecordSpecialUsageFromRelay writes the final upstream usage and user-side
+// charge to the independent monitoring ledger. It intentionally does not use
+// LogConsumeEnabled, so legacy log retention settings cannot disable cost
+// accounting.
+func RecordSpecialUsageFromRelay(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, inputTokens, outputTokens, userQuota int, status, errorMessage string) {
+	if len(errorMessage) > 512 { errorMessage = errorMessage[:512] }
+	if relayInfo == nil || relayInfo.ChannelId <= 0 {
+		return
+	}
+	requestID := relayInfo.RequestId
+	if requestID == "" && ctx != nil {
+		requestID = ctx.GetString(common.RequestIdKey)
+	}
+	channelName := ""
+	if ctx != nil {
+		channelName = common.GetContextKeyString(ctx, constant.ContextKeyChannelName)
+		if channelName == "" {
+			channelName = ctx.GetString("channel_name")
+		}
+	}
+	modelName := relayInfo.GetDisplayModelName()
+	if modelName == "" {
+		modelName = relayInfo.OriginModelName
+	}
+	channelSetting := dto.ChannelSettings{}
+	if relayInfo.ChannelMeta != nil {
+		channelSetting = relayInfo.ChannelMeta.ChannelSetting
+	}
+	model.RecordSpecialUsage(model.SpecialUsageCostInput{
+		RequestID:       requestID,
+		UserID:          relayInfo.UserId,
+		ChannelID:       relayInfo.ChannelId,
+		ChannelName:     channelName,
+		GroupName:       relayInfo.UsingGroup,
+		ModelName:       modelName,
+		InputTokens:     inputTokens,
+		OutputTokens:    outputTokens,
+		UserChargeQuota: userQuota,
+		Status:          status,
+		ErrorMessage:    errorMessage,
+		RequestTime:     time.Now().Unix(),
+		ChannelSetting:  channelSetting,
+	})
+}
 
 func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
 	if other == nil {

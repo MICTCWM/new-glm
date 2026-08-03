@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { type TFunction } from 'i18next'
 import {
   Box,
+  ChartNoAxesCombined,
   CreditCard,
   Layout,
   Settings,
@@ -93,6 +94,11 @@ export function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
           title: t('Channel Abilities'),
           icon: Box,
           url: '/system-settings/ability/',
+        },
+        {
+          title: t('Special Usage Monitoring'),
+          icon: ChartNoAxesCombined,
+          url: '/system-settings/special-usage',
         },
       ],
     },

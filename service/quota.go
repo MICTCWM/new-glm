@@ -292,6 +292,11 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		RetryCount:       relayInfo.UpstreamRetryCount,
 		Other:            other,
 	})
+	status := model.SpecialUsageStatusSuccess
+	if totalTokens == 0 {
+		status = model.SpecialUsageStatusFailed
+	}
+	RecordSpecialUsageFromRelay(ctx, relayInfo, usage.InputTokens, usage.OutputTokens, quota, status, "")
 }
 
 func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData) int {
@@ -432,6 +437,11 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		RetryCount:       relayInfo.UpstreamRetryCount,
 		Other:            other,
 	})
+	status := model.SpecialUsageStatusSuccess
+	if totalTokens == 0 {
+		status = model.SpecialUsageStatusFailed
+	}
+	RecordSpecialUsageFromRelay(ctx, relayInfo, usage.PromptTokens, usage.CompletionTokens, quota, status, "")
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(usage.CompletionTokens))
 	})

@@ -463,6 +463,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Pricing is resolved after channel selection, so this defer must be installed
 		// before the first channel can create the billing session.
 		if newAPIError != nil {
+			if relayInfo != nil { service.RecordSpecialUsageFromRelay(c, relayInfo, relayInfo.GetEstimatePromptTokens(), 0, 0, model.SpecialUsageStatusFailed, newAPIError.GetUserFriendlyMessage()) }
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
 			if relayInfo.Billing != nil && shouldRefundRelayBilling(c) {
 				relayInfo.Billing.Refund(c)

@@ -68,6 +68,7 @@ import { Route as AuthenticatedSystemSettingsContentIndexRouteImport } from './r
 import { Route as AuthenticatedSystemSettingsBillingIndexRouteImport } from './routes/_authenticated/system-settings/billing/index'
 import { Route as AuthenticatedSystemSettingsAuthIndexRouteImport } from './routes/_authenticated/system-settings/auth/index'
 import { Route as AuthenticatedSystemSettingsAbilityIndexRouteImport } from './routes/_authenticated/system-settings/ability/index'
+import { Route as AuthenticatedSystemSettingsSpecialUsageRouteImport } from './routes/_authenticated/system-settings/special-usage'
 import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
 import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
 import { Route as AuthenticatedSystemSettingsOperationsSectionRouteImport } from './routes/_authenticated/system-settings/operations/$section'
@@ -398,6 +399,12 @@ const AuthenticatedSystemSettingsAbilityIndexRoute =
     path: '/ability/',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedSystemSettingsSpecialUsageRoute =
+  AuthenticatedSystemSettingsSpecialUsageRouteImport.update({
+    id: '/special-usage',
+    path: '/special-usage',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
 const AuthenticatedSystemSettingsSiteSectionRoute =
   AuthenticatedSystemSettingsSiteSectionRouteImport.update({
     id: '/site/$section',
@@ -505,6 +512,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/system-settings/ability/': typeof AuthenticatedSystemSettingsAbilityIndexRoute
+  '/system-settings/special-usage': typeof AuthenticatedSystemSettingsSpecialUsageRoute
   '/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/system-settings/content/': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -571,6 +579,7 @@ export interface FileRoutesByTo {
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/system-settings/ability': typeof AuthenticatedSystemSettingsAbilityIndexRoute
+  '/system-settings/special-usage': typeof AuthenticatedSystemSettingsSpecialUsageRoute
   '/system-settings/auth': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/system-settings/content': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -641,6 +650,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/_authenticated/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/_authenticated/system-settings/ability/': typeof AuthenticatedSystemSettingsAbilityIndexRoute
+  '/_authenticated/system-settings/special-usage': typeof AuthenticatedSystemSettingsSpecialUsageRoute
   '/_authenticated/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/_authenticated/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/_authenticated/system-settings/content/': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -1230,7 +1240,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof authUserResetRouteImport
       parentRoute: typeof authRouteRoute
     }
-    '/_authenticated/system-settings/site/': {
+    '/_authenticated/system-settings/special-usage': {
+      id: '/_authenticated/system-settings/special-usage'
+      path: '/special-usage'
+      fullPath: '/system-settings/special-usage'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsSpecialUsageRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
       id: '/_authenticated/system-settings/site/'
       path: '/site'
       fullPath: '/system-settings/site/'
@@ -1387,6 +1403,7 @@ interface AuthenticatedSystemSettingsRouteRouteChildren {
   AuthenticatedSystemSettingsSecuritySectionRoute: typeof AuthenticatedSystemSettingsSecuritySectionRoute
   AuthenticatedSystemSettingsSiteSectionRoute: typeof AuthenticatedSystemSettingsSiteSectionRoute
   AuthenticatedSystemSettingsAbilityIndexRoute: typeof AuthenticatedSystemSettingsAbilityIndexRoute
+  AuthenticatedSystemSettingsSpecialUsageRoute: typeof AuthenticatedSystemSettingsSpecialUsageRoute
   AuthenticatedSystemSettingsAuthIndexRoute: typeof AuthenticatedSystemSettingsAuthIndexRoute
   AuthenticatedSystemSettingsBillingIndexRoute: typeof AuthenticatedSystemSettingsBillingIndexRoute
   AuthenticatedSystemSettingsContentIndexRoute: typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -1419,6 +1436,8 @@ const AuthenticatedSystemSettingsRouteRouteChildren: AuthenticatedSystemSettings
       AuthenticatedSystemSettingsSiteSectionRoute,
     AuthenticatedSystemSettingsAbilityIndexRoute:
       AuthenticatedSystemSettingsAbilityIndexRoute,
+    AuthenticatedSystemSettingsSpecialUsageRoute:
+      AuthenticatedSystemSettingsSpecialUsageRoute,
     AuthenticatedSystemSettingsAuthIndexRoute:
       AuthenticatedSystemSettingsAuthIndexRoute,
     AuthenticatedSystemSettingsBillingIndexRoute:

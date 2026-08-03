@@ -356,7 +356,22 @@ func SetApiRouter(router *gin.Engine) {
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
-			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)
+		logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)
+		}
+
+		// Special usage monitoring is an independent admin-only ledger. It is
+		// intentionally separate from the legacy order and usage-log endpoints.
+		specialUsageRoute := apiRouter.Group("/special-usage")
+		specialUsageRoute.Use(middleware.AdminAuth())
+		{
+			specialUsageRoute.GET("/metadata", controller.GetSpecialUsageMetadata)
+			specialUsageRoute.GET("/overview", controller.GetSpecialUsageOverview)
+			specialUsageRoute.GET("/forecast", controller.GetSpecialUsageForecast)
+			specialUsageRoute.GET("/records", controller.GetSpecialUsageRecords)
+			specialUsageRoute.GET("/export", controller.ExportSpecialUsage)
+			specialUsageRoute.GET("/profit", controller.GetSpecialUsageProfit)
+			specialUsageRoute.GET("/validate", controller.ValidateSpecialUsageConfig)
+			specialUsageRoute.PUT("/config", controller.SaveSpecialUsageMonitorConfig)
 		}
 		groupRoute := apiRouter.Group("/group")
 		groupRoute.Use(middleware.AdminAuth())

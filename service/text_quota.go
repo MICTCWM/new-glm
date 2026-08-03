@@ -524,6 +524,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		RetryCount:       relayInfo.UpstreamRetryCount,
 		Other:            other,
 	})
+	status := model.SpecialUsageStatusSuccess
+	if summary.TotalTokens == 0 && !relayInfo.VisionRouteTriggered {
+		status = model.SpecialUsageStatusFailed
+	}
+	RecordSpecialUsageFromRelay(ctx, relayInfo, summary.PromptTokens, summary.CompletionTokens, summary.Quota, status, "")
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
 	})
