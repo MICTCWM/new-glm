@@ -130,10 +130,10 @@ func Distribute() func(c *gin.Context) {
 						userSettingVal, _ := common.GetContextKey(c, constant.ContextKeyUserSetting)
 						userSetting, _ := userSettingVal.(dto.UserSetting)
 						if preferred.Status != common.ChannelStatusEnabled {
-							if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
-								abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
-								return
-							}
+							// A stale affinity entry must not turn a temporarily disabled
+							// channel into a hard request rejection. Continue below so the
+							// normal stable selection and the existing fallback/emergency
+							// flow can choose an available route.
 						} else if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)

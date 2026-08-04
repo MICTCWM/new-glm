@@ -726,7 +726,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
 			if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 				c.Set("channel_affinity_failure", true)
-				c.Set("source_channel_supports_fallback", false)
 			}
 			break
 		}
@@ -738,9 +737,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// Try every available fallback channel in order. For an oversized context,
 	// keep the existing special case and replace the fallback chain with one
 	// more request to the channel that is already selected.
-	canFallback := !c.GetBool("channel_affinity_failure") &&
-		(c.GetBool("source_channel_supports_fallback") || fallbackTransferTriggered(c)) &&
-		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds)
+	canFallback := canRelayFallback(c, retryParam)
 	if canFallback && shouldReplaceFallbackWithRetry(relayInfo) {
 		common.SysLog(fmt.Sprintf("输入 token 超过兜底限制，跳过兜底并对当前渠道额外重试: tokens=%d, limit=%d",
 			relayInfo.GetEstimatePromptTokens(), fallbackInputTokenLimit))
@@ -1515,6 +1512,18 @@ func shouldSkipFallbackChannelForNormalSelection(c *gin.Context, channel *model.
 	return !c.GetBool("fallback_triggered") &&
 		!c.GetBool("fallback_force_next") &&
 		!fallbackTransferTriggered(c)
+}
+
+// canRelayFallback keeps failure-based fallback independent from the normal
+// retry policy. Channel affinity may stop a request from switching between
+// ordinary channels, but it must not disable an explicitly configured
+// fallback or emergency route after the source channel fails.
+func canRelayFallback(c *gin.Context, retryParam *service.RetryParam) bool {
+	if c == nil || retryParam == nil {
+		return false
+	}
+	return (c.GetBool("source_channel_supports_fallback") || fallbackTransferTriggered(c)) &&
+		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds)
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {

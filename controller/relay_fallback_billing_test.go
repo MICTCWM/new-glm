@@ -84,6 +84,53 @@ func TestGetChannelFallbackKeepsRequestModelPricing(t *testing.T) {
 		"fallback routing must not replace the request model's billing price")
 }
 
+func TestChannelAffinityFailureStillAllowsFallback(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+	})
+
+	fallbackChannel := &model.Channel{
+		Id:     903,
+		Type:   constant.ChannelTypeOpenAI,
+		Key:    "sk-affinity-fallback",
+		Name:   "affinity-fallback-channel",
+		Status: common.ChannelStatusEnabled,
+		Group:  "default",
+	}
+	fallbackChannel.SetSetting(dto.ChannelSettings{
+		FallbackModelEnabled: true,
+		FallbackModel:        "fallback-model",
+	})
+	require.NoError(t, db.Create(fallbackChannel).Error)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("channel_affinity_failure", true)
+	ctx.Set("source_channel_supports_fallback", true)
+	ctx.Set("fallback_force_next", true)
+	retryParam := &service.RetryParam{
+		Ctx:            ctx,
+		TokenGroup:     "default",
+		ModelName:      "requested-model",
+		Retry:          common.GetPointer(1),
+		UsedChannelIds: []int{},
+	}
+
+	require.True(t, canRelayFallback(ctx, retryParam),
+		"affinity retry suppression must not disable configured fallback routing")
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "requested-model",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	channel, apiErr := getChannel(ctx, info, retryParam)
+	require.Nil(t, apiErr)
+	require.NotNil(t, channel)
+	require.Equal(t, fallbackChannel.Id, channel.Id)
+}
+
 func TestGetChannelSelectsFallbackChannelsInOrder(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	oldMemoryCacheEnabled := common.MemoryCacheEnabled
