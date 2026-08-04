@@ -11,7 +11,7 @@ import (
 func TestVisionRouteCacheExpires(t *testing.T) {
 	ClearVisionRouteCache()
 	createdAt := time.Date(2026, time.July, 12, 12, 0, 0, 0, time.UTC)
-	putVisionRouteCache("image-key", "description", createdAt)
+	putVisionRouteCache("image-key", "description", "", "", 0, createdAt)
 
 	if got, ok := getVisionRouteCache("image-key", createdAt.Add(VisionRouteCacheTTL-time.Second)); !ok || got != "description" {
 		t.Fatalf("expected cache hit before TTL, got %q, %v", got, ok)

@@ -16,12 +16,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func specialUsageUsageSource(inputTokens, outputTokens int, status string) string {
+	if inputTokens > 0 || outputTokens > 0 {
+		return "upstream"
+	}
+	if status == model.SpecialUsageStatusSuccess {
+		return "fixed_price"
+	}
+	return "none"
+}
+
 // RecordSpecialUsageFromRelay writes the final upstream usage and user-side
 // charge to the independent monitoring ledger. It intentionally does not use
 // LogConsumeEnabled, so legacy log retention settings cannot disable cost
 // accounting.
 func RecordSpecialUsageFromRelay(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, inputTokens, outputTokens, userQuota int, status, errorMessage string) {
-	if len(errorMessage) > 512 { errorMessage = errorMessage[:512] }
+	if len(errorMessage) > 512 {
+		errorMessage = errorMessage[:512]
+	}
 	if relayInfo == nil || relayInfo.ChannelId <= 0 {
 		return
 	}
@@ -40,24 +52,54 @@ func RecordSpecialUsageFromRelay(ctx *gin.Context, relayInfo *relaycommon.RelayI
 	if modelName == "" {
 		modelName = relayInfo.OriginModelName
 	}
+	groupName := strings.TrimSpace(relayInfo.UsingGroup)
+	if groupName == "" || groupName == "auto" {
+		groupName = strings.TrimSpace(relayInfo.TokenGroup)
+	}
+	if groupName == "" || groupName == "auto" {
+		groupName = strings.TrimSpace(relayInfo.UserGroup)
+	}
 	channelSetting := dto.ChannelSettings{}
 	if relayInfo.ChannelMeta != nil {
 		channelSetting = relayInfo.ChannelMeta.ChannelSetting
 	}
+	monitorConfig := model.GetSpecialUsageConfig()
+	selected := monitorConfig.Enabled && len(monitorConfig.GroupNames) > 0 && len(monitorConfig.ModelNames) > 0
+	if selected {
+		selected = model.SpecialUsageChannelMatches(monitorConfig, relayInfo.ChannelId, modelName, groupName)
+	}
 	model.RecordSpecialUsage(model.SpecialUsageCostInput{
-		RequestID:       requestID,
-		UserID:          relayInfo.UserId,
-		ChannelID:       relayInfo.ChannelId,
-		ChannelName:     channelName,
-		GroupName:       relayInfo.UsingGroup,
-		ModelName:       modelName,
-		InputTokens:     inputTokens,
-		OutputTokens:    outputTokens,
-		UserChargeQuota: userQuota,
-		Status:          status,
-		ErrorMessage:    errorMessage,
-		RequestTime:     time.Now().Unix(),
-		ChannelSetting:  channelSetting,
+		RequestID:                  requestID,
+		UserID:                     relayInfo.UserId,
+		ChannelID:                  relayInfo.ChannelId,
+		ChannelName:                channelName,
+		GroupName:                  groupName,
+		ModelName:                  modelName,
+		InputTokens:                inputTokens,
+		OutputTokens:               outputTokens,
+		UserChargeQuota:            userQuota,
+		Status:                     status,
+		ErrorMessage:               errorMessage,
+		RequestTime:                time.Now().Unix(),
+		ChannelSetting:             channelSetting,
+		FrozenChannelSetting:       relayInfo.SpecialUsageChannelSetting,
+		FrozenChannelSettingValid:  relayInfo.SpecialUsageChannelSettingValid,
+		FrozenModelPrice:           relayInfo.PriceData.ModelPrice,
+		FrozenModelRatio:           relayInfo.PriceData.ModelRatio,
+		FrozenCompletionRatio:      relayInfo.PriceData.CompletionRatio,
+		FrozenUsePrice:             relayInfo.PriceData.UsePrice,
+		FrozenPriceValid:           true,
+		FrozenSpecialBilling:       relayInfo.SpecialUsageConfigSpecialBilling,
+		FrozenSpecialBillingValid:  relayInfo.SpecialUsageConfigBillingValid,
+		SpecialUsageConfig:         monitorConfig,
+		SpecialUsageConfigValid:    true,
+		SpecialUsageSelected:       selected,
+		SpecialUsageSelectionValid: true,
+		FrozenMultiplier:           model.GetSpecialUsageMultiplier(monitorConfig, relayInfo.ChannelId, groupName),
+		FrozenMultiplierValid:      true,
+		FrozenPriceSource:          relayInfo.SpecialUsageBillingSource,
+		Attempt:                    relayInfo.SpecialUsageAttempt,
+		UsageSource:                specialUsageUsageSource(inputTokens, outputTokens, status),
 	})
 }
 

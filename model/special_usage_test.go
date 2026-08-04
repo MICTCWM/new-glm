@@ -1,6 +1,9 @@
 package model
 
 import (
+	"archive/zip"
+	"bytes"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -41,7 +44,7 @@ func TestMergeSpecialUsageRecordPrefersFinalUsage(t *testing.T) {
 		Multiplier:       0.5,
 		UsedSpecialPrice: true,
 		Status:           SpecialUsageStatusSuccess,
-		RequestTime:     200,
+		RequestTime:      200,
 	}
 
 	merged, improved := mergeSpecialUsageRecord(existing, incoming)
@@ -132,4 +135,101 @@ func TestUpdateSpecialUsageHourlyBackfillsZeroDeltaRetry(t *testing.T) {
 	require.Equal(t, record.OutputTokens, hourly.OutputTokens)
 	require.InDelta(t, record.UpstreamCostUSD, hourly.UpstreamCostUSD, 1e-9)
 	require.InDelta(t, record.UserChargeUSD, hourly.UserChargeUSD, 1e-9)
+}
+
+func TestNormalizeSpecialUsageConfigInfersExplicitChannelSelection(t *testing.T) {
+	config := normalizeSpecialUsageConfig(SpecialUsageConfig{
+		ChannelIDs:         []int{9, 3, 9},
+		ChannelMultipliers: map[string]float64{"3": 2, "9": 0},
+	})
+
+	if !config.ChannelIDsSet {
+		t.Fatal("expected a non-empty legacy channel list to become explicit")
+	}
+	if len(config.ChannelIDs) != 2 || config.ChannelIDs[0] != 3 || config.ChannelIDs[1] != 9 {
+		t.Fatalf("unexpected normalized channel ids: %#v", config.ChannelIDs)
+	}
+	if config.ChannelMultipliers["9"] != 1 {
+		t.Fatalf("invalid multiplier should fall back to 1, got %v", config.ChannelMultipliers["9"])
+	}
+}
+
+func TestSpecialUsageChannelSelectionDistinguishesEmptyExplicitList(t *testing.T) {
+	channel := &Channel{Id: 7, Group: "default,paid", Models: "gpt-4o,gpt-4o-mini"}
+
+	base := SpecialUsageConfig{
+		Enabled:    true,
+		GroupNames: []string{"paid"},
+		ModelNames: []string{"gpt-4o"},
+	}
+	if !specialUsageChannelSelected(base, channel, "gpt-4o") {
+		t.Fatal("expected an unset channel selection to match for compatibility")
+	}
+	if !specialUsageChannelSelected(base, channel, "") {
+		t.Fatal("expected an empty model name to match the channel model intersection")
+	}
+
+	base.ChannelIDsSet = true
+	if specialUsageChannelSelected(base, channel, "gpt-4o") {
+		t.Fatal("an explicit empty channel selection must match no channels")
+	}
+
+	base.ChannelIDs = []int{7}
+	if !specialUsageChannelSelected(base, channel, "gpt-4o") {
+		t.Fatal("expected the explicitly selected channel to match")
+	}
+}
+
+func TestMarkSpecialUsageAnomaliesUsesStrictThirtyPercent(t *testing.T) {
+	overview := SpecialUsageOverview{
+		Channels: []SpecialUsageChannelStat{
+			{ChannelID: 1, RequestCount: 1, UpstreamCostUSD: 7, AverageCostUSD: 7},
+			{ChannelID: 2, RequestCount: 1, UpstreamCostUSD: 13, AverageCostUSD: 13},
+		},
+	}
+	markSpecialUsageAnomalies(&overview)
+	require.InDelta(t, 10.0, overview.Channels[0].BaselineCostUSD, 1e-9)
+	require.False(t, overview.Channels[0].Anomaly)
+	require.False(t, overview.Channels[1].Anomaly)
+
+	overview.Channels[0].AverageCostUSD = 6.9
+	overview.Channels[0].UpstreamCostUSD = 6.9
+	markSpecialUsageAnomalies(&overview)
+	require.True(t, overview.Channels[0].Anomaly)
+	require.NotEmpty(t, overview.Channels[0].AnomalyReason)
+}
+
+func TestWriteSpecialUsageXLSX(t *testing.T) {
+	var output bytes.Buffer
+	records := []SpecialUsageRecord{{
+		RequestID:       "request-1",
+		ChannelID:       7,
+		ChannelName:     "Channel & One",
+		GroupName:       "paid",
+		ModelName:       "model",
+		InputTokens:     12,
+		OutputTokens:    3,
+		UpstreamCostUSD: 0.125,
+		UserChargeUSD:   0.2,
+		Status:          SpecialUsageStatusSuccess,
+		RequestTime:     1_700_000_000,
+	}}
+	require.NoError(t, WriteSpecialUsageXLSX(&output, records))
+
+	reader, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
+	require.NoError(t, err)
+	files := make(map[string]string, len(reader.File))
+	for _, file := range reader.File {
+		handle, openErr := file.Open()
+		require.NoError(t, openErr)
+		content, readErr := io.ReadAll(handle)
+		require.NoError(t, handle.Close())
+		require.NoError(t, readErr)
+		files[file.Name] = string(content)
+	}
+	require.Contains(t, files, "[Content_Types].xml")
+	require.Contains(t, files, "xl/workbook.xml")
+	require.Contains(t, files, "xl/worksheets/sheet1.xml")
+	require.Contains(t, files["xl/worksheets/sheet1.xml"], `r="B2"><v>7</v>`)
+	require.Contains(t, files["xl/worksheets/sheet1.xml"], "Channel &amp; One")
 }

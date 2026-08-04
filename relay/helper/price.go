@@ -242,6 +242,12 @@ func channelSpecialPriceData(info *relaycommon.RelayInfo, inputTokens int, group
 	// routing. Use that snapshot instead of querying the database for every
 	// request; it also keeps pricing helpers usable in isolated unit tests.
 	settings := info.ChannelMeta.ChannelSetting
+	// Freeze the selected channel settings immediately. If an emergency channel
+	// supplies the actual special price below, this snapshot is replaced with
+	// the emergency billing source settings.
+	info.SpecialUsageChannelSetting = settings
+	info.SpecialUsageChannelSettingValid = true
+	info.SpecialUsageBillingSource = "channel"
 	// Try several candidate model names: a channel may apply model mapping,
 	// which rewrites OriginModelName to the upstream model, while the special
 	// billing prices were configured using the model name shown in the channel
@@ -271,8 +277,12 @@ func channelSpecialPriceData(info *relaycommon.RelayInfo, inputTokens int, group
 		if billingChannel, err := model.GetSpecialBillingChannel(group, info.OriginModelName); err != nil {
 			common.SysError(fmt.Sprintf("find emergency billing source failed: group=%s, model=%s, err=%v", group, info.OriginModelName, err))
 		} else if billingChannel != nil {
-			price, ok = resolveChannelSpecialPrice(billingChannel.GetSetting(), candidateModels, inputTokens)
+			billingSetting := billingChannel.GetSetting()
+			price, ok = resolveChannelSpecialPrice(billingSetting, candidateModels, inputTokens)
 			if ok {
+				info.SpecialUsageChannelSetting = billingSetting
+				info.SpecialUsageChannelSettingValid = true
+				info.SpecialUsageBillingSource = fmt.Sprintf("emergency_channel:%d", billingChannel.Id)
 				common.SysLog(fmt.Sprintf("emergency channel uses special billing source: emergency_channel_id=%d, billing_channel_id=%d, model=%s", info.ChannelId, billingChannel.Id, info.OriginModelName))
 			}
 		}

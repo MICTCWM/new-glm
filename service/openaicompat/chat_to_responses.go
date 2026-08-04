@@ -131,12 +131,65 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 				continue
 			}
 			if msg.IsStringContent() {
-				if s := strings.TrimSpace(msg.StringContent()); s != "" {
+				if s := strings.TrimSpace(msg.StringContent()); "" != s {
 					instructionsParts = append(instructionsParts, s)
 				}
 				continue
 			}
 			parts := msg.ParseContent()
+			// 若 system 携带 cache_control 断点，则保留为结构化 input item
+			// （instructions 是单一字符串，无法承载 cache_control），以便上游命中缓存。
+			hasCache := false
+			for _, part := range parts {
+				if len(part.CacheControl) > 0 {
+					hasCache = true
+					break
+				}
+			}
+			if hasCache {
+				sysParts := make([]map[string]any, 0, len(parts))
+				for _, part := range parts {
+					if part.Type != dto.ContentTypeText {
+						continue
+					}
+					p := map[string]any{
+						"type": "input_text",
+						"text": part.Text,
+					}
+					if len(part.CacheControl) > 0 {
+						var cc map[string]any
+						if err := common.Unmarshal(part.CacheControl, &cc); err == nil {
+							p["cache_control"] = cc
+						} else {
+							p["cache_control"] = part.CacheControl
+						}
+					}
+					sysParts = append(sysParts, p)
+				}
+				// 无文本 part 时（极端情况）回退到 instructions，避免 system 内容丢失
+				if len(sysParts) == 0 {
+					var sb strings.Builder
+					for _, part := range parts {
+						if part.Type == dto.ContentTypeText && strings.TrimSpace(part.Text) != "" {
+							if sb.Len() > 0 {
+								sb.WriteString("\n")
+							}
+							sb.WriteString(part.Text)
+						}
+					}
+					if s := strings.TrimSpace(sb.String()); s != "" {
+						instructionsParts = append(instructionsParts, s)
+					}
+					continue
+				}
+				// 按原顺序追加到末尾（不前置），以保持多 system 消息的相对顺序与缓存前缀稳定。
+				// developer role 归一化为 system，避免部分 Claude 中转/兼容网关不识别 developer。
+				inputItems = append(inputItems, map[string]any{
+					"role":    "system",
+					"content": sysParts,
+				})
+				continue
+			}
 			var sb strings.Builder
 			for _, part := range parts {
 				if part.Type == dto.ContentTypeText && strings.TrimSpace(part.Text) != "" {
@@ -213,57 +266,66 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		parts := msg.ParseContent()
 		contentParts := make([]map[string]any, 0, len(parts))
 		for _, part := range parts {
+			var part_ map[string]any
 			switch part.Type {
 			case dto.ContentTypeText:
 				textType := "input_text"
 				if role == "assistant" {
 					textType = "output_text"
 				}
-				contentParts = append(contentParts, map[string]any{
+				part_ = map[string]any{
 					"type": textType,
 					"text": part.Text,
-				})
+				}
 			case dto.ContentTypeImageURL:
-				imagePart := map[string]any{
+				part_ = map[string]any{
 					"type":      "input_image",
 					"image_url": normalizeChatImageURLToString(part.ImageUrl),
 				}
 				if image := part.GetImageMedia(); image != nil && image.Detail != "" {
-					imagePart["detail"] = image.Detail
+					part_["detail"] = image.Detail
 				}
-				contentParts = append(contentParts, imagePart)
 			case dto.ContentTypeInputAudio:
-				contentParts = append(contentParts, map[string]any{
+				part_ = map[string]any{
 					"type":        "input_audio",
 					"input_audio": part.InputAudio,
-				})
+				}
 			case dto.ContentTypeFile:
-				filePart := map[string]any{"type": "input_file"}
+				part_ = map[string]any{"type": "input_file"}
 				if file := part.GetFile(); file != nil {
 					if file.FileId != "" {
-						filePart["file_id"] = file.FileId
+						part_["file_id"] = file.FileId
 					}
 					if file.FileData != "" {
-						filePart["file_data"] = file.FileData
+						part_["file_data"] = file.FileData
 					}
 					if file.FileName != "" {
-						filePart["filename"] = file.FileName
+						part_["filename"] = file.FileName
 					}
 				} else if part.File != nil {
 					// Preserve custom file fields for compatible providers.
-					filePart["file"] = part.File
+					part_["file"] = part.File
 				}
-				contentParts = append(contentParts, filePart)
 			case dto.ContentTypeVideoUrl:
-				contentParts = append(contentParts, map[string]any{
+				part_ = map[string]any{
 					"type":      "input_video",
 					"video_url": part.VideoUrl,
-				})
+				}
 			default:
-				contentParts = append(contentParts, map[string]any{
+				part_ = map[string]any{
 					"type": part.Type,
-				})
+				}
 			}
+			// 透传 cache_control，使上游（OpenAI Responses / Claude 中转等）能命中 prompt 缓存
+			if len(part.CacheControl) > 0 {
+				var cc map[string]any
+				if err := common.Unmarshal(part.CacheControl, &cc); err == nil {
+					part_["cache_control"] = cc
+				} else {
+					part_["cache_control"] = part.CacheControl
+				}
+			}
+			contentParts = append(contentParts, part_)
 		}
 		item["content"] = contentParts
 		inputItems = append(inputItems, item)

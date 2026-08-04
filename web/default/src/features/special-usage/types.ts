@@ -2,6 +2,8 @@ export type SpecialUsageConfig = {
   enabled: boolean
   group_names: string[]
   model_names: string[]
+  channel_ids: number[]
+  channel_ids_set?: boolean
   special_billing: boolean
   channel_multipliers: Record<string, number>
   updated_at: number
@@ -59,7 +61,9 @@ export type SpecialUsageChannelStat = {
   upstream_cost_usd: number
   user_charge_usd: number
   average_cost_usd: number
+  baseline_cost_usd?: number
   anomaly: boolean
+  anomaly_reason?: string
 }
 
 export type SpecialUsageTreeNode = {
@@ -83,7 +87,10 @@ export type SpecialUsageOverview = {
 export type SpecialUsageForecast = {
   basis: string
   days: number
+  today_remaining?: boolean
+  historical_days?: number
   daily_tokens: number
+  daily_cost_usd?: number
   forecast_tokens: number
   average_cost_per_token: number
   forecast_cost_usd: number
@@ -101,10 +108,12 @@ export type SpecialUsageRecord = {
   output_tokens: number
   upstream_cost_usd: number
   user_charge_usd: number
-  input_price_usd: number
-  output_price_usd: number
-  multiplier: number
-  used_special_price: boolean
+  input_price_usd?: number
+  output_price_usd?: number
+  multiplier?: number
+  used_special_price?: boolean
+  usage_source?: string
+  attempt?: number
   status: string
   request_time: number
   error_message?: string

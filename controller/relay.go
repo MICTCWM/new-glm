@@ -159,6 +159,7 @@ func retryCurrentChannelOnce(c *gin.Context, info *relaycommon.RelayInfo, relayF
 
 	info.UpstreamRetryCount = 0
 	info.ActualApiCallCount = 0
+	info.SpecialUsageAttempt++
 	switch relayFormat {
 	case types.RelayFormatOpenAIRealtime:
 		return relay.WssHelper(c, info)
@@ -463,7 +464,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Pricing is resolved after channel selection, so this defer must be installed
 		// before the first channel can create the billing session.
 		if newAPIError != nil {
-			if relayInfo != nil { service.RecordSpecialUsageFromRelay(c, relayInfo, relayInfo.GetEstimatePromptTokens(), 0, 0, model.SpecialUsageStatusFailed, newAPIError.GetUserFriendlyMessage()) }
+			if relayInfo != nil && relayInfo.SpecialUsageAttempt > 0 {
+				// A failed attempt has no real usage unless an adaptor already
+				// reported it. Never turn the local prompt estimate into ledger usage.
+				service.RecordSpecialUsageFromRelay(c, relayInfo, 0, 0, 0, model.SpecialUsageStatusFailed, newAPIError.GetUserFriendlyMessage())
+			}
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
 			if relayInfo.Billing != nil && shouldRefundRelayBilling(c) {
 				relayInfo.Billing.Refund(c)
@@ -616,6 +621,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			sendEmergencyPlanThinkingNotice(c, relayInfo)
 		}
 
+		// One outer-loop invocation corresponds to one selected upstream
+		// channel attempt. Internal adaptor retries retain the same attempt
+		// until their final usage/error callback is available.
+		relayInfo.SpecialUsageAttempt++
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
 			newAPIError = relay.WssHelper(c, relayInfo)
@@ -638,6 +647,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 
+		if relayInfo.SpecialUsageAttempt > 0 {
+			service.RecordSpecialUsageFromRelay(c, relayInfo, 0, 0, 0, model.SpecialUsageStatusFailed, newAPIError.GetUserFriendlyMessage())
+		}
 		if requestContextIsCancelled(c) {
 			requestContextCancelled = true
 			requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
@@ -1379,6 +1391,13 @@ func refreshRelayChannelPricing(c *gin.Context, info *relaycommon.RelayInfo, pro
 	// getChannel updates the context when a retry or fallback changes channels.
 	// Rebuild the snapshot every time so pricing never uses the previous channel.
 	info.InitChannelMeta(c)
+	monitorConfig := model.GetSpecialUsageConfig()
+	info.SpecialUsageConfigSpecialBilling = monitorConfig.SpecialBilling
+	info.SpecialUsageConfigBillingValid = true
+	if info.ChannelMeta != nil {
+		info.SpecialUsageChannelSetting = info.ChannelMeta.ChannelSetting
+		info.SpecialUsageChannelSettingValid = true
+	}
 	priceData, err := helper.ModelPriceHelper(c, info, promptTokens, meta)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
@@ -1420,6 +1439,7 @@ func executeFallbackChannel(c *gin.Context, info *relaycommon.RelayInfo, channel
 	// retry counters from the primary request or from a previous fallback.
 	info.UpstreamRetryCount = 0
 	info.ActualApiCallCount = 0
+	info.SpecialUsageAttempt++
 	bodyStorage, bodyErr := common.GetBodyStorage(c)
 	if bodyErr != nil {
 		return types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())

@@ -216,7 +216,7 @@ func InitLogDB() (err error) {
 		if !common.IsMasterNode {
 			return nil
 		}
-		return LOG_DB.AutoMigrate(&SpecialUsageRecord{}, &SpecialUsageHourly{})
+		return migrateSpecialUsageSchema(LOG_DB)
 	}
 	db, err := chooseDB("LOG_SQL_DSN", true)
 	if err == nil {
@@ -353,8 +353,6 @@ func migrateDBFast() error {
 		{&CustomOAuthProvider{}, "CustomOAuthProvider"},
 		{&UserOAuthBinding{}, "UserOAuthBinding"},
 		{&PerfMetric{}, "PerfMetric"},
-		{&SpecialUsageRecord{}, "SpecialUsageRecord"},
-		{&SpecialUsageHourly{}, "SpecialUsageHourly"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -477,8 +475,80 @@ func migrateUserGptQuotaPrecision() error {
 }
 
 func migrateLOGDB() error {
-	var err error
-	if err = LOG_DB.AutoMigrate(&Log{}, &LogDetail{}, &SpecialUsageRecord{}, &SpecialUsageHourly{}); err != nil {
+	if err := LOG_DB.AutoMigrate(&Log{}, &LogDetail{}); err != nil {
+		return err
+	}
+	return migrateSpecialUsageSchema(LOG_DB)
+}
+
+// migrateSpecialUsageSchema upgrades the independent usage ledger without
+// allowing the legacy request_id+channel_id unique index to discard retry
+// attempts. AutoMigrate adds new columns/indexes, then we normalize duplicate
+// legacy attempts before recreating the new composite index.
+func migrateSpecialUsageSchema(db *gorm.DB) error {
+	if db == nil {
+		return nil
+	}
+	if !db.Migrator().HasTable(&SpecialUsageRecord{}) {
+		return db.AutoMigrate(&SpecialUsageRecord{}, &SpecialUsageHourly{})
+	}
+
+	// Remove either generation of the unique index before adding the new
+	// columns. The legacy index makes all old rows use attempt=0, so creating
+	// the new index before normalizing those rows would fail on startup.
+	for _, indexName := range []string{
+		"uk_special_usage_request_attempt",
+		"uk_special_usage_request_channel",
+	} {
+		if db.Migrator().HasIndex(&SpecialUsageRecord{}, indexName) {
+			if err := db.Migrator().DropIndex(&SpecialUsageRecord{}, indexName); err != nil {
+				return fmt.Errorf("drop special usage index %s: %w", indexName, err)
+			}
+		}
+	}
+	for _, field := range []string{"Attempt", "UsageSource", "PriceSnapshot"} {
+		if !db.Migrator().HasColumn(&SpecialUsageRecord{}, field) {
+			if err := db.Migrator().AddColumn(&SpecialUsageRecord{}, field); err != nil {
+				return fmt.Errorf("add special usage column %s: %w", field, err)
+			}
+		}
+	}
+
+	var rows []struct {
+		ID        int64
+		RequestID string
+		ChannelID int
+		Attempt   int
+	}
+	if err := db.Model(&SpecialUsageRecord{}).
+		Select("id, request_id, channel_id, attempt").
+		Order("id asc").Find(&rows).Error; err != nil {
+		return fmt.Errorf("read special usage attempts: %w", err)
+	}
+	seen := make(map[string]map[int]struct{})
+	for _, row := range rows {
+		key := fmt.Sprintf("%s\\x00%d", row.RequestID, row.ChannelID)
+		if seen[key] == nil {
+			seen[key] = make(map[int]struct{})
+		}
+		desired := row.Attempt
+		if _, exists := seen[key][desired]; exists {
+			desired = 0
+			for {
+				if _, exists := seen[key][desired]; !exists {
+					break
+				}
+				desired++
+			}
+		}
+		seen[key][desired] = struct{}{}
+		if desired != row.Attempt {
+			if err := db.Model(&SpecialUsageRecord{}).Where("id = ?", row.ID).Update("attempt", desired).Error; err != nil {
+				return fmt.Errorf("normalize special usage attempt %d: %w", row.ID, err)
+			}
+		}
+	}
+	if err := db.AutoMigrate(&SpecialUsageRecord{}, &SpecialUsageHourly{}); err != nil {
 		return err
 	}
 	return nil

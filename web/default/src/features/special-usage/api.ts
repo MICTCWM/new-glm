@@ -9,10 +9,10 @@ import type {
   SpecialUsageRecordsPage,
 } from './types'
 
-type ApiResponse<T> = {
+export type ApiResponse<T> = {
   success: boolean
   message?: string
-  data: T
+  data?: T
 }
 
 export type SpecialUsageQuery = SpecialUsageDateRange & {
@@ -31,27 +31,50 @@ type SpecialUsageProfitQuery = SpecialUsageQuery & {
   revenue?: number
 }
 
-function paramsFromQuery(query: SpecialUsageQuery): Record<string, string | number> {
+export type SpecialUsageExportFormat = 'xlsx' | 'csv'
+
+function apiErrorMessage(message: unknown, fallback: string): string {
+  return typeof message === 'string' && message.trim() ? message : fallback
+}
+
+function unwrapApiResponse<T>(value: unknown): ApiResponse<T> {
+  const response = value as Partial<ApiResponse<T>> | null
+  if (!response || response.success !== true) {
+    throw new Error(apiErrorMessage(response?.message, 'Request failed'))
+  }
+  if (!('data' in response)) {
+    throw new Error(
+      apiErrorMessage(response.message, 'Response data is missing')
+    )
+  }
+  return response as ApiResponse<T>
+}
+
+function paramsFromQuery(
+  query: SpecialUsageQuery
+): Record<string, string | number> {
   const params: Record<string, string | number> = {
     start_time: query.start,
     end_time: query.end,
     group: query.groups.join(','),
     model: query.models.join(','),
   }
-  if (query.channels && query.channels.length > 0) params.channel_id = query.channels.join(',')
+  if (query.channels) params.channel_id = query.channels.join(',')
   return params
 }
 
-export async function getSpecialUsageMetadata(): Promise<ApiResponse<SpecialUsageMetadata>> {
+export async function getSpecialUsageMetadata(): Promise<
+  ApiResponse<SpecialUsageMetadata>
+> {
   const response = await api.get('/api/special-usage/metadata')
-  return response.data as ApiResponse<SpecialUsageMetadata>
+  return unwrapApiResponse<SpecialUsageMetadata>(response.data)
 }
 
 export async function saveSpecialUsageConfig(
   config: Omit<SpecialUsageConfig, 'updated_at'>
 ): Promise<ApiResponse<SpecialUsageConfig>> {
   const response = await api.put('/api/special-usage/config', config)
-  return response.data as ApiResponse<SpecialUsageConfig>
+  return unwrapApiResponse<SpecialUsageConfig>(response.data)
 }
 
 export async function getSpecialUsageOverview(
@@ -60,27 +83,37 @@ export async function getSpecialUsageOverview(
   const response = await api.get('/api/special-usage/overview', {
     params: paramsFromQuery(query),
   })
-  return response.data as ApiResponse<SpecialUsageOverview>
+  return unwrapApiResponse<SpecialUsageOverview>(response.data)
 }
 
 export async function getSpecialUsageForecast(
   query: SpecialUsageQuery,
   basis: string,
-  days: number
+  days: number,
+  todayRemaining: boolean
 ): Promise<ApiResponse<SpecialUsageForecast>> {
   const response = await api.get('/api/special-usage/forecast', {
-    params: { ...paramsFromQuery(query), basis, days },
+    params: {
+      ...paramsFromQuery(query),
+      basis,
+      days,
+      today_remaining: todayRemaining,
+    },
   })
-  return response.data as ApiResponse<SpecialUsageForecast>
+  return unwrapApiResponse<SpecialUsageForecast>(response.data)
 }
 
 export async function getSpecialUsageRecords(
   query: SpecialUsageRecordsQuery
 ): Promise<ApiResponse<SpecialUsageRecordsPage>> {
   const response = await api.get('/api/special-usage/records', {
-    params: { ...paramsFromQuery(query), page: query.page, page_size: query.page_size },
+    params: {
+      ...paramsFromQuery(query),
+      page: query.page,
+      page_size: query.page_size,
+    },
   })
-  return response.data as ApiResponse<SpecialUsageRecordsPage>
+  return unwrapApiResponse<SpecialUsageRecordsPage>(response.data)
 }
 
 export async function getSpecialUsageProfit(
@@ -92,20 +125,85 @@ export async function getSpecialUsageProfit(
   }
   if (query.mode === 'manual') params.revenue = query.revenue ?? 0
   const response = await api.get('/api/special-usage/profit', { params })
-  return response.data as ApiResponse<SpecialUsageProfit>
+  return unwrapApiResponse<SpecialUsageProfit>(response.data)
 }
 
-export async function downloadSpecialUsageExport(query: SpecialUsageQuery): Promise<void> {
+async function blobErrorMessage(blob: Blob): Promise<string> {
+  try {
+    const text = await blob.text()
+    if (!text.trim()) return 'Export failed'
+    try {
+      const payload = JSON.parse(text) as { message?: unknown }
+      return apiErrorMessage(payload.message, text)
+    } catch {
+      return text.slice(0, 500)
+    }
+  } catch {
+    return 'Export failed'
+  }
+}
+
+function filenameFromHeaders(
+  contentDisposition: unknown,
+  fallback: string
+): string {
+  if (typeof contentDisposition !== 'string') return fallback
+  const utf8 = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const plain = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1]
+  const value = utf8 ?? plain
+  if (!value) return fallback
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+export async function downloadSpecialUsageExport(
+  query: SpecialUsageQuery,
+  format: SpecialUsageExportFormat = 'xlsx'
+): Promise<void> {
   const response = await api.get('/api/special-usage/export', {
-    params: paramsFromQuery(query),
+    params: { ...paramsFromQuery(query), format },
     responseType: 'blob',
     disableDuplicate: true,
+    skipBusinessError: true,
   } as never)
-  const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' })
+  const contentType = String(
+    response.headers?.['content-type'] ?? ''
+  ).toLowerCase()
+  const blob =
+    response.data instanceof Blob ? response.data : new Blob([response.data])
+  if (contentType.includes('json') || contentType.includes('text/html')) {
+    throw new Error(await blobErrorMessage(blob))
+  }
+
+  // Older servers return CSV regardless of the requested format. Keep the
+  // file usable by honoring the actual response type instead of naming CSV as
+  // an XLSX workbook.
+  const actualFormat: SpecialUsageExportFormat = contentType.includes('csv')
+    ? 'csv'
+    : format
+  const fallback = `special-usage-${new Date().toISOString().slice(0, 10)}.${actualFormat}`
+  const serverFilename = filenameFromHeaders(
+    response.headers?.['content-disposition'],
+    fallback
+  )
+  const filename = /\.[a-z0-9]+$/i.test(serverFilename)
+    ? serverFilename
+    : `${serverFilename}.${actualFormat}`
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `special-usage-${new Date().toISOString().slice(0, 10)}.csv`
+  anchor.download = filename
+  document.body.appendChild(anchor)
   anchor.click()
-  URL.revokeObjectURL(url)
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+export function downloadSpecialUsageCsv(
+  query: SpecialUsageQuery
+): Promise<void> {
+  return downloadSpecialUsageExport(query, 'csv')
 }

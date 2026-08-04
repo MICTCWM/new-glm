@@ -1,8 +1,10 @@
 package model
 
 import (
+	"archive/zip"
 	"encoding/csv"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -34,16 +36,23 @@ type SpecialUsageConfig struct {
 	Enabled            bool               `json:"enabled"`
 	GroupNames         []string           `json:"group_names"`
 	ModelNames         []string           `json:"model_names"`
+	ChannelIDs         []int              `json:"channel_ids"`
+	ChannelIDsSet      bool               `json:"channel_ids_set"`
 	SpecialBilling     bool               `json:"special_billing"`
 	ChannelMultipliers map[string]float64 `json:"channel_multipliers"`
 	UpdatedAt          int64              `json:"updated_at"`
 }
 
 type SpecialUsageRecord struct {
-	ID               int64   `json:"id" gorm:"primaryKey;autoIncrement"`
-	RequestID        string  `json:"request_id" gorm:"size:128;uniqueIndex:uk_special_usage_request_channel;priority:1"`
+	ID int64 `json:"id" gorm:"primaryKey;autoIncrement"`
+	// Attempt is the upstream retry/fallback attempt that produced this ledger row.
+	// It is optional so rows written before the monitor upgrade remain valid.
+	Attempt          int     `json:"attempt" gorm:"default:0;index;uniqueIndex:uk_special_usage_request_attempt;priority:2"`
+	UsageSource      string  `json:"usage_source" gorm:"size:32;index"`
+	PriceSnapshot    string  `json:"price_snapshot,omitempty" gorm:"type:text"`
+	RequestID        string  `json:"request_id" gorm:"size:128;uniqueIndex:uk_special_usage_request_attempt;priority:1"`
 	UserID           int     `json:"user_id" gorm:"index"`
-	ChannelID        int     `json:"channel_id" gorm:"index;uniqueIndex:uk_special_usage_request_channel;priority:2"`
+	ChannelID        int     `json:"channel_id" gorm:"index;uniqueIndex:uk_special_usage_request_attempt;priority:3"`
 	ChannelName      string  `json:"channel_name" gorm:"size:255;index"`
 	GroupName        string  `json:"group_name" gorm:"size:64;index"`
 	ModelName        string  `json:"model_name" gorm:"size:255;index"`
@@ -75,6 +84,20 @@ type SpecialUsageHourly struct {
 	UserChargeUSD   float64 `json:"user_charge_usd" gorm:"type:decimal(20,10);default:0"`
 }
 
+// SpecialUsagePriceSnapshot captures the mutable pricing inputs used for a
+// request. It is stored as JSON in the ledger for historical auditability.
+type SpecialUsagePriceSnapshot struct {
+	Source           string  `json:"source,omitempty"`
+	ModelName        string  `json:"model_name,omitempty"`
+	ModelPrice       float64 `json:"model_price,omitempty"`
+	ModelRatio       float64 `json:"model_ratio,omitempty"`
+	CompletionRatio  float64 `json:"completion_ratio,omitempty"`
+	InputPriceUSD    float64 `json:"input_price_usd,omitempty"`
+	OutputPriceUSD   float64 `json:"output_price_usd,omitempty"`
+	Multiplier       float64 `json:"multiplier,omitempty"`
+	UsedSpecialPrice bool    `json:"used_special_price"`
+}
+
 type SpecialUsageCostInput struct {
 	RequestID       string
 	UserID          int
@@ -89,6 +112,30 @@ type SpecialUsageCostInput struct {
 	ErrorMessage    string
 	RequestTime     int64
 	ChannelSetting  dto.ChannelSettings
+	// Optional audit fields. Zero values preserve existing callers and records.
+	Attempt       int
+	UsageSource   string
+	PriceSnapshot string
+	// Frozen pricing is supplied by the request path when available.
+	FrozenModelPrice           float64
+	FrozenModelRatio           float64
+	FrozenCompletionRatio      float64
+	FrozenUsePrice             bool
+	FrozenPriceValid           bool
+	FrozenChannelSetting       dto.ChannelSettings
+	FrozenChannelSettingValid  bool
+	FrozenUsedSpecialPrice     bool
+	FrozenSpecialPriceValid    bool
+	FrozenSpecialBilling       bool
+	FrozenSpecialBillingValid  bool
+	FrozenPriceSource          string
+	FrozenBillingChannelID     int
+	SpecialUsageConfig         SpecialUsageConfig
+	SpecialUsageConfigValid    bool
+	SpecialUsageSelected       bool
+	SpecialUsageSelectionValid bool
+	FrozenMultiplier           float64
+	FrozenMultiplierValid      bool
 }
 
 type SpecialUsageChannel struct {
@@ -109,11 +156,12 @@ type SpecialUsageMetadata struct {
 }
 
 type SpecialUsageFilter struct {
-	StartTime  int64
-	EndTime    int64
-	GroupNames []string
-	ModelNames []string
-	ChannelIDs []int
+	StartTime     int64
+	EndTime       int64
+	GroupNames    []string
+	ModelNames    []string
+	ChannelIDs    []int
+	ChannelIDsSet bool
 }
 
 type SpecialUsageTotals struct {
@@ -157,6 +205,8 @@ type SpecialUsageChannelStat struct {
 	UpstreamCostUSD float64 `json:"upstream_cost_usd"`
 	UserChargeUSD   float64 `json:"user_charge_usd"`
 	AverageCostUSD  float64 `json:"average_cost_usd"`
+	BaselineCostUSD float64 `json:"baseline_cost_usd,omitempty"`
+	AnomalyReason   string  `json:"anomaly_reason,omitempty"`
 	Anomaly         bool    `json:"anomaly"`
 }
 
@@ -175,7 +225,9 @@ type SpecialUsageOverview struct {
 type SpecialUsageForecast struct {
 	Basis               string  `json:"basis"`
 	Days                float64 `json:"days"`
+	HistoricalDays      float64 `json:"historical_days,omitempty"`
 	DailyTokens         float64 `json:"daily_tokens"`
+	DailyCostUSD        float64 `json:"daily_cost_usd"`
 	ForecastTokens      float64 `json:"forecast_tokens"`
 	AverageCostPerToken float64 `json:"average_cost_per_token"`
 	ForecastCostUSD     float64 `json:"forecast_cost_usd"`
@@ -199,6 +251,7 @@ func defaultSpecialUsageConfig() SpecialUsageConfig {
 		Enabled:            false,
 		GroupNames:         []string{},
 		ModelNames:         []string{},
+		ChannelIDs:         []int{},
 		SpecialBilling:     false,
 		ChannelMultipliers: map[string]float64{},
 	}
@@ -222,9 +275,33 @@ func normalizeStringList(values []string) []string {
 	return result
 }
 
+func normalizeIntList(values []int) []int {
+	seen := make(map[int]struct{}, len(values))
+	result := make([]int, 0, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Ints(result)
+	return result
+}
+
 func normalizeSpecialUsageConfig(config SpecialUsageConfig) SpecialUsageConfig {
 	config.GroupNames = normalizeStringList(config.GroupNames)
 	config.ModelNames = normalizeStringList(config.ModelNames)
+	config.ChannelIDs = normalizeIntList(config.ChannelIDs)
+	// Configurations written before channel_ids_set was introduced used an
+	// empty list to mean "all matching channels". A non-empty legacy list is
+	// unambiguously an explicit channel selection.
+	if !config.ChannelIDsSet && len(config.ChannelIDs) > 0 {
+		config.ChannelIDsSet = true
+	}
 	if config.ChannelMultipliers == nil {
 		config.ChannelMultipliers = map[string]float64{}
 	}
@@ -271,8 +348,7 @@ func SaveSpecialUsageConfig(config SpecialUsageConfig) error {
 	if err != nil {
 		return err
 	}
-	option := Option{Key: SpecialUsageConfigKey, Value: string(encoded)}
-	if err := DB.Save(&option).Error; err != nil {
+	if err := UpdateOption(SpecialUsageConfigKey, string(encoded)); err != nil {
 		return err
 	}
 	specialUsageConfigMu.Lock()
@@ -281,9 +357,47 @@ func SaveSpecialUsageConfig(config SpecialUsageConfig) error {
 	return nil
 }
 
+func SpecialUsageChannelMatches(config SpecialUsageConfig, channelID int, modelName, groupName string) bool {
+	if DB == nil || channelID <= 0 {
+		return false
+	}
+	var channel Channel
+	if err := DB.First(&channel, channelID).Error; err != nil {
+		return false
+	}
+	if groupName != "" {
+		matchedGroup := false
+		for _, candidate := range channel.GetGroups() {
+			if candidate == groupName {
+				matchedGroup = true
+				break
+			}
+		}
+		if !matchedGroup {
+			return false
+		}
+	}
+	return specialUsageChannelSelected(normalizeSpecialUsageConfig(config), &channel, modelName)
+}
+
 func specialUsageChannelSelected(config SpecialUsageConfig, channel *Channel, modelName string) bool {
 	if channel == nil || !config.Enabled || len(config.GroupNames) == 0 || len(config.ModelNames) == 0 {
 		return false
+	}
+	if config.ChannelIDsSet && len(config.ChannelIDs) == 0 {
+		return false
+	}
+	if len(config.ChannelIDs) > 0 {
+		selected := false
+		for _, id := range config.ChannelIDs {
+			if id == channel.Id {
+				selected = true
+				break
+			}
+		}
+		if !selected {
+			return false
+		}
 	}
 	groupSelected := false
 	for _, channelGroup := range channel.GetGroups() {
@@ -293,10 +407,24 @@ func specialUsageChannelSelected(config SpecialUsageConfig, channel *Channel, mo
 		}
 	}
 	modelSelected := false
-	for _, candidate := range specialUsageModelCandidates(modelName) {
-		if containsString(config.ModelNames, candidate) {
-			modelSelected = true
-			break
+	if modelName != "" {
+		for _, candidate := range specialUsageModelCandidates(modelName) {
+			if containsString(config.ModelNames, candidate) {
+				modelSelected = true
+				break
+			}
+		}
+	} else {
+		for _, channelModel := range channel.GetModels() {
+			for _, candidate := range specialUsageModelCandidates(channelModel) {
+				if containsString(config.ModelNames, candidate) {
+					modelSelected = true
+					break
+				}
+			}
+			if modelSelected {
+				break
+			}
 		}
 	}
 	if !groupSelected || !modelSelected {
@@ -324,43 +452,78 @@ func getSpecialUsageMultiplier(config SpecialUsageConfig, channelID int, groupNa
 	return specialUsageDefaultMultiplier
 }
 
+// GetSpecialUsageMultiplier exposes the normalized multiplier lookup to relay
+// integration code so it can freeze the value before the request settles.
+func GetSpecialUsageMultiplier(config SpecialUsageConfig, channelID int, groupName string) float64 {
+	return getSpecialUsageMultiplier(normalizeSpecialUsageConfig(config), channelID, groupName)
+}
+
 // CalculateSpecialUsageCost returns a USD cost based on the same model pricing
 // coefficients used by normal billing. Special channel prices in the existing
 // channel editor are per request; they are intentionally used as the request
 // cost for this monitoring ledger, while normal prices are token-based.
 func CalculateSpecialUsageCost(input SpecialUsageCostInput) (float64, float64, float64, bool) {
 	config := GetSpecialUsageConfig()
+	if input.SpecialUsageConfigValid {
+		config = normalizeSpecialUsageConfig(input.SpecialUsageConfig)
+	}
 	if DB == nil || input.ChannelID <= 0 || len(config.GroupNames) == 0 || len(config.ModelNames) == 0 {
 		return 0, 0, 0, false
 	}
 	var channel Channel
-	if err := DB.First(&channel, input.ChannelID).Error; err != nil || !specialUsageChannelSelected(config, &channel, input.ModelName) {
+	if err := DB.First(&channel, input.ChannelID).Error; err != nil {
 		return 0, 0, 0, false
 	}
-	if len(input.ChannelSetting.SpecialBillingPrices) == 0 {
+	if input.SpecialUsageSelectionValid {
+		if !input.SpecialUsageSelected {
+			return 0, 0, 0, false
+		}
+	} else if !specialUsageChannelSelected(config, &channel, input.ModelName) {
+		return 0, 0, 0, false
+	}
+	if input.FrozenChannelSettingValid {
+		input.ChannelSetting = input.FrozenChannelSetting
+	} else if len(input.ChannelSetting.SpecialBillingPrices) == 0 {
 		input.ChannelSetting = channel.GetSetting()
 	}
+	if input.FrozenSpecialBillingValid {
+		config.SpecialBilling = input.FrozenSpecialBilling
+	}
 	multiplier := getSpecialUsageMultiplier(config, input.ChannelID, input.GroupName)
+	if input.FrozenMultiplierValid && input.FrozenMultiplier > 0 {
+		multiplier = input.FrozenMultiplier
+	}
 	if config.SpecialBilling {
 		for _, modelName := range specialUsageModelCandidates(input.ModelName) {
 			if price, ok := input.ChannelSetting.ResolveSpecialBillingPrice(modelName, input.InputTokens); ok {
-				price *= multiplier
+				// Special billing is an explicit channel price. It takes
+				// precedence over the global price and configured multiplier.
 				return price, price, price, true
 			}
 		}
 	}
 	inputPrice, usePrice := ratio_setting.GetModelPrice(input.ModelName, false)
+	modelRatio, ok, matchedModel := ratio_setting.GetModelRatio(input.ModelName)
+	if input.FrozenPriceValid {
+		inputPrice = input.FrozenModelPrice
+		usePrice = input.FrozenUsePrice
+		modelRatio = input.FrozenModelRatio
+		ok = modelRatio > 0 || usePrice
+		matchedModel = input.ModelName
+	}
 	if usePrice {
 		// ModelPrice is the existing platform's per-request price. Keep it
 		// consistent with normal billing instead of treating it as a token rate.
 		price := inputPrice * multiplier
 		return price, price, price, false
 	}
-	modelRatio, ok, matchedModel := ratio_setting.GetModelRatio(input.ModelName)
 	if !ok {
 		return 0, 0, 0, false
 	}
 	completionRatio := ratio_setting.GetCompletionRatio(matchedModel)
+	if input.FrozenPriceValid && input.FrozenCompletionRatio > 0 {
+		completionRatio = input.FrozenCompletionRatio
+	}
 	inputPrice = modelRatio * 2.0
 	outputPrice := inputPrice * completionRatio
 	cost := (float64(input.InputTokens)*inputPrice + float64(input.OutputTokens)*outputPrice) / 1_000_000 * multiplier
@@ -393,6 +556,20 @@ func specialUsageModelCandidates(modelName string) []string {
 	return candidates
 }
 
+func buildSpecialUsagePriceSnapshot(input SpecialUsageCostInput, source string, multiplier, inputPrice, outputPrice float64, usedSpecialPrice bool) string {
+	snapshot := SpecialUsagePriceSnapshot{
+		Source: source, ModelName: input.ModelName, ModelPrice: input.FrozenModelPrice,
+		ModelRatio: input.FrozenModelRatio, CompletionRatio: input.FrozenCompletionRatio,
+		InputPriceUSD: inputPrice, OutputPriceUSD: outputPrice, Multiplier: multiplier,
+		UsedSpecialPrice: usedSpecialPrice,
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
 func RecordSpecialUsage(input SpecialUsageCostInput) {
 	if DB == nil || LOG_DB == nil {
 		return
@@ -407,22 +584,54 @@ func RecordSpecialUsage(input SpecialUsageCostInput) {
 		return
 	}
 	config := GetSpecialUsageConfig()
+	if input.SpecialUsageConfigValid {
+		config = normalizeSpecialUsageConfig(input.SpecialUsageConfig)
+	}
 	var channel Channel
-	if input.ChannelID <= 0 || DB.First(&channel, input.ChannelID).Error != nil || !specialUsageChannelSelected(config, &channel, input.ModelName) {
+	if input.ChannelID <= 0 || DB.First(&channel, input.ChannelID).Error != nil {
+		return
+	}
+	if input.SpecialUsageSelectionValid {
+		if !input.SpecialUsageSelected {
+			return
+		}
+	} else if !specialUsageChannelSelected(config, &channel, input.ModelName) {
 		return
 	}
 	if input.ChannelName == "" {
 		input.ChannelName = channel.Name
 	}
 	cost, inputPrice, outputPrice, usedSpecialPrice := CalculateSpecialUsageCost(input)
+	hasRealUsage := input.InputTokens > 0 || input.OutputTokens > 0
+	if input.Status != SpecialUsageStatusSuccess && !hasRealUsage {
+		// A failed request without upstream usage is an audit event only.
+		input.InputTokens = 0
+		input.OutputTokens = 0
+		cost = 0
+	}
+	if input.UsageSource == "" {
+		if hasRealUsage {
+			input.UsageSource = "upstream"
+		} else {
+			input.UsageSource = "none"
+		}
+	}
+	multiplier := getSpecialUsageMultiplier(config, input.ChannelID, input.GroupName)
+	if input.PriceSnapshot == "" {
+		source := input.FrozenPriceSource
+		if source == "" {
+			source = input.UsageSource
+		}
+		input.PriceSnapshot = buildSpecialUsagePriceSnapshot(input, source, multiplier, inputPrice, outputPrice, usedSpecialPrice)
+	}
 	record := &SpecialUsageRecord{
 		RequestID: input.RequestID, UserID: input.UserID, ChannelID: input.ChannelID,
 		ChannelName: input.ChannelName, GroupName: input.GroupName, ModelName: input.ModelName,
 		InputTokens: int64(maxInt(input.InputTokens, 0)), OutputTokens: int64(maxInt(input.OutputTokens, 0)),
 		UpstreamCostUSD: cost, UserChargeUSD: quotaToUSD(input.UserChargeQuota),
 		InputPriceUSD: inputPrice, OutputPriceUSD: outputPrice,
-		Multiplier:       getSpecialUsageMultiplier(config, input.ChannelID, input.GroupName),
-		UsedSpecialPrice: usedSpecialPrice, Status: input.Status, RequestTime: input.RequestTime,
+		Multiplier: multiplier, Attempt: input.Attempt, UsageSource: input.UsageSource,
+		PriceSnapshot: input.PriceSnapshot, UsedSpecialPrice: usedSpecialPrice, Status: input.Status, RequestTime: input.RequestTime,
 		ErrorMessage: input.ErrorMessage,
 	}
 	for attempt := 0; attempt < 3; attempt++ {
@@ -457,7 +666,7 @@ func recordSpecialUsageOnce(record *SpecialUsageRecord) error {
 	}()
 
 	var existing SpecialUsageRecord
-	query := tx.Where("request_id = ? AND channel_id = ?", record.RequestID, record.ChannelID)
+	query := tx.Where("request_id = ? AND channel_id = ? AND attempt = ?", record.RequestID, record.ChannelID, record.Attempt)
 	if tx.Dialector.Name() != "sqlite" {
 		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
@@ -493,6 +702,9 @@ func recordSpecialUsageOnce(record *SpecialUsageRecord) error {
 				"output_price_usd":   merged.OutputPriceUSD,
 				"multiplier":         merged.Multiplier,
 				"used_special_price": merged.UsedSpecialPrice,
+				"attempt":            merged.Attempt,
+				"usage_source":       merged.UsageSource,
+				"price_snapshot":     merged.PriceSnapshot,
 				"status":             merged.Status,
 				"error_message":      merged.ErrorMessage,
 			}).Error; err != nil {
@@ -564,6 +776,9 @@ func mergeSpecialUsageRecord(existing, incoming SpecialUsageRecord) (SpecialUsag
 		merged.OutputPriceUSD = incoming.OutputPriceUSD
 		merged.Multiplier = incoming.Multiplier
 		merged.UsedSpecialPrice = incoming.UsedSpecialPrice
+		merged.Attempt = incoming.Attempt
+		merged.UsageSource = incoming.UsageSource
+		merged.PriceSnapshot = incoming.PriceSnapshot
 		merged.Status = incoming.Status
 		merged.ErrorMessage = ""
 		return merged, true
@@ -572,10 +787,27 @@ func mergeSpecialUsageRecord(existing, incoming SpecialUsageRecord) (SpecialUsag
 	if !dataImproved && !metadataImproved && !errorImproved {
 		return merged, false
 	}
-	if incoming.UserID != 0 { merged.UserID = incoming.UserID }
-	if incoming.ChannelName != "" && (dataImproved || existing.ChannelName == "") { merged.ChannelName = incoming.ChannelName }
-	if incoming.GroupName != "" && (dataImproved || existing.GroupName == "") { merged.GroupName = incoming.GroupName }
-	if incoming.ModelName != "" && (dataImproved || existing.ModelName == "") { merged.ModelName = incoming.ModelName }
+	if incoming.UserID != 0 {
+		merged.UserID = incoming.UserID
+	}
+	if incoming.ChannelName != "" && (dataImproved || existing.ChannelName == "") {
+		merged.ChannelName = incoming.ChannelName
+	}
+	if incoming.GroupName != "" && (dataImproved || existing.GroupName == "") {
+		merged.GroupName = incoming.GroupName
+	}
+	if incoming.ModelName != "" && (dataImproved || existing.ModelName == "") {
+		merged.ModelName = incoming.ModelName
+	}
+	if incoming.Attempt > merged.Attempt || merged.UsageSource == "" {
+		merged.Attempt = incoming.Attempt
+		if incoming.UsageSource != "" {
+			merged.UsageSource = incoming.UsageSource
+		}
+		if incoming.PriceSnapshot != "" {
+			merged.PriceSnapshot = incoming.PriceSnapshot
+		}
+	}
 	if tokensImproved {
 		merged.InputTokens = incoming.InputTokens
 		merged.OutputTokens = incoming.OutputTokens
@@ -584,13 +816,21 @@ func mergeSpecialUsageRecord(existing, incoming SpecialUsageRecord) (SpecialUsag
 		merged.Multiplier = incoming.Multiplier
 		merged.UsedSpecialPrice = incoming.UsedSpecialPrice
 	}
-	if costImproved { merged.UpstreamCostUSD = incoming.UpstreamCostUSD }
-	if chargeImproved { merged.UserChargeUSD = incoming.UserChargeUSD }
+	if costImproved {
+		merged.UpstreamCostUSD = incoming.UpstreamCostUSD
+	}
+	if chargeImproved {
+		merged.UserChargeUSD = incoming.UserChargeUSD
+	}
 	if statusImproved {
 		merged.Status = incoming.Status
-		if incoming.Status == SpecialUsageStatusSuccess { merged.ErrorMessage = "" }
+		if incoming.Status == SpecialUsageStatusSuccess {
+			merged.ErrorMessage = ""
+		}
 	}
-	if errorImproved && incoming.Status != SpecialUsageStatusSuccess { merged.ErrorMessage = incoming.ErrorMessage }
+	if errorImproved && incoming.Status != SpecialUsageStatusSuccess {
+		merged.ErrorMessage = incoming.ErrorMessage
+	}
 	return merged, true
 }
 func specialUsageHourlyKey(record *SpecialUsageRecord) string {
@@ -723,7 +963,10 @@ func applySpecialUsageQuery(query *gorm.DB, filter SpecialUsageFilter, table str
 	if len(filter.ModelNames) > 0 {
 		query = query.Where(table+".model_name IN ?", filter.ModelNames)
 	}
-	if len(filter.ChannelIDs) > 0 {
+	if filter.ChannelIDsSet || len(filter.ChannelIDs) > 0 {
+		if len(filter.ChannelIDs) == 0 {
+			return query.Where("1 = 0")
+		}
 		query = query.Where(table+".channel_id IN ?", filter.ChannelIDs)
 	}
 	return query
@@ -779,7 +1022,10 @@ func applySpecialUsageHourlyFilter(query *gorm.DB, filter SpecialUsageFilter) *g
 	if len(filter.ModelNames) > 0 {
 		query = query.Where("model_name IN ?", filter.ModelNames)
 	}
-	if len(filter.ChannelIDs) > 0 {
+	if filter.ChannelIDsSet || len(filter.ChannelIDs) > 0 {
+		if len(filter.ChannelIDs) == 0 {
+			return query.Where("1 = 0")
+		}
 		query = query.Where("channel_id IN ?", filter.ChannelIDs)
 	}
 	return query
@@ -805,12 +1051,47 @@ func querySpecialUsageRawAggregates(filter SpecialUsageFilter, start, end int64,
 	if len(filter.ModelNames) > 0 {
 		query = query.Where("model_name IN ?", filter.ModelNames)
 	}
-	if len(filter.ChannelIDs) > 0 {
+	if filter.ChannelIDsSet || len(filter.ChannelIDs) > 0 {
+		if len(filter.ChannelIDs) == 0 {
+			return []specialUsageAggregateRow{}, nil
+		}
 		query = query.Where("channel_id IN ?", filter.ChannelIDs)
 	}
 	var rows []specialUsageAggregateRow
 	err := query.Group(specialUsageRawBucketExpression() + ", group_name, channel_id, model_name").Find(&rows).Error
 	return rows, err
+}
+
+func querySpecialUsageRawBucketTimes(filter SpecialUsageFilter, start, end int64) ([]int64, error) {
+	if LOG_DB == nil || end <= start {
+		return []int64{}, nil
+	}
+	query := LOG_DB.Model(&SpecialUsageRecord{}).
+		Select(specialUsageRawBucketExpression()+" AS bucket_time").
+		Where("request_time >= ? AND request_time < ?", start, end)
+	if len(filter.GroupNames) > 0 {
+		query = query.Where("group_name IN ?", filter.GroupNames)
+	}
+	if len(filter.ModelNames) > 0 {
+		query = query.Where("model_name IN ?", filter.ModelNames)
+	}
+	if filter.ChannelIDsSet || len(filter.ChannelIDs) > 0 {
+		if len(filter.ChannelIDs) == 0 {
+			return []int64{}, nil
+		}
+		query = query.Where("channel_id IN ?", filter.ChannelIDs)
+	}
+	var rows []struct {
+		BucketTime int64 `gorm:"column:bucket_time"`
+	}
+	if err := query.Group(specialUsageRawBucketExpression()).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	buckets := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		buckets = append(buckets, row.BucketTime)
+	}
+	return buckets, nil
 }
 
 func querySpecialUsageHourlyAggregates(filter SpecialUsageFilter, start, end int64) ([]specialUsageAggregateRow, error) {
@@ -864,16 +1145,45 @@ func querySpecialUsageAggregateRows(filter SpecialUsageFilter) ([]specialUsageAg
 		if err != nil {
 			return nil, err
 		}
-		rawRows, err := querySpecialUsageRawAggregates(filter, fullStart, fullEnd, nil)
-		if err != nil {
-			return nil, err
-		}
-		if specialUsageAggregateRowsMatch(hourlyRows, rawRows) {
-			rows = append(rows, hourlyRows...)
-		} else {
-			// Databases upgraded from before the rollup existed, or buckets
-			// changed by a late retry, fall back to bounded SQL aggregates.
+		if len(hourlyRows) == 0 {
+			rawRows, err := querySpecialUsageRawAggregates(filter, fullStart, fullEnd, nil)
+			if err != nil {
+				return nil, err
+			}
 			rows = append(rows, rawRows...)
+		} else {
+			// Rollups are the normal path. Only inspect bucket presence in the
+			// raw ledger, then aggregate raw rows for buckets absent from the
+			// rollup. This keeps the large-table fallback bounded to upgrade
+			// gaps instead of re-aggregating every complete hour.
+			rawBuckets, err := querySpecialUsageRawBucketTimes(filter, fullStart, fullEnd)
+			if err != nil {
+				return nil, err
+			}
+			hourlyBuckets := make(map[int64]struct{}, len(hourlyRows))
+			for _, row := range hourlyRows {
+				hourlyBuckets[row.BucketTime] = struct{}{}
+			}
+			missingBuckets := make([]int64, 0)
+			rawBucketSet := make(map[int64]struct{}, len(rawBuckets))
+			for _, bucket := range rawBuckets {
+				rawBucketSet[bucket] = struct{}{}
+				if _, ok := hourlyBuckets[bucket]; !ok {
+					missingBuckets = append(missingBuckets, bucket)
+				}
+			}
+			for _, row := range hourlyRows {
+				if _, ok := rawBucketSet[row.BucketTime]; ok {
+					rows = append(rows, row)
+				}
+			}
+			if len(missingBuckets) > 0 {
+				rawRows, err := querySpecialUsageRawAggregates(filter, fullStart, fullEnd, missingBuckets)
+				if err != nil {
+					return nil, err
+				}
+				rows = append(rows, rawRows...)
+			}
 		}
 	}
 
@@ -1054,21 +1364,41 @@ func markSpecialUsageAnomalies(overview *SpecialUsageOverview) {
 	if overview == nil || len(overview.Channels) == 0 {
 		return
 	}
-	average := 0.0
+	weightedRequests := int64(0)
+	weightedCost := 0.0
 	for _, channel := range overview.Channels {
-		average += channel.AverageCostUSD
+		if channel.RequestCount > 0 {
+			weightedRequests += channel.RequestCount
+			weightedCost += channel.UpstreamCostUSD
+		}
 	}
-	average /= float64(len(overview.Channels))
-	if average <= 0 {
+	if weightedRequests == 0 {
 		return
 	}
+	average := weightedCost / float64(weightedRequests)
 	for index := range overview.Channels {
 		value := overview.Channels[index].AverageCostUSD
-		overview.Channels[index].Anomaly = value > average*1.3 || value < average*0.7
+		overview.Channels[index].BaselineCostUSD = average
+		if value <= 0 {
+			continue
+		}
+		if average <= 0 {
+			continue
+		}
+		relative := (value - average) / average
+		if math.Abs(relative) > 0.3 {
+			overview.Channels[index].Anomaly = true
+			overview.Channels[index].AnomalyReason = fmt.Sprintf(
+				"平均 %.6f，当前 %.6f，偏离 %.1f%%",
+				average,
+				value,
+				math.Abs(relative)*100,
+			)
+		}
 	}
 }
 
-func PredictSpecialUsageCost(filter SpecialUsageFilter, basis string, days float64) (SpecialUsageForecast, error) {
+func PredictSpecialUsageCost(filter SpecialUsageFilter, basis string, days float64, todayRemaining bool) (SpecialUsageForecast, error) {
 	if days <= 0 {
 		return SpecialUsageForecast{}, fmt.Errorf("forecast days must be positive")
 	}
@@ -1082,14 +1412,16 @@ func PredictSpecialUsageCost(filter SpecialUsageFilter, basis string, days float
 	}
 	if basis == "today_current" {
 		localNow := time.Now().In(time.Local)
+		dayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location()).Unix()
+		start = dayStart
+		end = localNow.Unix()
+	}
+	if todayRemaining {
+		localNow := time.Now().In(time.Local)
 		nextDay := time.Date(localNow.Year(), localNow.Month(), localNow.Day()+1, 0, 0, 0, 0, localNow.Location())
 		days = nextDay.Sub(localNow).Hours() / 24
 		if days <= 0 {
 			days = 1.0 / 86400
-		}
-		dayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location()).Unix()
-		if dayStart > start {
-			start = dayStart
 		}
 	}
 	if end <= start {
@@ -1111,6 +1443,7 @@ func PredictSpecialUsageCost(filter SpecialUsageFilter, basis string, days float
 		durationDays = 1.0 / 24
 	}
 	dailyTokens := float64(totals.InputTokens+totals.OutputTokens) / durationDays
+	dailyCost := totals.UpstreamCostUSD / durationDays
 	tokenTotal := float64(totals.InputTokens + totals.OutputTokens)
 	averageCostPerToken := 0.0
 	if tokenTotal > 0 {
@@ -1118,16 +1451,21 @@ func PredictSpecialUsageCost(filter SpecialUsageFilter, basis string, days float
 	}
 	forecastTokens := dailyTokens * days
 	return SpecialUsageForecast{
-		Basis: basis, Days: days, DailyTokens: dailyTokens, ForecastTokens: forecastTokens,
-		AverageCostPerToken: averageCostPerToken, ForecastCostUSD: forecastTokens * averageCostPerToken,
+		Basis: basis, Days: days, HistoricalDays: durationDays, DailyTokens: dailyTokens,
+		DailyCostUSD: dailyCost, ForecastTokens: forecastTokens,
+		AverageCostPerToken: averageCostPerToken, ForecastCostUSD: dailyCost * days,
 	}, nil
 }
 
 func CountSpecialUsageRecords(filter SpecialUsageFilter) (int64, error) {
-	if LOG_DB == nil { return 0, fmt.Errorf("log database is not initialized") }
+	if LOG_DB == nil {
+		return 0, fmt.Errorf("log database is not initialized")
+	}
 	query := applySpecialUsageQuery(LOG_DB.Model(&SpecialUsageRecord{}), filter, "special_usage_records")
 	var total int64
-	if err := query.Count(&total).Error; err != nil { return 0, err }
+	if err := query.Count(&total).Error; err != nil {
+		return 0, err
+	}
 	return total, nil
 }
 
@@ -1184,10 +1522,159 @@ func WriteSpecialUsageCSV(writer io.Writer, records []SpecialUsageRecord) error 
 	return csvWriter.Error()
 }
 
+type specialUsageXLSXCellValue struct {
+	value   string
+	numeric bool
+}
+
+func specialUsageXLSXEscape(value string) string {
+	var builder strings.Builder
+	_ = xml.EscapeText(&builder, []byte(value))
+	return builder.String()
+}
+
+func specialUsageXLSXColumnName(index int) string {
+	name := ""
+	for index >= 0 {
+		name = string(rune('A'+index%26)) + name
+		index = index/26 - 1
+	}
+	return name
+}
+
+func specialUsageXLSXCell(reference string, value specialUsageXLSXCellValue) string {
+	if value.numeric {
+		return `<c r="` + reference + `"><v>` + specialUsageXLSXEscape(value.value) + `</v></c>`
+	}
+	return `<c r="` + reference + `" t="inlineStr"><is><t xml:space="preserve">` +
+		specialUsageXLSXEscape(value.value) + `</t></is></c>`
+}
+
+func specialUsageXLSXRow(rowNumber int, values []specialUsageXLSXCellValue) string {
+	var builder strings.Builder
+	builder.WriteString(`<row r="`)
+	builder.WriteString(strconv.Itoa(rowNumber))
+	builder.WriteString(`">`)
+	for column, value := range values {
+		reference := specialUsageXLSXColumnName(column) + strconv.Itoa(rowNumber)
+		builder.WriteString(specialUsageXLSXCell(reference, value))
+	}
+	builder.WriteString(`</row>`)
+	return builder.String()
+}
+
+func buildSpecialUsageWorksheet(records []SpecialUsageRecord) []byte {
+	const columnCount = 11
+	endRow := len(records) + 1
+	var builder strings.Builder
+	builder.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`)
+	builder.WriteString(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`)
+	builder.WriteString(`<dimension ref="A1:`)
+	builder.WriteString(specialUsageXLSXColumnName(columnCount - 1))
+	builder.WriteString(strconv.Itoa(endRow))
+	builder.WriteString(`"/><sheetData>`)
+	builder.WriteString(specialUsageXLSXRow(1, []specialUsageXLSXCellValue{
+		{value: "request_id"},
+		{value: "channel_id"},
+		{value: "channel_name"},
+		{value: "group"},
+		{value: "model"},
+		{value: "input_tokens"},
+		{value: "output_tokens"},
+		{value: "upstream_cost_usd"},
+		{value: "user_charge_usd"},
+		{value: "status"},
+		{value: "request_time"},
+	}))
+	for index, record := range records {
+		builder.WriteString(specialUsageXLSXRow(index+2, []specialUsageXLSXCellValue{
+			{value: record.RequestID},
+			{value: strconv.Itoa(record.ChannelID), numeric: true},
+			{value: record.ChannelName},
+			{value: record.GroupName},
+			{value: record.ModelName},
+			{value: strconv.FormatInt(record.InputTokens, 10), numeric: true},
+			{value: strconv.FormatInt(record.OutputTokens, 10), numeric: true},
+			{value: strconv.FormatFloat(record.UpstreamCostUSD, 'f', 10, 64), numeric: true},
+			{value: strconv.FormatFloat(record.UserChargeUSD, 'f', 10, 64), numeric: true},
+			{value: record.Status},
+			{value: time.Unix(record.RequestTime, 0).Format(time.RFC3339)},
+		}))
+	}
+	builder.WriteString(`</sheetData></worksheet>`)
+	return []byte(builder.String())
+}
+
+func writeSpecialUsageXLSXFile(archive *zip.Writer, name string, content []byte) error {
+	file, err := archive.Create(name)
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(content)
+	return err
+}
+
+// WriteSpecialUsageXLSX writes a minimal OOXML workbook without adding an
+// external spreadsheet dependency to the server.
+func WriteSpecialUsageXLSX(writer io.Writer, records []SpecialUsageRecord) error {
+	if writer == nil {
+		return errors.New("xlsx writer is nil")
+	}
+	archive := zip.NewWriter(writer)
+	files := []struct {
+		name    string
+		content []byte
+	}{
+		{
+			name: "[Content_Types].xml",
+			content: []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`),
+		},
+		{
+			name: "_rels/.rels",
+			content: []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`),
+		},
+		{
+			name: "xl/workbook.xml",
+			content: []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Special Usage" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`),
+		},
+		{
+			name: "xl/_rels/workbook.xml.rels",
+			content: []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`),
+		},
+		{
+			name:    "xl/worksheets/sheet1.xml",
+			content: buildSpecialUsageWorksheet(records),
+		},
+	}
+	for _, file := range files {
+		if err := writeSpecialUsageXLSXFile(archive, file.name, file.content); err != nil {
+			_ = archive.Close()
+			return err
+		}
+	}
+	return archive.Close()
+}
+
 func ParseSpecialUsageCSVFilter(values map[string][]string) SpecialUsageFilter {
 	filter := SpecialUsageFilter{}
 	filter.GroupNames = normalizeStringList(values["group"])
 	filter.ModelNames = normalizeStringList(values["model"])
+	_, filter.ChannelIDsSet = values["channel_id"]
 	for _, channelID := range values["channel_id"] {
 		if parsed, err := strconv.Atoi(channelID); err == nil && parsed > 0 {
 			filter.ChannelIDs = append(filter.ChannelIDs, parsed)

@@ -105,59 +105,141 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		info.UpstreamModelName = request.Model
 	}
 
+	// countCacheControls 统计请求中已有的 cache_control 断点数量（system + messages + tools 合计），
+	// Anthropic 限制最多 4 个，超出会直接 400。
+	countCacheControls := func() int {
+		n := 0
+		if request.System != nil {
+			if !request.IsStringSystem() {
+				for _, m := range request.ParseSystem() {
+					if len(m.CacheControl) > 0 {
+						n++
+					}
+				}
+			}
+		}
+		for _, msg := range request.Messages {
+			if msg.Content == nil {
+				continue
+			}
+			if msg.IsStringContent() {
+				continue
+			}
+			parts, _ := msg.ParseContent()
+			for _, p := range parts {
+				if len(p.CacheControl) > 0 {
+					n++
+				}
+			}
+		}
+		return n
+	}
+
+	// appendSystemSuffix 将注入的系统提示词追加到 system 末尾，而不是前置，
+	// 以最大程度保留客户端已设置的缓存前缀（cache_control 断点）。
+	// 在末尾注入块上始终打上 cache_control 断点（受 4 断点上限约束），使这段稳定的注入前缀也能被上游缓存。
+	// 当已用满 4 个断点或 ParseSystem 失败（无法保留原结构）时，仅追加纯文本而不打断点，保证请求合法且不覆盖客户端内容。
+	appendSystemSuffix := func(prefix string) {
+		if prefix == "" {
+			return
+		}
+		makeBlock := func(text string, withCache bool) dto.ClaudeMediaMessage {
+			block := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
+			block.SetText(text)
+			if withCache && countCacheControls() < 4 {
+				block.CacheControl = json.RawMessage(`{"type":"ephemeral"}`)
+			}
+			return block
+		}
+		if request.System == nil {
+			// 无客户端 system：直接构造带断点的结构化数组
+			request.System = []dto.ClaudeMediaMessage{makeBlock(prefix, true)}
+			return
+		}
+		if request.IsStringSystem() {
+			existing := strings.TrimSpace(request.GetStringSystem())
+			combined := prefix
+			if existing != "" {
+				combined = existing + "\n" + prefix
+			}
+			// 字符串 system 无法携带 cache_control，转为结构化数组以启用缓存
+			request.System = []dto.ClaudeMediaMessage{makeBlock(combined, true)}
+			return
+		}
+		systemContents := request.ParseSystem()
+		if len(systemContents) == 0 {
+			// ParseSystem 解析失败（非法 system 内容）：保留原字节（转为字符串拼接），不覆盖客户端 system
+			existing := ""
+			if s, ok := request.System.(string); ok {
+				existing = s
+			}
+			combined := prefix
+			if strings.TrimSpace(existing) != "" {
+				combined = strings.TrimSpace(existing) + "\n" + prefix
+			}
+			request.SetStringSystem(combined)
+			return
+		}
+		request.System = append(systemContents, makeBlock(prefix, true))
+	}
+
 	if info.ChannelSetting.SystemPrompt != "" {
 		if request.System == nil {
-			request.SetStringSystem(info.ChannelSetting.SystemPrompt)
+			// nil 时构造带断点的结构化数组，使渠道提示词也能被上游缓存
+			appendSystemSuffix(info.ChannelSetting.SystemPrompt)
 		} else if info.ChannelSetting.SystemPromptOverride {
 			common.SetContextKey(c, constant.ContextKeySystemPromptOverride, true)
+			// 覆盖模式：用渠道提示词替换客户端前缀（语义为覆盖，缓存由新前缀决定）
 			if request.IsStringSystem() {
 				existing := strings.TrimSpace(request.GetStringSystem())
-				if existing == "" {
-					request.SetStringSystem(info.ChannelSetting.SystemPrompt)
-				} else {
-					request.SetStringSystem(info.ChannelSetting.SystemPrompt + "\n" + existing)
+				combined := info.ChannelSetting.SystemPrompt
+				if existing != "" {
+					combined = info.ChannelSetting.SystemPrompt + "\n" + existing
 				}
+			// 覆盖分支同样转为带断点的结构化数组，使 system 段可被缓存（避免纯字符串永不缓存）
+			newOverrideSys := dto.ClaudeMediaMessage{
+				Type:         dto.ContentTypeText,
+				CacheControl: json.RawMessage(`{"type":"ephemeral"}`),
+			}
+			newOverrideSys.SetText(combined)
+			request.System = []dto.ClaudeMediaMessage{newOverrideSys}
 			} else {
 				systemContents := request.ParseSystem()
 				newSystem := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
 				newSystem.SetText(info.ChannelSetting.SystemPrompt)
+				// 覆盖模式下该块是最稳定前缀，打上断点以便缓存（受 4 断点上限约束）
+				if countCacheControls() < 4 {
+					newSystem.CacheControl = json.RawMessage(`{"type":"ephemeral"}`)
+				}
 				if len(systemContents) == 0 {
 					request.System = []dto.ClaudeMediaMessage{newSystem}
 				} else {
 					request.System = append([]dto.ClaudeMediaMessage{newSystem}, systemContents...)
 				}
 			}
-		}
-	}
-
-	// 强制系统提示词拼接：在渠道 SystemPrompt 逻辑之后追加，确保强制提示词始终在最前面
-	forcePrompt := constant.GetForceSystemPrompt(info.OriginModelName)
-	if forcePrompt != "" {
-		if request.System == nil {
-			request.SetStringSystem(forcePrompt)
-		} else if request.IsStringSystem() {
-			existing := strings.TrimSpace(request.GetStringSystem())
-			if existing == "" {
-				request.SetStringSystem(forcePrompt)
-			} else {
-				request.SetStringSystem(forcePrompt + "\n" + existing)
-			}
 		} else {
-			systemContents := request.ParseSystem()
-			newSystem := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
-			newSystem.SetText(forcePrompt)
-			if len(systemContents) == 0 {
-				request.System = []dto.ClaudeMediaMessage{newSystem}
-			} else {
-				request.System = append([]dto.ClaudeMediaMessage{newSystem}, systemContents...)
-			}
+			// 非覆盖模式：追加到末尾，保留客户端缓存前缀
+			appendSystemSuffix(info.ChannelSetting.SystemPrompt)
 		}
 	}
 
+	// 强制系统提示词拼接：追加到末尾而非最前面，避免破坏客户端已设置的缓存前缀。
+	// 强制提示词内容稳定（按模型名固定），因此自身也能被上游缓存。
+	// 注意：走 Responses 路径时，强制提示词的注入统一由 chatCompletionsViaResponses 内的
+	// ApplyForceSystemPromptToInstructions 处理（见 chat_completions_via_responses.go 注释），
+	// 此处若也注入会导致强制提示词在 input item 与 instructions 中重复出现，故跳过。
 	shouldUseResponses := service.ShouldChatCompletionsUseResponsesForChannel(info.ChannelSetting, info.ChannelId, info.ChannelType, info.OriginModelName)
 	responsesRequired := service.ResponsesProtocolRequiredForChannel(info.ChannelSetting, info.ChannelType)
-	if shouldUseResponses &&
-		(!model_setting.GetGlobalSettings().PassThroughRequestEnabled && !info.ChannelSetting.PassThroughBodyEnabled || responsesRequired) {
+	// willUseResponsesPath 与下方进入 Responses 分支的条件严格一致，确保
+	// 「跳过 forcePrompt 注入」与「走 Responses 路径」互为充要，避免漏注入。
+	willUseResponsesPath := shouldUseResponses &&
+		(!model_setting.GetGlobalSettings().PassThroughRequestEnabled && !info.ChannelSetting.PassThroughBodyEnabled || responsesRequired)
+	forcePrompt := constant.GetForceSystemPrompt(info.OriginModelName)
+	if !willUseResponsesPath && forcePrompt != "" {
+		appendSystemSuffix(forcePrompt)
+	}
+
+	if willUseResponsesPath {
 		openAIRequest, convErr := service.ClaudeToOpenAIRequest(*request, info)
 		if convErr != nil {
 			return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())

@@ -105,8 +105,25 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 				openAIMessage := dto.Message{
 					Role: "system",
 				}
-				isOpenRouterClaude := isOpenRouter && strings.HasPrefix(info.UpstreamModelName, "anthropic/claude")
-				if isOpenRouterClaude {
+				// 仅当 system 中确实存在 cache_control 时才保留结构化数组，
+				// 否则仍拍平为字符串，以避免对不支持该字段的严格 OpenAI 兼容上游造成回归。
+				hasCache := false
+				for _, system := range systems {
+					if len(system.CacheControl) > 0 {
+						hasCache = true
+						break
+					}
+				}
+				if !hasCache {
+					// 仅拼接文本，保持与原行为一致（纯字符串 system）
+					texts := make([]string, 0, len(systems))
+					for _, system := range systems {
+						if t := system.GetText(); t != "" {
+							texts = append(texts, t)
+						}
+					}
+					openAIMessage.SetStringContent(strings.Join(texts, "\n"))
+				} else {
 					systemMediaMessages := make([]dto.MediaContent, 0, len(systems))
 					for _, system := range systems {
 						message := dto.MediaContent{
@@ -117,14 +134,6 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 						systemMediaMessages = append(systemMediaMessages, message)
 					}
 					openAIMessage.SetMediaContent(systemMediaMessages)
-				} else {
-					systemStr := ""
-					for _, system := range systems {
-						if system.Text != nil {
-							systemStr += *system.Text
-						}
-					}
-					openAIMessage.SetStringContent(systemStr)
 				}
 				openAIMessages = append(openAIMessages, openAIMessage)
 			}

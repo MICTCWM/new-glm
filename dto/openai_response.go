@@ -260,6 +260,29 @@ type InputTokenDetails struct {
 	ImageTokens          int `json:"image_tokens"`
 }
 
+// UnmarshalJSON 支持 Anthropic 风格字段名（cache_read_input_tokens / cache_creation_input_tokens），
+// 兼容在 Responses 协议下对接 Anthropic 风格中转网关（其 usage 可能返回 anthropic 风格字段）。
+func (t *InputTokenDetails) UnmarshalJSON(data []byte) error {
+	type Alias InputTokenDetails
+	aux := struct {
+		CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
+		*Alias
+	}{
+		Alias: (*Alias)(t),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.CacheReadInputTokens != nil && t.CachedTokens == 0 {
+		t.CachedTokens = *aux.CacheReadInputTokens
+	}
+	if aux.CacheCreationInputTokens != nil && t.CachedCreationTokens == 0 {
+		t.CachedCreationTokens = *aux.CacheCreationInputTokens
+	}
+	return nil
+}
+
 type OutputTokenDetails struct {
 	TextTokens      int `json:"text_tokens"`
 	AudioTokens     int `json:"audio_tokens"`
