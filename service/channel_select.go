@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -87,10 +88,29 @@ func (p *RetryParam) ResetRetryNextTry() {
 //	Retry=3: GroupB, priority1 (startRetryIndex=2, priorityRetry=1)
 //	         分组B, 优先级1
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
+	return cacheGetSatisfiedChannel(param, "")
+}
+
+// CacheGetStableSatisfiedChannel selects the same eligible channel for the
+// same affinity key when the affinity cache has not been populated yet. This
+// keeps cold starts and multi-instance deployments from randomly splitting a
+// prompt-cache session.
+func CacheGetStableSatisfiedChannel(param *RetryParam, stableKey string) (*model.Channel, string, error) {
+	return cacheGetSatisfiedChannel(param, stableKey)
+}
+
+func cacheGetSatisfiedChannel(param *RetryParam, stableKey string) (*model.Channel, string, error) {
 	var channel *model.Channel
 	var err error
 	selectGroup := param.TokenGroup
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
+	stableKey = strings.TrimSpace(stableKey)
+	selectChannel := func(group string, retry int) (*model.Channel, error) {
+		if stableKey != "" {
+			return model.GetStableSatisfiedChannel(group, param.ModelName, stableKey, retry, param.UsedChannelIds, common.GetContextKeyInt(param.Ctx, constant.ContextKeyUserId))
+		}
+		return model.GetRandomSatisfiedChannel(group, param.ModelName, retry, param.UsedChannelIds, common.GetContextKeyInt(param.Ctx, constant.ContextKeyUserId))
+	}
 
 	if param.TokenGroup == "auto" {
 		if len(setting.GetAutoGroups()) == 0 {
@@ -122,7 +142,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, chErr := model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.UsedChannelIds, common.GetContextKeyInt(param.Ctx, constant.ContextKeyUserId))
+			channel, chErr := selectChannel(autoGroup, priorityRetry)
 			if channel == nil {
 				if errors.Is(chErr, model.ErrChannelSpecialUserUnauthorized) {
 					anySpecialUserRestricted = true
@@ -183,7 +203,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			return nil, selectGroup, model.ErrChannelSpecialUserUnauthorized
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.UsedChannelIds, common.GetContextKeyInt(param.Ctx, constant.ContextKeyUserId))
+		channel, err = selectChannel(param.TokenGroup, param.GetRetry())
 		if err != nil {
 			// Propagate ErrAllChannelsRpmFull to caller for queue handling
 			if errors.Is(err, model.ErrAllChannelsRpmFull) || errors.Is(err, model.ErrChannelSpecialUserUnauthorized) {

@@ -61,6 +61,10 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 			return nil, newAPIErrorFromParamOverride(err)
 		}
 	}
+	jsonData, err = ensureOpenAIPromptCacheKey(c, info, jsonData, chatRequest.PromptCacheKey)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
 	info.UpstreamRequestBody = jsonData
 
 	requestBody := bytes.NewBuffer(jsonData)

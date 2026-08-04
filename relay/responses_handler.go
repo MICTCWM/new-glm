@@ -120,9 +120,23 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		}
 		passThroughStorage = storage
 		requestBody = common.ReaderOnly(storage)
+		if body, bodyErr := storage.Bytes(); bodyErr == nil {
+			patched, patchErr := ensureOpenAIPromptCacheKey(c, info, body, responsesPromptCacheKeyString(request.PromptCacheKey))
+			if patchErr != nil {
+				return types.NewError(patchErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			if !bytes.Equal(patched, body) {
+				jsonData = patched
+				requestBody = bytes.NewBuffer(jsonData)
+				passThroughStorage = nil
+				info.UpstreamRequestBody = jsonData
+			}
+		}
 		// 捕获转换后请求体（数据点2，透传模式下等于用户原始请求）
-		if b, e := storage.Bytes(); e == nil {
-			info.UpstreamRequestBody = b
+		if len(info.UpstreamRequestBody) == 0 {
+			if b, e := storage.Bytes(); e == nil {
+				info.UpstreamRequestBody = b
+			}
 		}
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
@@ -145,6 +159,10 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
 			}
+		}
+		jsonData, err = ensureOpenAIPromptCacheKey(c, info, jsonData, responsesPromptCacheKeyString(request.PromptCacheKey))
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 
 		if common.DebugEnabled {

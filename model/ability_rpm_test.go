@@ -101,6 +101,52 @@ func TestGetRandomSatisfiedChannelReturnsRpmFullWhenAllowedChannelIsFull(t *test
 	require.True(t, errors.Is(err, ErrAllChannelsRpmFull))
 }
 
+func TestGetStableSatisfiedChannelIsDeterministic(t *testing.T) {
+	truncateTables(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+		InitChannelCache()
+	})
+
+	priority := int64(1)
+	insertChannelWithAbility(t, 451, "stable-route-test", "stable-route-model", priority, 1, 0)
+	insertChannelWithAbility(t, 452, "stable-route-test", "stable-route-model", priority, 1, 0)
+	InitChannelCache()
+
+	first, err := GetStableSatisfiedChannel("stable-route-test", "stable-route-model", "same-affinity", 0, nil)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	second, err := GetStableSatisfiedChannel("stable-route-test", "stable-route-model", "same-affinity", 0, nil)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	require.Equal(t, first.Id, second.Id)
+}
+
+func TestGetStableSatisfiedChannelWithoutCacheIsDeterministic(t *testing.T) {
+	truncateTables(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+	})
+
+	priority := int64(1)
+	insertChannelWithAbility(t, 461, "stable-db-route-test", "stable-db-route-model", priority, 1, 0)
+	insertChannelWithAbility(t, 462, "stable-db-route-test", "stable-db-route-model", priority, 1, 0)
+
+	first, err := GetStableSatisfiedChannel("stable-db-route-test", "stable-db-route-model", "same-affinity", 0, nil)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	second, err := GetStableSatisfiedChannel("stable-db-route-test", "stable-db-route-model", "same-affinity", 0, nil)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	require.Equal(t, first.Id, second.Id)
+}
+
 func insertChannelWithAbility(t *testing.T, channelId int, group string, modelName string, priority int64, weight uint, maxRPM int, setting ...string) {
 	t.Helper()
 

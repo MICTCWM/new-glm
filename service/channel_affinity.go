@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/cachex"
@@ -25,6 +26,7 @@ const (
 	ginKeyChannelAffinityTTLSeconds = "channel_affinity_ttl_seconds"
 	ginKeyChannelAffinityMeta       = "channel_affinity_meta"
 	ginKeyChannelAffinityLogInfo    = "channel_affinity_log_info"
+	ginKeyChannelAffinityHit        = "channel_affinity_hit"
 	ginKeyChannelAffinitySkipRetry  = "channel_affinity_skip_retry_on_failure"
 
 	channelAffinityCacheNamespace           = "new-api:channel_affinity:v1"
@@ -303,8 +305,13 @@ func extractChannelAffinityValue(c *gin.Context, src operation_setting.ChannelAf
 			return ""
 		}
 		return strings.TrimSpace(c.GetString(src.Key))
+	case "header":
+		if c == nil || c.Request == nil || strings.TrimSpace(src.Key) == "" {
+			return ""
+		}
+		return strings.TrimSpace(c.GetHeader(src.Key))
 	case "gjson":
-		if src.Path == "" {
+		if c == nil || c.Request == nil || src.Path == "" {
 			return ""
 		}
 		storage, err := common.GetBodyStorage(c)
@@ -378,6 +385,77 @@ func getChannelAffinityMeta(c *gin.Context) (channelAffinityMeta, bool) {
 		return channelAffinityMeta{}, false
 	}
 	return meta, true
+}
+
+// ensurePromptCacheRouteMeta supplies a stable route fingerprint even when
+// the optional channel-affinity setting is disabled or no configured rule
+// matches. The route must be decided before relay handlers normalize the
+// request, because the selected upstream channel and credential are part of
+// the provider-side prompt-cache partition.
+func ensurePromptCacheRouteMeta(c *gin.Context) (channelAffinityMeta, bool) {
+	if c == nil {
+		return channelAffinityMeta{}, false
+	}
+	if meta, ok := getChannelAffinityMeta(c); ok && strings.TrimSpace(meta.KeyFingerprint) != "" {
+		return meta, true
+	}
+
+	sources := []operation_setting.ChannelAffinityKeySource{
+		{Type: "gjson", Path: "prompt_cache_key"},
+		{Type: "header", Key: "Session_id"},
+		{Type: "header", Key: "X-Session-Id"},
+		{Type: "header", Key: "X-Conversation-Id"},
+		{Type: "header", Key: "Conversation-Id"},
+		{Type: "header", Key: "X-Thread-Id"},
+		{Type: "header", Key: "Thread-Id"},
+		{Type: "gjson", Path: "metadata.conversation_id"},
+		{Type: "gjson", Path: "metadata.session_id"},
+		{Type: "gjson", Path: "metadata.user_id"},
+		{Type: "gjson", Path: "metadata.userId"},
+		{Type: "gjson", Path: "conversation_id"},
+		{Type: "gjson", Path: "thread_id"},
+		{Type: "gjson", Path: "session_id"},
+		{Type: "gjson", Path: "user_id"},
+		{Type: "context_int", Key: "id"},
+		{Type: "context_int", Key: "token_id"},
+	}
+
+	var value string
+	var usedSource operation_setting.ChannelAffinityKeySource
+	for _, source := range sources {
+		value = extractChannelAffinityValue(c, source)
+		if value != "" {
+			usedSource = source
+			break
+		}
+	}
+	if value == "" {
+		return channelAffinityMeta{}, false
+	}
+
+	ttlSeconds := operation_setting.GetChannelAffinitySetting().DefaultTTLSeconds
+	if ttlSeconds <= 0 {
+		ttlSeconds = 3600
+	}
+	meta := channelAffinityMeta{
+		TTLSeconds:     ttlSeconds,
+		RuleName:       "prompt cache automatic route",
+		KeySourceType:  strings.TrimSpace(usedSource.Type),
+		KeySourceKey:   strings.TrimSpace(usedSource.Key),
+		KeySourcePath:  strings.TrimSpace(usedSource.Path),
+		KeyHint:        buildChannelAffinityKeyHint(value),
+		KeyFingerprint: affinityFingerprint(value),
+		RequestPath:    requestPath(c),
+	}
+	setChannelAffinityContext(c, meta)
+	return meta, true
+}
+
+func requestPath(c *gin.Context) string {
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		return c.Request.URL.Path
+	}
+	return ""
 }
 
 func GetChannelAffinityStatsContext(c *gin.Context) (ChannelAffinityStatsContext, bool) {
@@ -625,6 +703,42 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 	return 0, false
 }
 
+// GetChannelAffinityRouteKey returns the redacted, stable fingerprint used to
+// choose a channel on an affinity cache miss. The original client value is
+// intentionally never exposed outside this package.
+func GetChannelAffinityRouteKey(c *gin.Context) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	meta, ok := ensurePromptCacheRouteMeta(c)
+	if !ok || strings.TrimSpace(meta.KeyFingerprint) == "" {
+		return "", false
+	}
+	return meta.KeyFingerprint, true
+}
+
+// GetPreferredChannelKeyIndex returns a stable key slot for the current
+// channel-affinity request. Channel affinity already pins the channel; this
+// keeps multi-key channels from rotating the same prompt-cache session across
+// different upstream credentials.
+func GetPreferredChannelKeyIndex(c *gin.Context, channel *model.Channel) (int, bool) {
+	if channel == nil || !channel.ChannelInfo.IsMultiKey {
+		return 0, false
+	}
+	keys := channel.GetKeys()
+	if len(keys) <= 1 {
+		return 0, false
+	}
+	meta, ok := ensurePromptCacheRouteMeta(c)
+	if !ok || strings.TrimSpace(meta.KeyFingerprint) == "" {
+		return 0, false
+	}
+
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(fmt.Sprintf("%d:%s", channel.Id, meta.KeyFingerprint)))
+	return int(h.Sum32() % uint32(len(keys))), true
+}
+
 func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
 	if c == nil {
 		return false
@@ -643,6 +757,17 @@ func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
 	return meta.SkipRetry
 }
 
+// IsChannelAffinityHit reports whether the current request selected the
+// channel stored for its affinity key. This is separate from SkipRetry because
+// a generic stable-route rule may allow retries while still requiring RPM
+// saturation to wait on the same channel.
+func IsChannelAffinityHit(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	return c.GetBool(ginKeyChannelAffinityHit)
+}
+
 func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int) {
 	if c == nil || channelID <= 0 {
 		return
@@ -651,6 +776,7 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 	if !ok {
 		return
 	}
+	c.Set(ginKeyChannelAffinityHit, true)
 	c.Set(ginKeyChannelAffinitySkipRetry, meta.SkipRetry)
 	info := map[string]interface{}{
 		"reason":         meta.RuleName,
@@ -676,6 +802,13 @@ func AppendChannelAffinityAdminInfo(c *gin.Context, adminInfo map[string]interfa
 	anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo)
 	if !ok || anyInfo == nil {
 		return
+	}
+	if keyIndex, exists := common.GetContextKey(c, constant.ContextKeyChannelAffinityKeyIndex); exists {
+		if index, ok := keyIndex.(int); ok {
+			if info, ok := anyInfo.(map[string]interface{}); ok {
+				info["key_index"] = index
+			}
+		}
 	}
 	adminInfo["channel_affinity"] = anyInfo
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -280,4 +281,122 @@ func TestChannelAffinityHitCodexChatCompletionsPath(t *testing.T) {
 	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
 	require.True(t, found)
 	require.Equal(t, 9528, channelID)
+}
+
+func TestGetPreferredChannelKeyIndexIsStable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	setChannelAffinityContext(ctx, channelAffinityMeta{
+		KeyFingerprint: "cache-key-fp",
+	})
+
+	channel := &model.Channel{
+		Id:  17,
+		Key: "key-a\nkey-b\nkey-c",
+		ChannelInfo: model.ChannelInfo{
+			IsMultiKey: true,
+		},
+	}
+
+	first, ok := GetPreferredChannelKeyIndex(ctx, channel)
+	require.True(t, ok)
+	second, ok := GetPreferredChannelKeyIndex(ctx, channel)
+	require.True(t, ok)
+	require.Equal(t, first, second)
+	require.GreaterOrEqual(t, first, 0)
+	require.Less(t, first, 3)
+}
+
+func TestChannelAffinityGenericRoutePrefersPromptCacheKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"provider-model","prompt_cache_key":"conversation-123"}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Set("token_id", 12345)
+
+	channelID, found := GetPreferredChannelByAffinity(ctx, "provider-model", "default")
+	require.False(t, found)
+	require.Zero(t, channelID)
+
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "gjson", meta.KeySourceType)
+	require.Equal(t, "prompt_cache_key", meta.KeySourcePath)
+	require.Equal(t, affinityFingerprint("conversation-123"), meta.KeyFingerprint)
+}
+
+func TestChannelAffinityGenericRouteSupportsSessionHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"provider-model"}`),
+	)
+	ctx.Request.Header.Set("Session_id", "conversation-header-123")
+	ctx.Set("token_id", 12345)
+
+	_, found := GetPreferredChannelByAffinity(ctx, "provider-model", "default")
+	require.False(t, found)
+
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "header", meta.KeySourceType)
+	require.Equal(t, "Session_id", meta.KeySourceKey)
+	require.Equal(t, affinityFingerprint("conversation-header-123"), meta.KeyFingerprint)
+}
+
+func TestPromptCacheRouteKeyFallsBackToTokenWithoutConfiguredRuleMatch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"provider-model","messages":[]}`),
+	)
+	ctx.Set("token_id", 67890)
+
+	key, found := GetChannelAffinityRouteKey(ctx)
+	require.True(t, found)
+	require.Equal(t, affinityFingerprint("67890"), key)
+
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "context_int", meta.KeySourceType)
+	require.Equal(t, "token_id", meta.KeySourceKey)
+	require.Equal(t, "prompt cache automatic route", meta.RuleName)
+}
+
+func TestPromptCacheRouteKeyPrefersAuthenticatedUserOverToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"provider-model","messages":[]}`),
+	)
+	ctx.Set("id", 42)
+	ctx.Set("token_id", 67890)
+
+	key, found := GetChannelAffinityRouteKey(ctx)
+	require.True(t, found)
+	require.Equal(t, affinityFingerprint("42"), key)
+
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "context_int", meta.KeySourceType)
+	require.Equal(t, "id", meta.KeySourceKey)
 }

@@ -212,12 +212,17 @@ func responsesMessageContent(raw any) (any, error) {
 		if !ok {
 			continue
 		}
+		var cacheControl json.RawMessage
+		if rawCacheControl, exists := partMap["cache_control"]; exists && rawCacheControl != nil {
+			cacheControl, _ = common.Marshal(rawCacheControl)
+		}
 		partType := strings.TrimSpace(common.Interface2String(partMap["type"]))
 		switch partType {
 		case "input_text", "output_text", "text":
 			media = append(media, dto.MediaContent{
-				Type: dto.ContentTypeText,
-				Text: common.Interface2String(partMap["text"]),
+				Type:         dto.ContentTypeText,
+				Text:         common.Interface2String(partMap["text"]),
+				CacheControl: cacheControl,
 			})
 		case "input_image", "image_url":
 			imageURL := partMap["image_url"]
@@ -226,13 +231,21 @@ func responsesMessageContent(raw any) (any, error) {
 			}
 			image := &dto.MessageImageUrl{Url: responsesURLString(imageURL)}
 			image.Detail = common.Interface2String(partMap["detail"])
-			media = append(media, dto.MediaContent{Type: dto.ContentTypeImageURL, ImageUrl: image})
+			media = append(media, dto.MediaContent{
+				Type:         dto.ContentTypeImageURL,
+				ImageUrl:     image,
+				CacheControl: cacheControl,
+			})
 		case "input_audio", "audio":
 			audio := partMap["input_audio"]
 			if audio == nil {
 				audio = partMap
 			}
-			media = append(media, dto.MediaContent{Type: dto.ContentTypeInputAudio, InputAudio: audio})
+			media = append(media, dto.MediaContent{
+				Type:         dto.ContentTypeInputAudio,
+				InputAudio:   audio,
+				CacheControl: cacheControl,
+			})
 		case "input_file", "file":
 			file := map[string]any{}
 			for _, key := range []string{"file_id", "file_data", "filename"} {
@@ -245,13 +258,21 @@ func responsesMessageContent(raw any) (any, error) {
 					file = nested
 				}
 			}
-			media = append(media, dto.MediaContent{Type: dto.ContentTypeFile, File: file})
+			media = append(media, dto.MediaContent{
+				Type:         dto.ContentTypeFile,
+				File:         file,
+				CacheControl: cacheControl,
+			})
 		default:
 			text := responsesValueString(partMap["text"])
 			if text == "" {
 				text = responsesValueString(part)
 			}
-			media = append(media, dto.MediaContent{Type: dto.ContentTypeText, Text: text})
+			media = append(media, dto.MediaContent{
+				Type:         dto.ContentTypeText,
+				Text:         text,
+				CacheControl: cacheControl,
+			})
 		}
 	}
 	return media, nil

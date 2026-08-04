@@ -7,10 +7,10 @@ const (
 	ContextKeyPromptTokens    ContextKey = "prompt_tokens"
 	ContextKeyEstimatedTokens ContextKey = "estimated_tokens"
 
-	ContextKeyOriginalModel     ContextKey = "original_model"
-	ContextKeyDisplayModel      ContextKey = "display_model"
-	ContextKeyAutoRouteModel    ContextKey = "auto_route_model"
-	ContextKeyRequestStartTime  ContextKey = "request_start_time"
+	ContextKeyOriginalModel    ContextKey = "original_model"
+	ContextKeyDisplayModel     ContextKey = "display_model"
+	ContextKeyAutoRouteModel   ContextKey = "auto_route_model"
+	ContextKeyRequestStartTime ContextKey = "request_start_time"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
@@ -39,6 +39,7 @@ const (
 	ContextKeyChannelStatusCodeMapping ContextKey = "status_code_mapping"
 	ContextKeyChannelIsMultiKey        ContextKey = "channel_is_multi_key"
 	ContextKeyChannelMultiKeyIndex     ContextKey = "channel_multi_key_index"
+	ContextKeyChannelAffinityKeyIndex  ContextKey = "channel_affinity_key_index"
 	ContextKeyChannelKey               ContextKey = "channel_key"
 	ContextKeySelectedChannel          ContextKey = "selected_channel"
 	ContextKeyRpmQueuePending          ContextKey = "rpm_queue_pending"

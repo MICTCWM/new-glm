@@ -1,6 +1,11 @@
 package operation_setting
 
-import "github.com/QuantumNous/new-api/setting/config"
+import (
+	"strings"
+	"sync"
+
+	"github.com/QuantumNous/new-api/setting/config"
+)
 
 type ChannelAffinityKeySource struct {
 	Type string `json:"type"` // context_int, context_string, gjson
@@ -85,6 +90,7 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			PathRegex:  []string{"/v1/responses", "/v1/chat/completions"},
 			KeySources: []ChannelAffinityKeySource{
 				{Type: "gjson", Path: "prompt_cache_key"},
+				{Type: "header", Key: "Session_id"},
 			},
 			ValueRegex:            "",
 			TTLSeconds:            0,
@@ -109,7 +115,167 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			IncludeRuleName:       true,
 			UserAgentInclude:      nil,
 		},
+		{
+			// Most OpenAI-compatible clients do not send an explicit
+			// prompt_cache_key. Keep the same user's requests on one
+			// upstream channel so the provider's automatic prefix cache
+			// does not get split by channel rotation.
+			Name:       "api token stable route",
+			ModelRegex: []string{"^.+$"},
+			PathRegex:  []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"},
+			KeySources: []ChannelAffinityKeySource{
+				{Type: "gjson", Path: "prompt_cache_key"},
+				{Type: "header", Key: "Session_id"},
+				{Type: "header", Key: "X-Session-Id"},
+				{Type: "header", Key: "X-Conversation-Id"},
+				{Type: "header", Key: "Conversation-Id"},
+				{Type: "header", Key: "X-Thread-Id"},
+				{Type: "header", Key: "Thread-Id"},
+				{Type: "gjson", Path: "metadata.conversation_id"},
+				{Type: "gjson", Path: "conversation_id"},
+				{Type: "gjson", Path: "conversation.id"},
+				{Type: "gjson", Path: "metadata.session_id"},
+				{Type: "gjson", Path: "metadata.user_id"},
+				{Type: "gjson", Path: "metadata.userId"},
+				{Type: "gjson", Path: "thread_id"},
+				{Type: "gjson", Path: "session_id"},
+				{Type: "gjson", Path: "user_id"},
+				{Type: "context_int", Key: "id"},
+				{Type: "context_int", Key: "token_id"},
+			},
+			TTLSeconds:         0,
+			SkipRetryOnFailure: false,
+			IncludeUsingGroup:  true,
+			IncludeModelName:   true,
+			IncludeRuleName:    true,
+			UserAgentInclude:   nil,
+		},
 	},
+}
+
+var channelAffinityDefaultsMu sync.Mutex
+
+func defaultAPITokenStableRouteRule() ChannelAffinityRule {
+	return ChannelAffinityRule{
+		Name:       "api token stable route",
+		ModelRegex: []string{"^.+$"},
+		PathRegex:  []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"},
+		KeySources: []ChannelAffinityKeySource{
+			{Type: "gjson", Path: "prompt_cache_key"},
+			{Type: "header", Key: "Session_id"},
+			{Type: "header", Key: "X-Session-Id"},
+			{Type: "header", Key: "X-Conversation-Id"},
+			{Type: "header", Key: "Conversation-Id"},
+			{Type: "header", Key: "X-Thread-Id"},
+			{Type: "header", Key: "Thread-Id"},
+			{Type: "gjson", Path: "metadata.conversation_id"},
+			{Type: "gjson", Path: "conversation_id"},
+			{Type: "gjson", Path: "conversation.id"},
+			{Type: "gjson", Path: "metadata.session_id"},
+			{Type: "gjson", Path: "metadata.user_id"},
+			{Type: "gjson", Path: "metadata.userId"},
+			{Type: "gjson", Path: "thread_id"},
+			{Type: "gjson", Path: "session_id"},
+			{Type: "gjson", Path: "user_id"},
+			{Type: "context_int", Key: "id"},
+			{Type: "context_int", Key: "token_id"},
+		},
+		TTLSeconds:         0,
+		SkipRetryOnFailure: false,
+		IncludeUsingGroup:  true,
+		IncludeModelName:   true,
+		IncludeRuleName:    true,
+		UserAgentInclude:   nil,
+	}
+}
+
+func ensureDefaultChannelAffinityRules() {
+	channelAffinityDefaultsMu.Lock()
+	defer channelAffinityDefaultsMu.Unlock()
+
+	for i := range channelAffinitySetting.Rules {
+		rule := &channelAffinitySetting.Rules[i]
+		if !strings.EqualFold(strings.TrimSpace(rule.Name), "api token stable route") {
+			continue
+		}
+
+		hasPromptCacheKey := false
+		hasUserID := false
+		for _, source := range rule.KeySources {
+			if source.Type == "gjson" && source.Path == "prompt_cache_key" {
+				hasPromptCacheKey = true
+			}
+			if source.Type == "context_int" && source.Key == "id" {
+				hasUserID = true
+			}
+		}
+		if !hasPromptCacheKey {
+			rule.KeySources = append([]ChannelAffinityKeySource{
+				{Type: "gjson", Path: "prompt_cache_key"},
+			}, rule.KeySources...)
+		}
+		if !hasUserID {
+			userSource := ChannelAffinityKeySource{Type: "context_int", Key: "id"}
+			insertAt := len(rule.KeySources)
+			for i, source := range rule.KeySources {
+				if source.Type == "context_int" && source.Key == "token_id" {
+					insertAt = i
+					break
+				}
+			}
+			rule.KeySources = append(rule.KeySources, ChannelAffinityKeySource{})
+			copy(rule.KeySources[insertAt+1:], rule.KeySources[insertAt:])
+			rule.KeySources[insertAt] = userSource
+		}
+
+		requiredSources := []ChannelAffinityKeySource{
+			{Type: "header", Key: "Session_id"},
+			{Type: "header", Key: "X-Session-Id"},
+			{Type: "header", Key: "X-Conversation-Id"},
+			{Type: "header", Key: "Conversation-Id"},
+			{Type: "header", Key: "X-Thread-Id"},
+			{Type: "header", Key: "Thread-Id"},
+			{Type: "gjson", Path: "metadata.conversation_id"},
+			{Type: "gjson", Path: "metadata.session_id"},
+			{Type: "gjson", Path: "metadata.user_id"},
+			{Type: "gjson", Path: "metadata.userId"},
+			{Type: "gjson", Path: "conversation_id"},
+			{Type: "gjson", Path: "conversation.id"},
+			{Type: "gjson", Path: "thread_id"},
+			{Type: "gjson", Path: "session_id"},
+			{Type: "gjson", Path: "user_id"},
+		}
+		present := make(map[string]struct{}, len(rule.KeySources))
+		for _, source := range rule.KeySources {
+			present[source.Type+"\x00"+source.Key+"\x00"+source.Path] = struct{}{}
+		}
+		missing := make([]ChannelAffinityKeySource, 0, len(requiredSources))
+		for _, source := range requiredSources {
+			if _, exists := present[source.Type+"\x00"+source.Key+"\x00"+source.Path]; !exists {
+				missing = append(missing, source)
+			}
+		}
+		if len(missing) > 0 {
+			insertAt := len(rule.KeySources)
+			for i, source := range rule.KeySources {
+				if source.Type == "context_int" && (source.Key == "id" || source.Key == "token_id") {
+					insertAt = i
+					break
+				}
+			}
+			updated := make([]ChannelAffinityKeySource, 0, len(rule.KeySources)+len(missing))
+			updated = append(updated, rule.KeySources[:insertAt]...)
+			updated = append(updated, missing...)
+			updated = append(updated, rule.KeySources[insertAt:]...)
+			rule.KeySources = updated
+		}
+		return
+	}
+
+	channelAffinitySetting.Rules = append(
+		channelAffinitySetting.Rules,
+		defaultAPITokenStableRouteRule(),
+	)
 }
 
 func init() {
@@ -117,5 +283,6 @@ func init() {
 }
 
 func GetChannelAffinitySetting() *ChannelAffinitySetting {
+	ensureDefaultChannelAffinityRules()
 	return &channelAffinitySetting
 }

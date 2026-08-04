@@ -392,6 +392,14 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 						functionTool["strict"] = strict
 					}
 				}
+				if len(tool.CacheControl) > 0 {
+					var cacheControl any
+					if err := common.Unmarshal(tool.CacheControl, &cacheControl); err == nil {
+						functionTool["cache_control"] = cacheControl
+					} else {
+						functionTool["cache_control"] = tool.CacheControl
+					}
+				}
 				tools = append(tools, functionTool)
 			default:
 				// Best-effort: keep original tool shape for unknown types.

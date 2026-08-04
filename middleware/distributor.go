@@ -70,6 +70,11 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
 				return
 			}
+			// Specific-channel tokens bypass the normal affinity lookup. Still
+			// build the affinity metadata so multi-key channels use one stable
+			// upstream key for the same prompt-cache session.
+			usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+			service.GetPreferredChannelByAffinity(c, resolvedModelName, usingGroup)
 		} else {
 			// Select a channel for the user
 			// check token model mapping
@@ -133,7 +138,7 @@ func Distribute() func(c *gin.Context) {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetUserAutoGroup(userGroup)
 							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && preferred.AllowsGptMode(userSetting.GptMode) && !isChannelRpmFull(preferred) {
+								if model.IsChannelEnabledForGroupModel(g, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && preferred.AllowsGptMode(userSetting.GptMode) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
@@ -141,7 +146,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && preferred.AllowsGptMode(userSetting.GptMode) && !isChannelRpmFull(preferred) {
+						} else if model.IsChannelEnabledForGroupModel(usingGroup, resolvedModelName, preferred.Id) && preferred.AllowsSpecialUser(common.GetContextKeyInt(c, constant.ContextKeyUserId)) && preferred.AllowsGptMode(userSetting.GptMode) {
 							channel = preferred
 							selectGroup = usingGroup
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
@@ -150,12 +155,25 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				if channel == nil {
-					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+					retryParam := &service.RetryParam{
 						Ctx:        c,
 						ModelName:  resolvedModelName,
 						TokenGroup: usingGroup,
 						Retry:      common.GetPointer(0),
-					})
+					}
+					if affinityKey, hasAffinityKey := service.GetChannelAffinityRouteKey(c); hasAffinityKey {
+						channel, selectGroup, err = service.CacheGetStableSatisfiedChannel(retryParam, affinityKey)
+						if channel != nil {
+							// A deterministic cold-start selection is already
+							// pinned to this prompt-cache route. Mark it as an
+							// affinity hit so a concurrent RPM full condition
+							// queues on this channel instead of redistributing
+							// the session to another upstream.
+							service.MarkChannelAffinityUsed(c, selectGroup, channel.Id)
+						}
+					} else {
+						channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+					}
 					if err != nil {
 						if errors.Is(err, model.ErrChannelSpecialUserUnauthorized) {
 							abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorSpecialUserForbidden, map[string]any{"Model": modelRequest.Model}))
@@ -412,7 +430,15 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, channel.GetModelMapping())
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
 
-	key, index, newAPIError := channel.GetNextEnabledKey()
+	var key string
+	var index int
+	var newAPIError *types.NewAPIError
+	if preferredKeyIndex, hasPreferredKey := service.GetPreferredChannelKeyIndex(c, channel); hasPreferredKey {
+		key, index, newAPIError = channel.GetEnabledKeyByPreferredIndex(preferredKeyIndex)
+		common.SetContextKey(c, constant.ContextKeyChannelAffinityKeyIndex, index)
+	} else {
+		key, index, newAPIError = channel.GetNextEnabledKey()
+	}
 	if newAPIError != nil {
 		return newAPIError
 	}

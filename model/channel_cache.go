@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"math/rand"
 	"sort"
 	"strings"
@@ -327,8 +328,23 @@ func isChannelUsed(channelId int, usedChannelIds []int) bool {
 // GetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
 // usedChannelIds: list of channel IDs that have been tried and failed, will be excluded from selection.
 func GetRandomSatisfiedChannel(group string, model string, retry int, usedChannelIds []int, userId ...int) (*Channel, error) {
+	return getSatisfiedChannel(group, model, retry, usedChannelIds, "", userId...)
+}
+
+// GetStableSatisfiedChannel selects an eligible channel deterministically from
+// the same weighted pool used by GetRandomSatisfiedChannel. It is intended for
+// cache-affinity cold starts, where a random first selection would split the
+// same upstream cache session across instances.
+func GetStableSatisfiedChannel(group string, model string, stableKey string, retry int, usedChannelIds []int, userId ...int) (*Channel, error) {
+	return getSatisfiedChannel(group, model, retry, usedChannelIds, stableKey, userId...)
+}
+
+func getSatisfiedChannel(group string, model string, retry int, usedChannelIds []int, stableKey string, userId ...int) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
+		if strings.TrimSpace(stableKey) != "" {
+			return GetStableChannel(group, model, stableKey, retry, usedChannelIds, userId...)
+		}
 		return GetChannel(group, model, retry, usedChannelIds, userId...)
 	}
 
@@ -508,8 +524,22 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, usedChanne
 	// Calculate the total weight of all channels up to endIdx
 	totalWeight := sumWeight * smoothingFactor
 
-	// Generate a random value in the range [0, totalWeight)
-	randomWeight := rand.Intn(totalWeight)
+	// Use a stable weighted slot for affinity cold starts. The target channel
+	// list is sorted by ID so every instance with the same channel snapshot
+	// produces the same result. Normal routing keeps its existing randomness.
+	randomWeight := 0
+	if strings.TrimSpace(stableKey) != "" {
+		targetChannels = append([]*Channel(nil), targetChannels...)
+		sort.SliceStable(targetChannels, func(i, j int) bool {
+			return targetChannels[i].Id < targetChannels[j].Id
+		})
+		hasher := fnv.New32a()
+		_, _ = hasher.Write([]byte(stableKey))
+		randomWeight = int(hasher.Sum32() % uint32(totalWeight))
+	} else {
+		// Generate a random value in the range [0, totalWeight)
+		randomWeight = rand.Intn(totalWeight)
+	}
 
 	// Find a channel based on its weight
 	for _, channel := range targetChannels {

@@ -267,6 +267,40 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	}
 }
 
+// GetEnabledKeyByPreferredIndex returns the preferred enabled key, advancing
+// through the key list when that slot is disabled. It is used by cache-affinity
+// routing so one prompt-cache session does not rotate across API keys.
+func (channel *Channel) GetEnabledKeyByPreferredIndex(preferredIndex int) (string, int, *types.NewAPIError) {
+	if channel == nil {
+		return "", 0, types.NewError(errors.New("channel is nil"), types.ErrorCodeChannelNoAvailableKey)
+	}
+	if !channel.ChannelInfo.IsMultiKey {
+		return channel.Key, 0, nil
+	}
+
+	keys := channel.GetKeys()
+	if len(keys) == 0 {
+		return "", 0, types.NewError(errors.New("no keys available"), types.ErrorCodeChannelNoAvailableKey)
+	}
+	if preferredIndex < 0 {
+		preferredIndex = 0
+	}
+	preferredIndex %= len(keys)
+
+	statusList := channel.ChannelInfo.MultiKeyStatusList
+	for offset := 0; offset < len(keys); offset++ {
+		index := (preferredIndex + offset) % len(keys)
+		if statusList != nil {
+			if status, exists := statusList[index]; exists && status != common.ChannelStatusEnabled {
+				continue
+			}
+		}
+		return keys[index], index, nil
+	}
+
+	return "", 0, types.NewError(errors.New("no enabled keys"), types.ErrorCodeChannelNoAvailableKey)
+}
+
 func (channel *Channel) SaveChannelInfo() error {
 	return DB.Model(channel).Update("channel_info", channel.ChannelInfo).Error
 }

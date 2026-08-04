@@ -84,6 +84,9 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 				Parameters:  claudeTool.InputSchema,
 			},
 		}
+		if shouldPreserveClaudeCacheControl(info) {
+			openAITool.CacheControl = claudeTool.CacheControl
+		}
 		openAITools = append(openAITools, openAITool)
 	}
 	openAIRequest.Tools = openAITools
@@ -127,9 +130,11 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 					systemMediaMessages := make([]dto.MediaContent, 0, len(systems))
 					for _, system := range systems {
 						message := dto.MediaContent{
-							Type:         "text",
-							Text:         system.GetText(),
-							CacheControl: system.CacheControl,
+							Type: "text",
+							Text: system.GetText(),
+						}
+						if shouldPreserveClaudeCacheControl(info) {
+							message.CacheControl = system.CacheControl
 						}
 						systemMediaMessages = append(systemMediaMessages, message)
 					}
@@ -160,9 +165,11 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 				switch mediaMsg.Type {
 				case "text", "input_text":
 					message := dto.MediaContent{
-						Type:         "text",
-						Text:         mediaMsg.GetText(),
-						CacheControl: mediaMsg.CacheControl,
+						Type: "text",
+						Text: mediaMsg.GetText(),
+					}
+					if shouldPreserveClaudeCacheControl(info) {
+						message.CacheControl = mediaMsg.CacheControl
 					}
 					mediaMessages = append(mediaMessages, message)
 				case "image":
@@ -172,6 +179,9 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 					mediaMessage := dto.MediaContent{
 						Type:     "image_url",
 						ImageUrl: &dto.MessageImageUrl{Url: imageData},
+					}
+					if shouldPreserveClaudeCacheControl(info) {
+						mediaMessage.CacheControl = mediaMsg.CacheControl
 					}
 					mediaMessages = append(mediaMessages, mediaMessage)
 				case "tool_use":
@@ -223,6 +233,18 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 	openAIRequest.Messages = openAIMessages
 
 	return &openAIRequest, nil
+}
+
+// OpenRouter forwards OpenAI-compatible message content to providers that
+// support Anthropic-style cache_control blocks. Keep those blocks for the
+// OpenRouter path, while still dropping them for strict OpenAI-compatible
+// endpoints that reject unknown content fields.
+func shouldPreserveClaudeCacheControl(info *relaycommon.RelayInfo) bool {
+	if info == nil {
+		return false
+	}
+	return info.ChannelType == constant.ChannelTypeAnthropic ||
+		info.ChannelType == constant.ChannelTypeOpenRouter
 }
 
 func generateStopBlock(index int) *dto.ClaudeResponse {

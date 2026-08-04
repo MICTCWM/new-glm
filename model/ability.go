@@ -3,6 +3,8 @@ package model
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"sort"
 	"strings"
 	"sync"
 
@@ -174,6 +176,18 @@ func isAbilityChannelUsed(channelId int, usedChannelIds []int) bool {
 }
 
 func GetChannel(group string, model string, retry int, usedChannelIds []int, userId ...int) (*Channel, error) {
+	return getChannel(group, model, retry, usedChannelIds, "", userId...)
+}
+
+// GetStableChannel uses the same database eligibility rules as GetChannel,
+// but chooses the weighted candidate deterministically for a stable key. This
+// is used by upstream prompt-cache affinity when the in-memory channel cache
+// is disabled.
+func GetStableChannel(group string, model string, stableKey string, retry int, usedChannelIds []int, userId ...int) (*Channel, error) {
+	return getChannel(group, model, retry, usedChannelIds, stableKey, userId...)
+}
+
+func getChannel(group string, model string, retry int, usedChannelIds []int, stableKey string, userId ...int) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
@@ -269,7 +283,17 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 			}
 			return nil, nil
 		}
-		weight := common.GetRandomInt(int(weightSum))
+		weight := 0
+		if strings.TrimSpace(stableKey) != "" {
+			sort.SliceStable(candidates, func(i, j int) bool {
+				return candidates[i].channel.Id < candidates[j].channel.Id
+			})
+			hasher := fnv.New32a()
+			_, _ = hasher.Write([]byte(stableKey))
+			weight = int(hasher.Sum32() % uint32(weightSum))
+		} else {
+			weight = common.GetRandomInt(int(weightSum))
+		}
 		for _, candidate := range candidates {
 			weight -= int(candidate.ability.Weight) + 10
 			if weight <= 0 {
@@ -277,6 +301,12 @@ func GetChannel(group string, model string, retry int, usedChannelIds []int, use
 			}
 		}
 	} else {
+		if anySpecialUserRestricted && !anySpecialUserAllowed {
+			return nil, ErrChannelSpecialUserUnauthorized
+		}
+		if anyRpmLimited || anyCallCountLimited {
+			return nil, ErrAllChannelsRpmFull
+		}
 		return nil, nil
 	}
 	return nil, nil

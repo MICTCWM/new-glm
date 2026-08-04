@@ -127,6 +127,10 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
+	jsonData, err = ensureOpenAIPromptCacheKey(c, info, jsonData, request.PromptCacheKey)
+	if err != nil {
+		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
 
 	// Capture the final Responses payload, not the intermediate Chat payload.
 	// This is especially important during fallback: it makes it possible to

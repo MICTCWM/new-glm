@@ -105,36 +105,6 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		info.UpstreamModelName = request.Model
 	}
 
-	// countCacheControls 统计请求中已有的 cache_control 断点数量（system + messages + tools 合计），
-	// Anthropic 限制最多 4 个，超出会直接 400。
-	countCacheControls := func() int {
-		n := 0
-		if request.System != nil {
-			if !request.IsStringSystem() {
-				for _, m := range request.ParseSystem() {
-					if len(m.CacheControl) > 0 {
-						n++
-					}
-				}
-			}
-		}
-		for _, msg := range request.Messages {
-			if msg.Content == nil {
-				continue
-			}
-			if msg.IsStringContent() {
-				continue
-			}
-			parts, _ := msg.ParseContent()
-			for _, p := range parts {
-				if len(p.CacheControl) > 0 {
-					n++
-				}
-			}
-		}
-		return n
-	}
-
 	// appendSystemSuffix 将注入的系统提示词追加到 system 末尾，而不是前置，
 	// 以最大程度保留客户端已设置的缓存前缀（cache_control 断点）。
 	// 在末尾注入块上始终打上 cache_control 断点（受 4 断点上限约束），使这段稳定的注入前缀也能被上游缓存。
@@ -146,7 +116,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		makeBlock := func(text string, withCache bool) dto.ClaudeMediaMessage {
 			block := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
 			block.SetText(text)
-			if withCache && countCacheControls() < 4 {
+			if withCache && claudeCacheControlCount(request) < 4 {
 				block.CacheControl = json.RawMessage(`{"type":"ephemeral"}`)
 			}
 			return block
@@ -196,19 +166,19 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				if existing != "" {
 					combined = info.ChannelSetting.SystemPrompt + "\n" + existing
 				}
-			// 覆盖分支同样转为带断点的结构化数组，使 system 段可被缓存（避免纯字符串永不缓存）
-			newOverrideSys := dto.ClaudeMediaMessage{
-				Type:         dto.ContentTypeText,
-				CacheControl: json.RawMessage(`{"type":"ephemeral"}`),
-			}
-			newOverrideSys.SetText(combined)
-			request.System = []dto.ClaudeMediaMessage{newOverrideSys}
+				// 覆盖分支同样转为带断点的结构化数组，使 system 段可被缓存（避免纯字符串永不缓存）
+				newOverrideSys := dto.ClaudeMediaMessage{
+					Type:         dto.ContentTypeText,
+					CacheControl: json.RawMessage(`{"type":"ephemeral"}`),
+				}
+				newOverrideSys.SetText(combined)
+				request.System = []dto.ClaudeMediaMessage{newOverrideSys}
 			} else {
 				systemContents := request.ParseSystem()
 				newSystem := dto.ClaudeMediaMessage{Type: dto.ContentTypeText}
 				newSystem.SetText(info.ChannelSetting.SystemPrompt)
 				// 覆盖模式下该块是最稳定前缀，打上断点以便缓存（受 4 断点上限约束）
-				if countCacheControls() < 4 {
+				if claudeCacheControlCount(request) < 4 {
 					newSystem.CacheControl = json.RawMessage(`{"type":"ephemeral"}`)
 				}
 				if len(systemContents) == 0 {
@@ -237,6 +207,9 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	forcePrompt := constant.GetForceSystemPrompt(info.OriginModelName)
 	if !willUseResponsesPath && forcePrompt != "" {
 		appendSystemSuffix(forcePrompt)
+	}
+	if !willUseResponsesPath {
+		ensureClaudePromptCacheBreakpoint(request)
 	}
 
 	if willUseResponsesPath {
@@ -277,9 +250,19 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 		passThroughStorage = storage
 		requestBody = common.ReaderOnly(storage)
+		if body, bodyErr := storage.Bytes(); bodyErr == nil {
+			if patched, patchErr := addClaudePromptCacheBreakpointToRawBody(body); patchErr == nil && !bytes.Equal(patched, body) {
+				jsonData = patched
+				requestBody = bytes.NewBuffer(jsonData)
+				passThroughStorage = nil
+				info.UpstreamRequestBody = jsonData
+			}
+		}
 		// 捕获转换后请求体（数据点2，透传模式下等于用户原始请求）
-		if b, e := storage.Bytes(); e == nil {
-			info.UpstreamRequestBody = b
+		if len(info.UpstreamRequestBody) == 0 {
+			if b, e := storage.Bytes(); e == nil {
+				info.UpstreamRequestBody = b
+			}
 		}
 	} else {
 		convertedRequest, err := adaptor.ConvertClaudeRequest(c, info, request)
@@ -301,6 +284,12 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
+			}
+		}
+		if openAIRequest, ok := convertedRequest.(*dto.GeneralOpenAIRequest); ok {
+			jsonData, err = ensureOpenAIPromptCacheKey(c, info, jsonData, openAIRequest.PromptCacheKey)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
 		}
 

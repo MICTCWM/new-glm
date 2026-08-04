@@ -543,6 +543,26 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					runtimeRpmFull = false
 					break
 				}
+				// A cache-affinity hit must wait for its pinned channel instead
+				// of being redistributed to another upstream. Otherwise a busy
+				// channel splits the same prompt-cache session under load.
+				if service.IsChannelAffinityHit(c) {
+					common.SysLog(fmt.Sprintf("亲和渠道 RPM 已满，保持渠道并进入队列: channel_id=%d", channel.Id))
+					runtimeRpmFull = true
+					retryParam.InitialSelectionDone = false
+					if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
+						wasQueued = true
+						runtimeRpmFull = false
+						retryParam.UsedChannelIds = retryParam.UsedChannelIds[:0]
+						retryParam.SetRetry(0)
+						retryParam.ResetRetryNextTry()
+						continue
+					}
+					wasQueued = true
+					newAPIError = newRpmQueueTimeoutError()
+					break
+				}
+
 				// RPM just filled up, skip this channel and retry another
 				retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
 				runtimeRpmFull = true
@@ -698,15 +718,28 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			common.SysLog(fmt.Sprintf("主请求失败，将尝试跨渠道重试: channel_id=%d, status_code=%d, error_code=%v, supports_fallback=%v",
 				channel.Id, newAPIError.StatusCode, newAPIError.GetErrorCode(), sourceSupportsFallback))
 		}
-		// 不再 break，让循环自然 continue 到下一次迭代，getChannel 会通过
-		// CacheGetRandomSatisfiedChannel 选择相同模型的其他渠道（排除 UsedChannelIds）。
+
+		// Honor the retry policy before changing channels. In particular,
+		// cache-affinity rules may explicitly require the request to stay on
+		// the selected upstream so a transient failure does not split the
+		// same prompt-cache session across channels.
+		if !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
+			if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+				c.Set("channel_affinity_failure", true)
+				c.Set("source_channel_supports_fallback", false)
+			}
+			break
+		}
+		// Continue to the next iteration. getChannel will select another
+		// matching channel while excluding UsedChannelIds.
 
 	}
 
 	// Try every available fallback channel in order. For an oversized context,
 	// keep the existing special case and replace the fallback chain with one
 	// more request to the channel that is already selected.
-	canFallback := (c.GetBool("source_channel_supports_fallback") || fallbackTransferTriggered(c)) &&
+	canFallback := !c.GetBool("channel_affinity_failure") &&
+		(c.GetBool("source_channel_supports_fallback") || fallbackTransferTriggered(c)) &&
 		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds)
 	if canFallback && shouldReplaceFallbackWithRetry(relayInfo) {
 		common.SysLog(fmt.Sprintf("输入 token 超过兜底限制，跳过兜底并对当前渠道额外重试: tokens=%d, limit=%d",
@@ -1571,7 +1604,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	if info.ChannelMeta == nil {
 		// RPM 队列挂起时优先处理（即使是首次 retry==0）
 		if common.GetContextKeyBool(c, constant.ContextKeyRpmQueuePending) {
-			channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+			channel, selectGroup, err := getAffinitySatisfiedChannel(retryParam)
 			if err != nil {
 				if errors.Is(err, model.ErrAllChannelsRpmFull) {
 					return nil, types.NewErrorWithStatusCode(
@@ -1588,6 +1621,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 			if newAPIError != nil {
 				return nil, newAPIError
+			}
+			if _, hasAffinityKey := service.GetChannelAffinityRouteKey(c); hasAffinityKey {
+				service.MarkChannelAffinityUsed(c, selectGroup, channel.Id)
 			}
 			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 			return channel, nil
@@ -1623,7 +1659,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}
 
 		// 重试时：强制选新渠道，从 usedChannelIds 排除已试渠道
-		channel, _, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+		channel, _, err := getAffinitySatisfiedChannel(retryParam)
 		if err != nil {
 			if errors.Is(err, model.ErrAllChannelsRpmFull) {
 				return nil, types.NewErrorWithStatusCode(
@@ -1659,7 +1695,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}
 		return channel, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+	channel, selectGroup, err := getAffinitySatisfiedChannel(retryParam)
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
@@ -1696,6 +1732,15 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, newAPIError
 	}
 	return channel, nil
+}
+
+func getAffinitySatisfiedChannel(retryParam *service.RetryParam) (*model.Channel, string, error) {
+	if retryParam != nil {
+		if stableKey, ok := service.GetChannelAffinityRouteKey(retryParam.Ctx); ok {
+			return service.CacheGetStableSatisfiedChannel(retryParam, stableKey)
+		}
+	}
+	return service.CacheGetRandomSatisfiedChannel(retryParam)
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
