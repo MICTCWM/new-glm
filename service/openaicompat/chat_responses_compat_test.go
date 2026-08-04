@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
@@ -47,6 +48,39 @@ func TestChatCompletionsRequestToResponsesPreservesCoreMappings(t *testing.T) {
 	require.Equal(t, "json_schema", jsonPath(t, got.Text, "format.type"))
 	require.Equal(t, "true", jsonPath(t, got.Tools, "0.strict"))
 	require.Equal(t, "high", got.Reasoning.Effort)
+}
+
+func TestChatCompletionsRequestToResponsesPreservesPromptCacheFields(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{
+		Model:                "gpt-test",
+		PromptCacheKey:       "codex-session-1",
+		PromptCacheRetention: json.RawMessage(`"in-memory"`),
+		Messages:             []dto.Message{{Role: "user", Content: "hello"}},
+	}
+
+	got, err := ChatCompletionsRequestToResponsesRequest(req)
+	require.NoError(t, err)
+	require.Equal(t, `"codex-session-1"`, string(got.PromptCacheKey))
+	require.Equal(t, `"in-memory"`, string(got.PromptCacheRetention))
+}
+
+func TestChatCompletionsRequestToResponsesPreservesJSONCacheControl(t *testing.T) {
+	var req dto.GeneralOpenAIRequest
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"model":"gpt-test",
+		"messages":[{
+			"role":"user",
+			"content":[{
+				"type":"text",
+				"text":"stable prefix",
+				"cache_control":{"type":"ephemeral"}
+			}]
+		}]
+	}`), &req))
+
+	got, err := ChatCompletionsRequestToResponsesRequest(&req)
+	require.NoError(t, err)
+	require.Equal(t, "ephemeral", jsonPath(t, got.Input, "0.content.0.cache_control.type"))
 }
 
 func TestResponsesResponseToChatPreservesTextReasoningToolsAndIncompleteStatus(t *testing.T) {
@@ -179,9 +213,9 @@ func TestChatCompletionsRequestToResponsesSanitizesNullArrayFields(t *testing.T)
 			Function: dto.FunctionRequest{
 				Name: "TaskList",
 				Parameters: map[string]any{
-					"type":       "object",
-					"required":   nil, // invalid JSON Schema, should be dropped
-					"enum":       nil, // invalid JSON Schema, should be dropped
+					"type":     "object",
+					"required": nil, // invalid JSON Schema, should be dropped
+					"enum":     nil, // invalid JSON Schema, should be dropped
 					"properties": map[string]any{
 						"status": map[string]any{
 							"type": "string",

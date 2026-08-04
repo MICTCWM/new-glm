@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -304,8 +305,9 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 				for _, ctx := range message.ParseContent() {
 					if ctx.Type == "text" && ctx.Text != "" {
 						systemMessages = append(systemMessages, dto.ClaudeMediaMessage{
-							Type: "text",
-							Text: common.GetPointer[string](ctx.Text),
+							Type:         "text",
+							Text:         common.GetPointer[string](ctx.Text),
+							CacheControl: ctx.CacheControl,
 						})
 					}
 					// 未来可以在这里扩展对图片等其他类型的支持
@@ -372,8 +374,9 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 					case "text":
 						if mediaMessage.Text != "" {
 							claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
-								Type: "text",
-								Text: common.GetPointer[string](mediaMessage.Text),
+								Type:         "text",
+								Text:         common.GetPointer[string](mediaMessage.Text),
+								CacheControl: mediaMessage.CacheControl,
 							})
 						}
 					default:
@@ -385,15 +388,37 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 						if err != nil {
 							return nil, fmt.Errorf("get file data failed: %s", err.Error())
 						}
+						if file := mediaMessage.GetFile(); file != nil && file.FileName != "" {
+							if dot := strings.LastIndex(file.FileName, "."); dot >= 0 && dot+1 < len(file.FileName) {
+								if extensionMime := service.GetMimeTypeByExtension(file.FileName[dot+1:]); extensionMime != "application/octet-stream" {
+									mimeType = extensionMime
+								}
+							}
+						}
+						if strings.HasPrefix(mimeType, "text/") {
+							textData, decodeErr := base64.StdEncoding.DecodeString(base64Data)
+							if decodeErr == nil && len(textData) > 0 {
+								text := string(textData)
+								claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+									Type:         "text",
+									Text:         common.GetPointer[string](text),
+									CacheControl: mediaMessage.CacheControl,
+								})
+							}
+							continue
+						}
 						claudeMediaMessage := dto.ClaudeMediaMessage{
 							Source: &dto.ClaudeMessageSource{
 								Type: "base64",
 							},
+							CacheControl: mediaMessage.CacheControl,
 						}
 						if strings.HasPrefix(mimeType, "application/pdf") {
 							claudeMediaMessage.Type = "document"
-						} else {
+						} else if strings.HasPrefix(mimeType, "image/") {
 							claudeMediaMessage.Type = "image"
+						} else {
+							continue
 						}
 
 						claudeMediaMessage.Source.MediaType = mimeType

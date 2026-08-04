@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -383,6 +384,89 @@ func TestRequestOpenAI2ClaudeMessage_ConvertsTextFileContentToText(t *testing.T)
 	require.Equal(t, "text", content[0].Type)
 	require.NotNil(t, content[0].Text)
 	require.Equal(t, "alpha\nbeta", *content[0].Text)
+}
+
+func TestRequestOpenAI2ClaudeMessagePreservesCacheControl(t *testing.T) {
+	cacheControl := json.RawMessage(`{"type":"ephemeral"}`)
+	request := dto.GeneralOpenAIRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []dto.Message{
+			{
+				Role: "system",
+				Content: []any{
+					dto.MediaContent{
+						Type:         dto.ContentTypeText,
+						Text:         "stable system prefix",
+						CacheControl: cacheControl,
+					},
+				},
+			},
+			{
+				Role: "user",
+				Content: []any{
+					dto.MediaContent{
+						Type:         dto.ContentTypeText,
+						Text:         "stable user prefix",
+						CacheControl: cacheControl,
+					},
+					dto.MediaContent{
+						Type: dto.ContentTypeImageURL,
+						ImageUrl: &dto.MessageImageUrl{
+							Url: "data:image/png;base64,aGVsbG8=",
+						},
+						CacheControl: cacheControl,
+					},
+					dto.MediaContent{
+						Type: dto.ContentTypeFile,
+						File: &dto.MessageFile{
+							FileName: "spec.pdf",
+							FileData: "JVBERi0xLjQK",
+						},
+						CacheControl: cacheControl,
+					},
+				},
+			},
+		},
+	}
+
+	claudeRequest, err := RequestOpenAI2ClaudeMessage(nil, request)
+	require.NoError(t, err)
+	require.Len(t, claudeRequest.System, 1)
+	require.JSONEq(t, string(cacheControl), string(claudeRequest.System.([]dto.ClaudeMediaMessage)[0].CacheControl))
+
+	require.Len(t, claudeRequest.Messages, 1)
+	content, ok := claudeRequest.Messages[0].Content.([]dto.ClaudeMediaMessage)
+	require.True(t, ok)
+	require.Len(t, content, 3)
+	for _, block := range content {
+		require.JSONEq(t, string(cacheControl), string(block.CacheControl))
+	}
+	require.Equal(t, "text", content[0].Type)
+	require.Equal(t, "image", content[1].Type)
+	require.Equal(t, "document", content[2].Type)
+}
+
+func TestRequestOpenAI2ClaudeMessagePreservesJSONCacheControl(t *testing.T) {
+	var request dto.GeneralOpenAIRequest
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"model":"claude-3-5-sonnet",
+		"messages":[{
+			"role":"user",
+			"content":[{
+				"type":"text",
+				"text":"stable prefix",
+				"cache_control":{"type":"ephemeral"}
+			}]
+		}]
+	}`), &request))
+
+	claudeRequest, err := RequestOpenAI2ClaudeMessage(nil, request)
+	require.NoError(t, err)
+	require.Len(t, claudeRequest.Messages, 1)
+	content, ok := claudeRequest.Messages[0].Content.([]dto.ClaudeMediaMessage)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	require.JSONEq(t, `{"type":"ephemeral"}`, string(content[0].CacheControl))
 }
 
 func TestAdjustQueuedClaudeThinkingMergeKeepsFollowingIndexes(t *testing.T) {
