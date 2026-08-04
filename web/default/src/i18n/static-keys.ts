@@ -202,6 +202,7 @@ export const STATIC_I18N_KEYS = [
   // Channel Affinity section
   'Channel Affinity',
   'Configure channel affinity (sticky routing) rules',
+  'Special Usage Monitoring',
 
   // Models constants
   'Exact Match',
