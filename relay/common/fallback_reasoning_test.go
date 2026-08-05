@@ -91,3 +91,42 @@ func TestNormalizeFallbackReasoningEffortRejectsUnknownValue(t *testing.T) {
 		t.Fatalf("NormalizeFallbackReasoningEffort() = %q, want empty", got)
 	}
 }
+
+func TestSyncReasoningEffortFromOpenAIRequest(t *testing.T) {
+	info := &RelayInfo{}
+	request := &dto.GeneralOpenAIRequest{
+		ReasoningEffort: "high",
+	}
+
+	info.SyncReasoningEffortFromOpenAIRequest(request)
+
+	if info.ReasoningEffort != "high" {
+		t.Fatalf("ReasoningEffort = %q, want high", info.ReasoningEffort)
+	}
+}
+
+func TestSyncReasoningEffortFromOpenRouterReasoning(t *testing.T) {
+	info := &RelayInfo{}
+	request := &dto.GeneralOpenAIRequest{
+		Reasoning: []byte(`{"effort":"medium"}`),
+	}
+
+	info.SyncReasoningEffortFromOpenAIRequest(request)
+
+	if info.ReasoningEffort != "medium" {
+		t.Fatalf("ReasoningEffort = %q, want medium", info.ReasoningEffort)
+	}
+}
+
+func TestSyncReasoningEffortFromResponsesRequestPreservesOverride(t *testing.T) {
+	info := &RelayInfo{MappedReasoningEffort: "xhigh"}
+	request := &dto.OpenAIResponsesRequest{
+		Reasoning: &dto.Reasoning{Effort: "low"},
+	}
+
+	info.SyncReasoningEffortFromResponsesRequest(request)
+
+	if info.ReasoningEffort != "xhigh" {
+		t.Fatalf("ReasoningEffort = %q, want xhigh", info.ReasoningEffort)
+	}
+}

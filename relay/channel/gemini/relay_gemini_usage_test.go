@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -65,6 +66,36 @@ func TestGeminiChatHandlerCompletionTokensExcludeToolUsePromptTokens(t *testing.
 	require.Equal(t, 2209, usage.CompletionTokens)
 	require.Equal(t, 20689, usage.TotalTokens)
 	require.Equal(t, 1120, usage.CompletionTokenDetails.ReasoningTokens)
+}
+
+func TestThinkingAdaptorMapsOpenAIReasoningEffort(t *testing.T) {
+	settings := model_setting.GetGeminiSettings()
+	originalSettings := *settings
+	settings.ThinkingAdapterEnabled = true
+	t.Cleanup(func() {
+		*settings = originalSettings
+	})
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "gemini-2.5-flash",
+		},
+	}
+	request := dto.GeneralOpenAIRequest{ReasoningEffort: "high"}
+	geminiRequest := dto.GeminiChatRequest{}
+
+	ThinkingAdaptor(&geminiRequest, info, request)
+
+	if geminiRequest.GenerationConfig.ThinkingConfig == nil {
+		t.Fatal("ThinkingConfig is nil")
+	}
+	if geminiRequest.GenerationConfig.ThinkingConfig.ThinkingBudget == nil ||
+		*geminiRequest.GenerationConfig.ThinkingConfig.ThinkingBudget <= 0 {
+		t.Fatalf("ThinkingBudget = %+v, want a positive budget", geminiRequest.GenerationConfig.ThinkingConfig.ThinkingBudget)
+	}
+	if info.ReasoningEffort != "high" {
+		t.Fatalf("ReasoningEffort = %q, want high", info.ReasoningEffort)
+	}
 }
 
 func TestGeminiStreamHandlerCompletionTokensExcludeToolUsePromptTokens(t *testing.T) {

@@ -19,6 +19,7 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 		Model:       claudeRequest.Model,
 		Temperature: claudeRequest.Temperature,
 	}
+	openAIRequest.ReasoningEffort = claudeThinkingReasoningEffort(claudeRequest)
 	if claudeRequest.MaxTokens != nil {
 		openAIRequest.MaxTokens = lo.ToPtr(lo.FromPtr(claudeRequest.MaxTokens))
 	}
@@ -233,6 +234,37 @@ func ClaudeToOpenAIRequest(claudeRequest dto.ClaudeRequest, info *relaycommon.Re
 	openAIRequest.Messages = openAIMessages
 
 	return &openAIRequest, nil
+}
+
+// claudeThinkingReasoningEffort maps Claude's thinking object to the closest
+// OpenAI reasoning level when a Claude request is converted to Chat format.
+// Claude budgets are token counts, so the mapping is intentionally coarse.
+func claudeThinkingReasoningEffort(request dto.ClaudeRequest) string {
+	if effort := relaycommon.NormalizeFallbackReasoningEffort(request.GetEfforts()); effort != "" {
+		return effort
+	}
+	if request.Thinking == nil {
+		return ""
+	}
+	switch request.Thinking.Type {
+	case "disabled":
+		return "none"
+	case "adaptive":
+		return "high"
+	case "enabled":
+		switch budget := request.Thinking.GetBudgetTokens(); {
+		case budget >= 8192:
+			return "xhigh"
+		case budget >= 4096:
+			return "high"
+		case budget >= 2048:
+			return "medium"
+		default:
+			return "low"
+		}
+	default:
+		return ""
+	}
 }
 
 // OpenRouter forwards OpenAI-compatible message content to providers that

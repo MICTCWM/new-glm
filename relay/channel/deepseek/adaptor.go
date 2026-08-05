@@ -84,14 +84,30 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
+	info.SyncReasoningEffortFromOpenAIRequest(request)
 	if err := applyDeepSeekV4OpenAIThinkingSuffix(info, request); err != nil {
 		return nil, err
+	}
+	if request.ReasoningEffort != "" && len(request.THINKING) == 0 {
+		thinkingType := "enabled"
+		if request.ReasoningEffort == "none" {
+			thinkingType = "disabled"
+		}
+		thinking, err := common.Marshal(map[string]string{"type": thinkingType})
+		if err != nil {
+			return nil, fmt.Errorf("error marshalling thinking: %w", err)
+		}
+		request.THINKING = thinking
+		request.ReasoningEffort = ""
 	}
 
 	return request, nil
 }
 
 func applyDeepSeekV4OpenAIThinkingSuffix(info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) error {
+	if info != nil && info.GetFallbackReasoningEffort() != "" && request != nil && len(request.THINKING) > 0 {
+		return nil
+	}
 	modelName := request.Model
 	if info != nil && info.ChannelMeta != nil && info.UpstreamModelName != "" {
 		modelName = info.UpstreamModelName

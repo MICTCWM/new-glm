@@ -244,6 +244,9 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
+	// Capture the client setting before OpenRouter compatibility handling may
+	// remove reasoning_effort from the serialized Chat request.
+	info.SyncReasoningEffortFromOpenAIRequest(request)
 	if info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeAzure {
 		request.StreamOptions = nil
 	}
@@ -258,7 +261,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 			request.Model = info.UpstreamModelName
 			if len(request.Reasoning) == 0 {
 				reasoning := map[string]any{
-					"enabled": true,
+					"enabled": request.ReasoningEffort != "none",
 				}
 				if request.ReasoningEffort != "" && request.ReasoningEffort != "none" {
 					reasoning["effort"] = request.ReasoningEffort
@@ -276,16 +279,16 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 				// 适配 OpenAI 的 ReasoningEffort 格式
 				if request.ReasoningEffort != "" {
 					reasoning := map[string]any{
-						"enabled": true,
+						"enabled": request.ReasoningEffort != "none",
 					}
 					if request.ReasoningEffort != "none" {
 						reasoning["effort"] = request.ReasoningEffort
-						marshal, err := common.Marshal(reasoning)
-						if err != nil {
-							return nil, fmt.Errorf("error marshalling reasoning: %w", err)
-						}
-						request.Reasoning = marshal
 					}
+					marshal, err := common.Marshal(reasoning)
+					if err != nil {
+						return nil, fmt.Errorf("error marshalling reasoning: %w", err)
+					}
+					request.Reasoning = marshal
 				}
 			}
 			request.ReasoningEffort = ""
@@ -343,13 +346,14 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 
 		// 转换模型推理力度后缀
 		effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.UpstreamModelName)
-		if effort != "" {
+		if effort != "" && info.GetFallbackReasoningEffort() == "" {
 			request.ReasoningEffort = effort
 			info.UpstreamModelName = originModel
 			request.Model = originModel
+			info.SyncReasoningEffortFromOpenAIRequest(request)
 		}
 
-		info.ReasoningEffort = request.ReasoningEffort
+		info.SyncReasoningEffortFromOpenAIRequest(request)
 
 		// o系列模型developer适配（o1-mini除外）
 		if !strings.HasPrefix(info.UpstreamModelName, "o1-mini") && !strings.HasPrefix(info.UpstreamModelName, "o1-preview") {
@@ -598,7 +602,7 @@ func detectImageMimeType(filename string) string {
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
 	//  转换模型推理力度后缀
 	effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(request.Model)
-	if effort != "" {
+	if effort != "" && info.GetFallbackReasoningEffort() == "" {
 		if request.Reasoning == nil {
 			request.Reasoning = &dto.Reasoning{
 				Effort: effort,
@@ -608,8 +612,8 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 		}
 		request.Model = originModel
 	}
-	if info != nil && request.Reasoning != nil && request.Reasoning.Effort != "" {
-		info.ReasoningEffort = request.Reasoning.Effort
+	if info != nil {
+		info.SyncReasoningEffortFromResponsesRequest(&request)
 	}
 	return request, nil
 }

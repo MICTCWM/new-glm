@@ -136,6 +136,11 @@ func ThinkingAdaptor(geminiRequest *dto.GeminiChatRequest, info *relaycommon.Rel
 		info.ApplyFallbackReasoningToGeminiRequest(geminiRequest)
 		return
 	}
+	requestedEffort := ""
+	if len(oaiRequest) > 0 {
+		requestedEffort = relaycommon.NormalizeFallbackReasoningEffort(oaiRequest[0].ReasoningEffort)
+		info.SyncReasoningEffortFromOpenAIRequest(&oaiRequest[0])
+	}
 	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled {
 		modelName := info.UpstreamModelName
 		isNew25Pro := strings.HasPrefix(modelName, "gemini-2.5-pro") &&
@@ -174,15 +179,13 @@ func ThinkingAdaptor(geminiRequest *dto.GeminiChatRequest, info *relaycommon.Rel
 				geminiRequest.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
 					IncludeThoughts: true,
 				}
-				if geminiRequest.GenerationConfig.MaxOutputTokens != nil && *geminiRequest.GenerationConfig.MaxOutputTokens > 0 {
+				if requestedEffort != "" && requestedEffort != "none" {
+					budgetTokens := clampThinkingBudgetByEffort(modelName, requestedEffort)
+					geminiRequest.GenerationConfig.ThinkingConfig.ThinkingBudget = common.GetPointer(budgetTokens)
+				} else if geminiRequest.GenerationConfig.MaxOutputTokens != nil && *geminiRequest.GenerationConfig.MaxOutputTokens > 0 {
 					budgetTokens := model_setting.GetGeminiSettings().ThinkingAdapterBudgetTokensPercentage * float64(*geminiRequest.GenerationConfig.MaxOutputTokens)
 					clampedBudget := clampThinkingBudget(modelName, int(budgetTokens))
 					geminiRequest.GenerationConfig.ThinkingConfig.ThinkingBudget = common.GetPointer(clampedBudget)
-				} else {
-					if len(oaiRequest) > 0 {
-						// 如果有reasoningEffort参数，则根据其值设置思考预算
-						geminiRequest.GenerationConfig.ThinkingConfig.ThinkingBudget = common.GetPointer(clampThinkingBudgetByEffort(modelName, oaiRequest[0].ReasoningEffort))
-					}
 				}
 			}
 		} else if strings.HasSuffix(modelName, "-nothinking") {
@@ -197,6 +200,28 @@ func ThinkingAdaptor(geminiRequest *dto.GeminiChatRequest, info *relaycommon.Rel
 				ThinkingLevel:   level,
 			}
 			info.ReasoningEffort = level
+		}
+
+		// A client can select reasoning on a plain Gemini model without using a
+		// model suffix. Translate that setting to the native Gemini field.
+		if requestedEffort != "" && geminiRequest.GenerationConfig.ThinkingConfig == nil {
+			if requestedEffort == "none" {
+				if !isNew25Pro {
+					geminiRequest.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
+						ThinkingBudget: common.GetPointer(0),
+					}
+				}
+			} else if strings.HasPrefix(modelName, "gemini-3") {
+				geminiRequest.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
+					IncludeThoughts: true,
+					ThinkingLevel:   requestedEffort,
+				}
+			} else {
+				geminiRequest.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
+					IncludeThoughts: true,
+					ThinkingBudget:  common.GetPointer(clampThinkingBudgetByEffort(modelName, requestedEffort)),
+				}
+			}
 		}
 	}
 }

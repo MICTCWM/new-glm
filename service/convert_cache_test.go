@@ -132,6 +132,22 @@ func TestClaudeToOpenAIRequestPreservesToolAndImageCacheControlForOpenRouter(t *
 	require.JSONEq(t, string(cacheControl), string(content[0].CacheControl))
 }
 
+func TestClaudeToOpenAIRequestPreservesThinkingEffort(t *testing.T) {
+	budget := 4096
+	request := dto.ClaudeRequest{
+		Model:    "gpt-5",
+		Thinking: &dto.Thinking{Type: "enabled", BudgetTokens: &budget},
+	}
+
+	openAI, err := ClaudeToOpenAIRequest(request, &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType: constant.ChannelTypeOpenAI,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "high", openAI.ReasoningEffort)
+}
+
 func ptrString(value string) *string {
 	return &value
 }

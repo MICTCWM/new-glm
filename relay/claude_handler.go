@@ -42,6 +42,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
 	info.ApplyFallbackReasoningToClaudeRequest(request)
+	info.SyncReasoningEffortFromClaudeRequest(request)
 
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
@@ -104,6 +105,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 		info.UpstreamModelName = request.Model
 	}
+	info.SyncReasoningEffortFromClaudeRequest(request)
 
 	// appendSystemSuffix 将注入的系统提示词追加到 system 末尾，而不是前置，
 	// 以最大程度保留客户端已设置的缓存前缀（cache_control 断点）。

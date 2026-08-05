@@ -29,6 +29,7 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	info.ApplyFallbackReasoningToOpenAIRequest(chatRequest)
+	info.SyncReasoningEffortFromOpenAIRequest(chatRequest)
 	applySystemPromptIfNeeded(c, info, chatRequest)
 	info.AppendRequestConversion(types.RelayFormatOpenAI)
 

@@ -857,6 +857,13 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 	if setting == nil || !setting.Enabled {
 		return
 	}
+	// A fallback channel is selected only for this failed request. It must not
+	// replace the normal affinity route after the fallback happens to succeed.
+	// Keep the existing affinity entry intact; otherwise every later request
+	// with the same key would bypass the normal channel and enter fallback.
+	if c != nil && c.GetBool("fallback_used") {
+		return
+	}
 	if setting.SwitchOnSuccess && c != nil {
 		if successChannelID := c.GetInt("channel_id"); successChannelID > 0 {
 			channelID = successChannelID

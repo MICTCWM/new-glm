@@ -30,6 +30,80 @@ func (info *RelayInfo) GetFallbackReasoningEffort() string {
 	return NormalizeFallbackReasoningEffort(info.FallbackReasoningEffort)
 }
 
+// SyncReasoningEffortFromOpenAIRequest keeps request metadata in sync with
+// the effective Chat Completions/OpenRouter reasoning setting. Fallback and
+// model-mapping overrides always take precedence over the client value.
+func (info *RelayInfo) SyncReasoningEffortFromOpenAIRequest(request *dto.GeneralOpenAIRequest) {
+	if info == nil {
+		return
+	}
+
+	effort := ""
+	if request != nil {
+		effort = request.ReasoningEffort
+		if effort == "" && len(request.Reasoning) > 0 {
+			var reasoning struct {
+				Effort string `json:"effort"`
+			}
+			if err := json.Unmarshal(request.Reasoning, &reasoning); err == nil {
+				effort = reasoning.Effort
+			}
+		}
+	}
+	info.syncReasoningEffort(effort)
+}
+
+// SyncReasoningEffortFromResponsesRequest keeps request metadata in sync with
+// the Responses API reasoning.effort field.
+func (info *RelayInfo) SyncReasoningEffortFromResponsesRequest(request *dto.OpenAIResponsesRequest) {
+	effort := ""
+	if request != nil && request.Reasoning != nil {
+		effort = request.Reasoning.Effort
+	}
+	if info != nil {
+		info.syncReasoningEffort(effort)
+	}
+}
+
+// SyncReasoningEffortFromClaudeRequest records Claude thinking requests even
+// though the native Claude API represents the setting as a thinking object.
+func (info *RelayInfo) SyncReasoningEffortFromClaudeRequest(request *dto.ClaudeRequest) {
+	effort := ""
+	if request != nil {
+		effort = request.GetEfforts()
+		if effort == "" && request.Thinking != nil {
+			switch request.Thinking.Type {
+			case "disabled":
+				effort = "none"
+			case "enabled", "adaptive":
+				effort = "thinking"
+			}
+		}
+	}
+	if info != nil {
+		info.syncReasoningEffort(effort)
+	}
+}
+
+func (info *RelayInfo) syncReasoningEffort(effort string) {
+	if info == nil {
+		return
+	}
+	if override := info.GetFallbackReasoningEffort(); override != "" {
+		if override == "none" {
+			info.ReasoningEffort = ""
+		} else {
+			info.ReasoningEffort = override
+		}
+		return
+	}
+	effort = NormalizeFallbackReasoningEffort(effort)
+	if effort == "none" {
+		effort = ""
+	}
+	info.ReasoningEffort = effort
+}
+
 // ApplyFallbackReasoningToOpenAIRequest applies the configured fallback level
 // before protocol-specific adaptors convert the request.
 func (info *RelayInfo) ApplyFallbackReasoningToOpenAIRequest(request *dto.GeneralOpenAIRequest) {
