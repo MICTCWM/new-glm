@@ -47,7 +47,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DateTimePicker } from '@/components/datetime-picker'
-import { getAllLogs } from '@/features/usage-logs/api'
+import { getAllLogs, type LogRequestOptions } from '@/features/usage-logs/api'
 import type { UsageLog } from '@/features/usage-logs/data/schema'
 import { getChannels } from '../api'
 import { CHANNEL_STATUS, CHANNEL_STATUS_CONFIG } from '../constants'
@@ -59,6 +59,10 @@ import { useChannels } from './channels-provider'
 const FOLDER_STORAGE_KEY = 'channels-modern-folders'
 const CHANNEL_PAGE_SIZE = 100
 const MAX_LOG_PAGES_PER_CHANNEL = 50
+const LOG_PAGE_DELAY_MS = 200
+const SILENT_LOG_REQUEST_OPTIONS: LogRequestOptions = {
+  skipErrorHandler: true,
+}
 const FOLDER_COLORS = [
   '#2563eb',
   '#0891b2',
@@ -171,6 +175,10 @@ function formatCompact(value: number): string {
   return `${number >= 100 ? number.toFixed(0) : number >= 10 ? number.toFixed(1) : number.toFixed(2)}${unit.suffix}`
 }
 
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
 async function copyChannelId(id: number, t: (key: string) => string) {
   try {
     await navigator.clipboard.writeText(String(id))
@@ -231,11 +239,14 @@ async function fetchChannelStats(
     end_timestamp: Math.floor(range.end.getTime() / 1000),
   }
 
-  const firstPage = await getAllLogs({
-    ...params,
-    p: 1,
-    page_size: CHANNEL_PAGE_SIZE,
-  })
+  const firstPage = await getAllLogs(
+    {
+      ...params,
+      p: 1,
+      page_size: CHANNEL_PAGE_SIZE,
+    },
+    SILENT_LOG_REQUEST_OPTIONS
+  )
   const firstItems = (firstPage.data?.items || []) as UsageLog[]
   const total = firstPage.data?.total || 0
   const pageCount = Math.min(
@@ -244,13 +255,18 @@ async function fetchChannelStats(
   )
   const remainingPages = await mapWithConcurrency(
     Array.from({ length: Math.max(0, pageCount - 1) }),
-    8,
-    (_, index) =>
-      getAllLogs({
-        ...params,
-        p: index + 2,
-        page_size: CHANNEL_PAGE_SIZE,
-      })
+    1,
+    async (_, index) => {
+      await wait(LOG_PAGE_DELAY_MS)
+      return getAllLogs(
+        {
+          ...params,
+          p: index + 2,
+          page_size: CHANNEL_PAGE_SIZE,
+        },
+        SILENT_LOG_REQUEST_OPTIONS
+      )
+    }
   )
   const logs = firstItems.concat(
     remainingPages.flatMap((page) => (page.data?.items || []) as UsageLog[])
@@ -850,7 +866,15 @@ export function ChannelsModernView() {
     refetchOnWindowFocus: false,
   })
   const channels = useMemo(() => channelsQuery.data ?? [], [channelsQuery.data])
-  const channelIdsKey = channels.map((channel) => channel.id).join(',')
+  const folderChannelIds = useMemo(
+    () => new Set(folders.flatMap((folder) => folder.channelIds)),
+    [folders]
+  )
+  const trackedChannels = useMemo(
+    () => channels.filter((channel) => folderChannelIds.has(channel.id)),
+    [channels, folderChannelIds]
+  )
+  const channelIdsKey = trackedChannels.map((channel) => channel.id).join(',')
 
   const statsQuery = useQuery({
     queryKey: [
@@ -859,18 +883,25 @@ export function ChannelsModernView() {
       channelIdsKey,
       range.start.getTime(),
       range.end.getTime(),
-      channels,
+      trackedChannels,
       range,
     ],
-    enabled: channels.length > 0,
+    enabled: trackedChannels.length > 0,
     queryFn: async () => {
-      const entries = await mapWithConcurrency(channels, 4, async (channel) => {
-        try {
-          return [channel.id, await fetchChannelStats(channel, range)] as const
-        } catch {
-          return [channel.id, EMPTY_STATS] as const
+      const entries = await mapWithConcurrency(
+        trackedChannels,
+        1,
+        async (channel) => {
+          try {
+            return [
+              channel.id,
+              await fetchChannelStats(channel, range),
+            ] as const
+          } catch {
+            return [channel.id, EMPTY_STATS] as const
+          }
         }
-      })
+      )
       return Object.fromEntries(entries) as Record<number, ChannelStats>
     },
     refetchInterval: 60_000,
@@ -880,15 +911,11 @@ export function ChannelsModernView() {
 
   const pulse = statsQuery.dataUpdatedAt
   const statsByChannel = statsQuery.data ?? EMPTY_STATS_BY_CHANNEL
-  const folderChannelIds = useMemo(
-    () => new Set(folders.flatMap((folder) => folder.channelIds)),
-    [folders]
-  )
   const ungroupedChannels = channels.filter(
     (channel) => !folderChannelIds.has(channel.id)
   )
   const totalStats = mergeStats(
-    channels.map((channel) => channel.id),
+    trackedChannels.map((channel) => channel.id),
     statsByChannel
   )
 

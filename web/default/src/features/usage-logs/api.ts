@@ -29,6 +29,10 @@ import type {
   UserInfo,
 } from './types'
 
+export interface LogRequestOptions {
+  skipErrorHandler?: boolean
+}
+
 // ============================================================================
 // Generic API Helpers
 // ============================================================================
@@ -40,7 +44,8 @@ function buildApiPath(endpoint: string, isAdmin: boolean): string {
 async function fetchLogs<T>(
   endpoint: string,
   params: T,
-  isAdmin: boolean
+  isAdmin: boolean,
+  options?: LogRequestOptions
 ): Promise<GetLogsResponse> {
   const paramRecord = params as unknown as Record<string, unknown>
   const queryParams = buildQueryParams({
@@ -49,7 +54,12 @@ async function fetchLogs<T>(
     ...params,
   })
   const path = buildApiPath(endpoint, isAdmin)
-  const res = await api.get(`${path}?${queryParams}`)
+  const config = options
+    ? ({ skipErrorHandler: options.skipErrorHandler } as unknown as Parameters<
+        typeof api.get
+      >[1])
+    : undefined
+  const res = await api.get(`${path}?${queryParams}`, config)
   return res.data
 }
 
@@ -70,8 +80,10 @@ async function fetchLogStats<T>(
 // Common Log APIs
 // ============================================================================
 
-export const getAllLogs = (params: GetLogsParams = {}) =>
-  fetchLogs('/api/log', params, true)
+export const getAllLogs = (
+  params: GetLogsParams = {},
+  options?: LogRequestOptions
+) => fetchLogs('/api/log', params, true, options)
 
 export const getUserLogs = (
   params: Omit<GetLogsParams, 'username' | 'channel'> = {}
