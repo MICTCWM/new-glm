@@ -477,10 +477,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
-	// 外层渠道重试循环：主渠道失败后切换到其他有相同模型的渠道重试。
-	// maxRetryTimes=2 表示主请求之外再跨渠道重试 2 次；循环结束后再按顺序
-	// 尝试所有可用兜底渠道。
-	maxRetryTimes := 2
+	// 外层普通渠道重试关闭：主渠道 handler 自己完成两次内部重试，
+	// 失败后再进入循环外的兜底渠道链路。这样不会在内部重试尚未完成时
+	// 提前切换普通渠道或进入兜底。
+	maxRetryTimes := 0
 
 	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
