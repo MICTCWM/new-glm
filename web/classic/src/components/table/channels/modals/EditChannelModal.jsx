@@ -537,6 +537,7 @@ const EditChannelModal = (props) => {
     gpt_mode_required: false,
     emergency_plan_enabled: false,
     fallback_model_enabled: false,
+    fallback_priority: 0,
   });
   // 配额每日重置时刻（数组，元素为 0-23 的小时数）
   const [resetHours, setResetHours] = useState([]);
@@ -559,7 +560,26 @@ const EditChannelModal = (props) => {
     setInputs((prev) => ({ ...prev, [key]: value }));
 
     // 生成setting JSON并更新
-    const newSettings = { ...channelSettings, [key]: value };
+    let existingSettings = {};
+    if (inputs.setting) {
+      try {
+        const parsedSettings = JSON.parse(inputs.setting);
+        if (
+          parsedSettings &&
+          typeof parsedSettings === 'object' &&
+          !Array.isArray(parsedSettings)
+        ) {
+          existingSettings = parsedSettings;
+        }
+      } catch (error) {
+        console.error('解析渠道设置失败:', error);
+      }
+    }
+    const newSettings = {
+      ...existingSettings,
+      ...channelSettings,
+      [key]: value,
+    };
     const settingsJson = JSON.stringify(newSettings);
     handleInputChange('setting', settingsJson);
   };
@@ -900,6 +920,11 @@ const EditChannelModal = (props) => {
             parsedSettings.emergency_plan_enabled || false;
           data.fallback_model_enabled =
             parsedSettings.fallback_model_enabled === true;
+          data.fallback_priority =
+            Number.isInteger(Number(parsedSettings.fallback_priority)) &&
+            Number(parsedSettings.fallback_priority) >= 0
+              ? Number(parsedSettings.fallback_priority)
+              : 0;
         } catch (error) {
           console.error('解析渠道设置失败:', error);
           data.responses_protocol = false;
@@ -912,6 +937,7 @@ const EditChannelModal = (props) => {
           data.gpt_mode_required = false;
           data.emergency_plan_enabled = false;
           data.fallback_model_enabled = false;
+          data.fallback_priority = 0;
         }
       } else {
         data.responses_protocol = false;
@@ -924,6 +950,7 @@ const EditChannelModal = (props) => {
         data.gpt_mode_required = false;
         data.emergency_plan_enabled = false;
         data.fallback_model_enabled = false;
+        data.fallback_priority = 0;
       }
 
       if (data.settings) {
@@ -1037,6 +1064,7 @@ const EditChannelModal = (props) => {
         gpt_mode_required: data.gpt_mode_required || false,
         emergency_plan_enabled: data.emergency_plan_enabled || false,
         fallback_model_enabled: data.fallback_model_enabled === true,
+        fallback_priority: data.fallback_priority || 0,
       });
       initialModelsRef.current = (data.models || [])
         .map((model) => (model || '').trim())
@@ -1488,6 +1516,8 @@ const EditChannelModal = (props) => {
       system_prompt_override: false,
       gpt_mode_required: false,
       emergency_plan_enabled: false,
+      fallback_model_enabled: false,
+      fallback_priority: 0,
     });
     // 重置密钥模式状态
     setKeyMode('append');
@@ -1850,8 +1880,24 @@ const EditChannelModal = (props) => {
       localInputs.other = 'v2.1';
     }
 
-    // 生成渠道额外设置JSON
+    // 生成渠道额外设置JSON，同时保留其他管理端已经保存的设置。
+    let existingChannelSettings = {};
+    if (localInputs.setting) {
+      try {
+        const parsedSettings = JSON.parse(localInputs.setting);
+        if (
+          parsedSettings &&
+          typeof parsedSettings === 'object' &&
+          !Array.isArray(parsedSettings)
+        ) {
+          existingChannelSettings = parsedSettings;
+        }
+      } catch (error) {
+        console.error('解析渠道设置失败:', error);
+      }
+    }
     const channelExtraSettings = {
+      ...existingChannelSettings,
       // Keep the Responses/RE protocol switch in the persisted channel setting.
       // The backend reads it from ChannelSettings (the JSON stored in setting).
       // Omitting it here silently switches an enabled RE channel back to Chat.
@@ -1865,6 +1911,12 @@ const EditChannelModal = (props) => {
       gpt_mode_required: localInputs.gpt_mode_required || false,
       emergency_plan_enabled: localInputs.emergency_plan_enabled || false,
       fallback_model_enabled: channelSettings.fallback_model_enabled === true,
+      fallback_priority: Math.max(
+        0,
+        Number.isInteger(Number(channelSettings.fallback_priority))
+          ? Number(channelSettings.fallback_priority)
+          : 0,
+      ),
     };
     localInputs.setting = JSON.stringify(channelExtraSettings);
 
@@ -2934,6 +2986,37 @@ const EditChannelModal = (props) => {
                       '开启后可作为紧急兜底路由。新建时默认禁用，且模型不会出现在对外模型列表中。',
                     )}
                   />
+                  <Form.Switch
+                    field='fallback_model_enabled'
+                    label={t('兜底模式')}
+                    checkedText={t('开')}
+                    uncheckedText={t('关')}
+                    onChange={(value) =>
+                      handleChannelSettingsChange(
+                        'fallback_model_enabled',
+                        value,
+                      )
+                    }
+                    extraText={t(
+                      '开启后，该渠道仅作为兜底渠道使用。所有其他渠道重试失败后将按兜底优先级尝试。',
+                    )}
+                  />
+                  {channelSettings.fallback_model_enabled && (
+                    <Form.Input
+                      field='fallback_priority'
+                      label={t('兜底优先级')}
+                      type='number'
+                      min={0}
+                      step={1}
+                      onChange={(value) =>
+                        handleChannelSettingsChange(
+                          'fallback_priority',
+                          Math.max(0, Number.parseInt(value || '0', 10) || 0),
+                        )
+                      }
+                      extraText={t('数值越高越优先尝试。')}
+                    />
+                  )}
                 </div>
               </div>
             );

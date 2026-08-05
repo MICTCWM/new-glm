@@ -4226,7 +4226,7 @@ export function ChannelMutateDrawer({
                   )}
                 />
                 {fallbackModelEnabled && (
-                  <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]'>
+                  <div className='grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem_10rem]'>
                     <FormField
                       control={form.control}
                       name='fallback_model'
@@ -4273,6 +4273,30 @@ export function ChannelMutateDrawer({
                               </SelectGroup>
                             </SelectContent>
                           </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name='fallback_priority'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Fallback Priority')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={0}
+                              step={1}
+                              {...field}
+                              onChange={(event) =>
+                                field.onChange(Number(event.target.value))
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t('Higher values are tried first.')}
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}

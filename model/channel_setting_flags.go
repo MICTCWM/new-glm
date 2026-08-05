@@ -8,6 +8,7 @@ import (
 type channelSettingFlags struct {
 	EmergencyPlanEnabled bool `json:"emergency_plan_enabled,omitempty"`
 	FallbackModelEnabled bool `json:"fallback_model_enabled,omitempty"`
+	FallbackPriority     int  `json:"fallback_priority,omitempty"`
 	SupportFallback      bool `json:"support_fallback,omitempty"`
 }
 
@@ -40,6 +41,21 @@ func isFallbackModelEnabledSetting(setting *string) bool {
 		return false
 	}
 	return flags.FallbackModelEnabled
+}
+
+func getFallbackPrioritySetting(setting *string) int {
+	if setting == nil {
+		return 0
+	}
+	trimmed := strings.TrimSpace(*setting)
+	if trimmed == "" {
+		return 0
+	}
+	var flags channelSettingFlags
+	if err := json.Unmarshal([]byte(trimmed), &flags); err != nil {
+		return 0
+	}
+	return flags.FallbackPriority
 }
 
 func isSupportFallbackSetting(setting *string) bool {

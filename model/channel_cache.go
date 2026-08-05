@@ -26,6 +26,9 @@ func sortFallbackChannelsByPriority(channels []*Channel) {
 		if channels[i] == nil || channels[j] == nil {
 			return channels[i] != nil
 		}
+		if fallbackPriority := getFallbackPrioritySetting(channels[i].Setting); fallbackPriority != getFallbackPrioritySetting(channels[j].Setting) {
+			return fallbackPriority > getFallbackPrioritySetting(channels[j].Setting)
+		}
 		if channels[i].GetPriority() != channels[j].GetPriority() {
 			return channels[i].GetPriority() > channels[j].GetPriority()
 		}

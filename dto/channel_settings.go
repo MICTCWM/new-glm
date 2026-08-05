@@ -31,6 +31,7 @@ type ChannelSettings struct {
 	FallbackModelEnabled         bool                             `json:"fallback_model_enabled,omitempty"`          // 是否启用兜底模式
 	FallbackModel                string                           `json:"fallback_model,omitempty"`                  // 兜底模型名（上游实际请求的模型名）
 	FallbackModelReasoningEffort string                           `json:"fallback_model_reasoning_effort,omitempty"` // 兜底模型思考等级
+	FallbackPriority             int                              `json:"fallback_priority,omitempty"`               // 兜底渠道优先级，数值越大越优先
 	SupportFallback              bool                             `json:"support_fallback,omitempty"`                // 是否支持错误转移（该渠道失败时是否触发转移到兜底渠道）
 	ProbeEnabled                 bool                             `json:"probe_enabled,omitempty"`                   // 是否启用渠道探针
 	SpecialBilling               bool                             `json:"special_billing,omitempty"`

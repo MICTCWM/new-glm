@@ -22,6 +22,14 @@ func buildChannelAffinityTemplateContextForTest(meta channelAffinityMeta) *gin.C
 	return ctx
 }
 
+func allowAffinityChannelsForTest(t *testing.T, channelIDs ...int) {
+	t.Helper()
+	setting := operation_setting.GetChannelAffinitySetting()
+	original := append([]int(nil), setting.AllowedChannelIDs...)
+	setting.AllowedChannelIDs = append([]int(nil), channelIDs...)
+	t.Cleanup(func() { setting.AllowedChannelIDs = original })
+}
+
 func TestApplyChannelAffinityOverrideTemplate_NoTemplate(t *testing.T) {
 	ctx := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
 		RuleName: "rule-no-template",
@@ -179,6 +187,7 @@ func TestShouldSkipRetryAfterChannelAffinityFailure(t *testing.T) {
 
 func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	allowAffinityChannelsForTest(t, 9527)
 
 	setting := operation_setting.GetChannelAffinitySetting()
 	require.NotNil(t, setting)
@@ -249,6 +258,7 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 
 func TestChannelAffinityHitCodexChatCompletionsPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	allowAffinityChannelsForTest(t, 9528)
 
 	setting := operation_setting.GetChannelAffinitySetting()
 	require.NotNil(t, setting)
@@ -285,6 +295,7 @@ func TestChannelAffinityHitCodexChatCompletionsPath(t *testing.T) {
 
 func TestGetPreferredChannelKeyIndexIsStable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	allowAffinityChannelsForTest(t, 17)
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
 	setChannelAffinityContext(ctx, channelAffinityMeta{
@@ -310,6 +321,7 @@ func TestGetPreferredChannelKeyIndexIsStable(t *testing.T) {
 
 func TestChannelAffinityGenericRoutePrefersPromptCacheKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	allowAffinityChannelsForTest(t, 1)
 
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
@@ -334,6 +346,7 @@ func TestChannelAffinityGenericRoutePrefersPromptCacheKey(t *testing.T) {
 
 func TestChannelAffinityGenericRouteSupportsSessionHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	allowAffinityChannelsForTest(t, 1)
 
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
@@ -357,6 +370,7 @@ func TestChannelAffinityGenericRouteSupportsSessionHeader(t *testing.T) {
 
 func TestChannelAffinityGenericRoutePrefersAuthenticatedUserOverBodyUserID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	allowAffinityChannelsForTest(t, 1)
 
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
@@ -381,6 +395,7 @@ func TestChannelAffinityGenericRoutePrefersAuthenticatedUserOverBodyUserID(t *te
 
 func TestPromptCacheRouteKeyFallsBackToTokenWithoutConfiguredRuleMatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	allowAffinityChannelsForTest(t, 1)
 
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
@@ -404,6 +419,7 @@ func TestPromptCacheRouteKeyFallsBackToTokenWithoutConfiguredRuleMatch(t *testin
 
 func TestPromptCacheRouteKeyPrefersAuthenticatedUserOverToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	allowAffinityChannelsForTest(t, 1)
 
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)

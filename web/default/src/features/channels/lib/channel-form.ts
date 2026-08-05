@@ -69,6 +69,7 @@ export const channelFormSchema = z.object({
   fallback_model_enabled: z.boolean().optional(),
   fallback_model: z.string().optional(),
   fallback_model_reasoning_effort: z.string().optional(),
+  fallback_priority: z.number().int().min(0).optional(),
   support_fallback: z.boolean().optional(),
   probe_enabled: z.boolean().optional(),
   special_billing: z.boolean().optional(),
@@ -155,6 +156,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   fallback_model_enabled: false,
   fallback_model: '',
   fallback_model_reasoning_effort: '',
+  fallback_priority: 0,
   support_fallback: false,
   probe_enabled: false,
   // Type-specific settings
@@ -205,6 +207,7 @@ export function transformChannelToFormDefaults(
     fallback_model_enabled: false,
     fallback_model: '',
     fallback_model_reasoning_effort: '',
+    fallback_priority: 0,
     support_fallback: false,
     probe_enabled: false,
     special_billing: false,
@@ -234,6 +237,11 @@ export function transformChannelToFormDefaults(
         fallback_model: parsed.fallback_model || '',
         fallback_model_reasoning_effort:
           parsed.fallback_model_reasoning_effort || '',
+        fallback_priority:
+          Number.isInteger(Number(parsed.fallback_priority)) &&
+          Number(parsed.fallback_priority) >= 0
+            ? Number(parsed.fallback_priority)
+            : 0,
         support_fallback: parsed.support_fallback === true,
         probe_enabled: parsed.probe_enabled === true,
         special_billing: parsed.special_billing === true,
@@ -457,6 +465,7 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     fallback_model: formData.fallback_model || '',
     fallback_model_reasoning_effort:
       formData.fallback_model_reasoning_effort || '',
+    fallback_priority: formData.fallback_priority ?? 0,
     support_fallback: formData.support_fallback === true,
     special_billing: formData.special_billing === true,
     special_billing_prices: formData.special_billing_prices || {},

@@ -888,8 +888,7 @@ export default function SettingsChannelAffinity(props) {
         } catch (e) {
           currentInputs[key] = [];
         }
-      }
-      else if (key === KEY_RULES) {
+      } else if (key === KEY_RULES) {
         try {
           const obj = JSON.parse(props.options[key] || '[]');
           currentInputs[key] = stringifyPretty(obj);
@@ -1057,6 +1056,42 @@ export default function SettingsChannelAffinity(props) {
                     '如果亲和到的渠道失败，重试到其他渠道成功后，将亲和更新到成功的渠道。',
                   )}
                 </Text>
+              </Col>
+            </Row>
+
+            <Row gutter={16} style={{ marginTop: 12 }}>
+              <Col xs={24}>
+                <Form.Slot
+                  label={t('允许亲和渠道')}
+                  extraText={
+                    <Text type='tertiary' size='small'>
+                      {t(
+                        '只有选中的渠道可以参与渠道亲和；留空表示禁用渠道亲和路由。',
+                      )}
+                    </Text>
+                  }
+                >
+                  <Select
+                    multiple
+                    filter
+                    value={inputs[KEY_ALLOWED_CHANNEL_IDS] || []}
+                    optionList={affinityChannels}
+                    placeholder={t('请选择允许进行渠道亲和的渠道')}
+                    style={{ width: '100%' }}
+                    onChange={(value) =>
+                      setInputs((prev) => ({
+                        ...prev,
+                        [KEY_ALLOWED_CHANNEL_IDS]: Array.from(
+                          new Set(
+                            (Array.isArray(value) ? value : [value])
+                              .map((id) => Number(id))
+                              .filter((id) => Number.isInteger(id) && id > 0),
+                          ),
+                        ),
+                      }))
+                    }
+                  />
+                </Form.Slot>
               </Col>
             </Row>
 

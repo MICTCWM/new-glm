@@ -205,6 +205,8 @@ export const STATIC_I18N_KEYS = [
   'Allowed Affinity Channels',
   'Only selected channels can be used for channel affinity. An empty list disables affinity routing.',
   'Special Usage Monitoring',
+  'Fallback Priority',
+  'Higher values are tried first.',
 
   // Models constants
   'Exact Match',

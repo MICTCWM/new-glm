@@ -105,6 +105,7 @@ export interface ChannelSettings {
   fallback_model_enabled?: boolean
   fallback_model?: string
   fallback_model_reasoning_effort?: string
+  fallback_priority?: number
   support_fallback?: boolean
   probe_enabled?: boolean
 }
