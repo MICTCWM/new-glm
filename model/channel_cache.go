@@ -100,6 +100,52 @@ func HasAvailableFallbackChannelsExcludingUsed(usedChannelIds []int) bool {
 	return false
 }
 
+// HasEmergencyChannel reports whether the normal model pool contains an
+// enabled emergency channel. Affinity lookup uses this to avoid selecting a
+// cached normal channel ahead of the emergency-only selection policy.
+func HasEmergencyChannel(group string, modelName string) bool {
+	group = strings.TrimSpace(group)
+	modelName = strings.TrimSpace(modelName)
+	if group == "" || modelName == "" {
+		return false
+	}
+
+	if common.MemoryCacheEnabled {
+		channelSyncLock.RLock()
+		defer channelSyncLock.RUnlock()
+
+		channels := group2model2channels[group][modelName]
+		if len(channels) == 0 {
+			channels = group2model2channels[group][ratio_setting.FormatMatchingModelName(modelName)]
+		}
+		for _, channelID := range channels {
+			if channel, ok := channelsIDM[channelID]; ok && channel.IsEmergencyPlanEnabled() {
+				return true
+			}
+		}
+		return false
+	}
+
+	if DB == nil {
+		return false
+	}
+	modelNames := channelModelCandidates(modelName)
+	var abilities []Ability
+	if err := DB.Where(commonGroupCol+" = ? AND model IN ? AND enabled = ?", group, modelNames, true).Find(&abilities).Error; err != nil {
+		return false
+	}
+	for _, ability := range abilities {
+		var channel Channel
+		if err := DB.Select("status, setting").First(&channel, ability.ChannelId).Error; err != nil {
+			continue
+		}
+		if channel.Status == common.ChannelStatusEnabled && isEmergencyPlanEnabledSetting(channel.Setting) {
+			return true
+		}
+	}
+	return false
+}
+
 // GetSpecialBillingChannel returns the highest-priority enabled non-emergency
 // channel that has a special price for the requested model. It is used only as
 // a billing source when an emergency channel has taken over the route.

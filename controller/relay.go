@@ -502,6 +502,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
+			// A pinned affinity channel can be rejected by the selector only
+			// because its RPM is full. Preserve its fallback policy so a queue
+			// timeout can still enter the configured failover chain.
+			if service.IsChannelAffinityHit(c) {
+				if selected, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel); ok {
+					setRelayFallbackSource(c, selected)
+				}
+			}
 			// Check if all channels are RPM-full -> enter queue
 			if errors.Is(channelErr.Err, service.ErrAllChannelsRpmFull) || runtimeRpmFull {
 				if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
@@ -547,6 +555,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				// of being redistributed to another upstream. Otherwise a busy
 				// channel splits the same prompt-cache session under load.
 				if service.IsChannelAffinityHit(c) {
+					setRelayFallbackSource(c, channel)
 					common.SysLog(fmt.Sprintf("亲和渠道 RPM 已满，保持渠道并进入队列: channel_id=%d", channel.Id))
 					runtimeRpmFull = true
 					retryParam.InitialSelectionDone = false
@@ -713,8 +722,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// 不再设置 fallback_force_next，让外层循环通过 getChannel 选择相同模型的其他渠道重试
 		// 只有所有渠道重试用尽后，才进入循环外的兜底逻辑
 		if !c.GetBool("fallback_triggered") && retryParam.GetRetry() == 0 {
-			sourceSupportsFallback := channel.IsSupportFallback()
-			c.Set("source_channel_supports_fallback", sourceSupportsFallback)
+			sourceSupportsFallback := setRelayFallbackSource(c, channel)
 			common.SysLog(fmt.Sprintf("主请求失败，将尝试跨渠道重试: channel_id=%d, status_code=%d, error_code=%v, supports_fallback=%v",
 				channel.Id, newAPIError.StatusCode, newAPIError.GetErrorCode(), sourceSupportsFallback))
 		}
@@ -1524,6 +1532,15 @@ func canRelayFallback(c *gin.Context, retryParam *service.RetryParam) bool {
 	}
 	return (c.GetBool("source_channel_supports_fallback") || fallbackTransferTriggered(c)) &&
 		model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds)
+}
+
+func setRelayFallbackSource(c *gin.Context, channel *model.Channel) bool {
+	if c == nil || channel == nil {
+		return false
+	}
+	supportsFallback := channel.IsSupportFallback()
+	c.Set("source_channel_supports_fallback", supportsFallback)
+	return supportsFallback
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {

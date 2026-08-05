@@ -147,6 +147,31 @@ func TestGetStableSatisfiedChannelWithoutCacheIsDeterministic(t *testing.T) {
 	require.Equal(t, first.Id, second.Id)
 }
 
+func TestHasEmergencyChannel(t *testing.T) {
+	truncateTables(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+		InitChannelCache()
+	})
+
+	priority := int64(1)
+	insertChannelWithAbility(t, 471, "emergency-route-test", "emergency-route-model", priority, 1, 0)
+	insertChannelWithAbility(t, 472, "emergency-route-test", "emergency-route-model", priority, 1, 0, `{"emergency_plan_enabled":true}`)
+	InitChannelCache()
+
+	require.True(t, HasEmergencyChannel("emergency-route-test", "emergency-route-model"))
+	require.False(t, HasEmergencyChannel("missing-group", "emergency-route-model"))
+	selected, err := GetStableSatisfiedChannel("emergency-route-test", "emergency-route-model", "same-affinity", 0, nil)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.True(t, selected.IsEmergencyPlanEnabled())
+
+	common.MemoryCacheEnabled = false
+	require.True(t, HasEmergencyChannel("emergency-route-test", "emergency-route-model"))
+}
+
 func insertChannelWithAbility(t *testing.T, channelId int, group string, modelName string, priority int64, weight uint, maxRPM int, setting ...string) {
 	t.Helper()
 

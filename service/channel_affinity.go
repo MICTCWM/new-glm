@@ -621,6 +621,20 @@ func ApplyChannelAffinityOverrideTemplate(c *gin.Context, paramOverride map[stri
 	return mergedParam, true
 }
 
+func hasEmergencyChannelForAffinity(c *gin.Context, modelName string, usingGroup string, preferred *model.Channel) bool {
+	if usingGroup != "auto" {
+		return model.HasEmergencyChannel(usingGroup, modelName)
+	}
+
+	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	for _, group := range GetUserAutoGroup(userGroup) {
+		if preferred != nil && model.IsChannelEnabledForGroupModel(group, modelName, preferred.Id) && model.HasEmergencyChannel(group, modelName) {
+			return true
+		}
+	}
+	return false
+}
+
 func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (int, bool) {
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil || !setting.Enabled {
@@ -692,9 +706,16 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		if found {
 			// 兜底渠道只能由故障转移流程选中，不能被亲和缓存作为普通渠道复用。
 			// 在这里过滤还能避免为被跳过的兜底渠道设置亲和重试策略。
-			if preferred, channelErr := model.CacheGetChannel(channelID); channelErr == nil && preferred != nil && preferred.GetSetting().FallbackModelEnabled {
-				common.SysLog(fmt.Sprintf("channel affinity skipped fallback channel: channel_id=%d", channelID))
-				return 0, false
+			if preferred, channelErr := model.CacheGetChannel(channelID); channelErr == nil && preferred != nil {
+				if preferred.GetSetting().FallbackModelEnabled {
+					common.SysLog(fmt.Sprintf("channel affinity skipped fallback channel: channel_id=%d", channelID))
+					return 0, false
+				}
+				// The regular selector gives emergency channels precedence over normal
+				// channels. A cached normal affinity hit must not bypass that policy.
+				if !preferred.IsEmergencyPlanEnabled() && hasEmergencyChannelForAffinity(c, modelName, usingGroup, preferred) {
+					return 0, false
+				}
 			}
 			return channelID, true
 		}

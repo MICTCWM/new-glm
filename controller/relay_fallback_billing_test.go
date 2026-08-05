@@ -131,6 +131,16 @@ func TestChannelAffinityFailureStillAllowsFallback(t *testing.T) {
 	require.Equal(t, fallbackChannel.Id, channel.Id)
 }
 
+func TestAffinityRpmTimeoutPreservesSourceFallbackPolicy(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("channel_affinity_hit", true)
+	channel := &model.Channel{}
+	channel.SetSetting(dto.ChannelSettings{SupportFallback: true})
+
+	require.True(t, setRelayFallbackSource(ctx, channel))
+	require.True(t, ctx.GetBool("source_channel_supports_fallback"))
+}
+
 func TestGetChannelSelectsFallbackChannelsInOrder(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	oldMemoryCacheEnabled := common.MemoryCacheEnabled
