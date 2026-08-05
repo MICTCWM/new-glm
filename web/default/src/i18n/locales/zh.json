@@ -617,6 +617,8 @@
     "Channel Affinity": "渠道亲和性",
     "Channel affinity reuses the last successful channel based on keys extracted from the request context or JSON body.": "渠道亲和性会基于从请求上下文或 JSON Body 提取的 Key，优先复用上一次成功的渠道。",
     "Channel Affinity: Upstream Cache Hit": "渠道亲和性：上游缓存命中",
+    "Allowed Affinity Channels": "允许亲和渠道",
+    "Only selected channels can be used for channel affinity. An empty list disables affinity routing.": "只有选中的渠道可以参与渠道亲和。留空表示禁用渠道亲和路由。",
     "Channel copied successfully": "渠道复制成功",
     "Channel cost distribution": "渠道成本分布",
     "Channel created successfully": "渠道创建成功",

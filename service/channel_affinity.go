@@ -396,6 +396,10 @@ func ensurePromptCacheRouteMeta(c *gin.Context) (channelAffinityMeta, bool) {
 	if c == nil {
 		return channelAffinityMeta{}, false
 	}
+	setting := operation_setting.GetChannelAffinitySetting()
+	if setting == nil || !setting.Enabled || len(setting.AllowedChannelIDs) == 0 {
+		return channelAffinityMeta{}, false
+	}
 	if meta, ok := getChannelAffinityMeta(c); ok && strings.TrimSpace(meta.KeyFingerprint) != "" {
 		return meta, true
 	}
@@ -434,7 +438,7 @@ func ensurePromptCacheRouteMeta(c *gin.Context) (channelAffinityMeta, bool) {
 		return channelAffinityMeta{}, false
 	}
 
-	ttlSeconds := operation_setting.GetChannelAffinitySetting().DefaultTTLSeconds
+	ttlSeconds := setting.DefaultTTLSeconds
 	if ttlSeconds <= 0 {
 		ttlSeconds = 3600
 	}
@@ -609,6 +613,13 @@ func ApplyChannelAffinityOverrideTemplate(c *gin.Context, paramOverride map[stri
 	if c == nil {
 		return paramOverride, false
 	}
+	channelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+	if channelID <= 0 {
+		channelID = c.GetInt("channel_id")
+	}
+	if channelID > 0 && !IsChannelAffinityChannelAllowed(channelID) {
+		return paramOverride, false
+	}
 	meta, ok := getChannelAffinityMeta(c)
 	if !ok {
 		return paramOverride, false
@@ -638,7 +649,7 @@ func hasEmergencyChannelForAffinity(c *gin.Context, modelName string, usingGroup
 
 func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (int, bool) {
 	setting := operation_setting.GetChannelAffinitySetting()
-	if setting == nil || !setting.Enabled {
+	if setting == nil || !setting.Enabled || len(setting.AllowedChannelIDs) == 0 {
 		return 0, false
 	}
 	path := ""
@@ -705,6 +716,12 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			return 0, false
 		}
 		if found {
+			if !IsChannelAffinityChannelAllowed(channelID) {
+				if _, deleteErr := cache.DeleteMany([]string{cacheKeySuffix}); deleteErr != nil {
+					common.SysError(fmt.Sprintf("channel affinity stale cache delete failed: key=%s, channel_id=%d, err=%v", cacheKeyFull, channelID, deleteErr))
+				}
+				return 0, false
+			}
 			// 兜底渠道只能由故障转移流程选中，不能被亲和缓存作为普通渠道复用。
 			// 在这里过滤还能避免为被跳过的兜底渠道设置亲和重试策略。
 			if preferred, channelErr := model.CacheGetChannel(channelID); channelErr == nil && preferred != nil {
@@ -739,12 +756,31 @@ func GetChannelAffinityRouteKey(c *gin.Context) (string, bool) {
 	return meta.KeyFingerprint, true
 }
 
+// IsChannelAffinityChannelAllowed reports whether a channel is explicitly
+// enabled for affinity routing. An empty allow-list intentionally disables
+// affinity for every channel until an administrator selects channels.
+func IsChannelAffinityChannelAllowed(channelID int) bool {
+	if channelID <= 0 {
+		return false
+	}
+	setting := operation_setting.GetChannelAffinitySetting()
+	if setting == nil || !setting.Enabled {
+		return false
+	}
+	for _, allowedID := range setting.AllowedChannelIDs {
+		if allowedID == channelID {
+			return true
+		}
+	}
+	return false
+}
+
 // GetPreferredChannelKeyIndex returns a stable key slot for the current
 // channel-affinity request. Channel affinity already pins the channel; this
 // keeps multi-key channels from rotating the same prompt-cache session across
 // different upstream credentials.
 func GetPreferredChannelKeyIndex(c *gin.Context, channel *model.Channel) (int, bool) {
-	if channel == nil || !channel.ChannelInfo.IsMultiKey {
+	if channel == nil || !channel.ChannelInfo.IsMultiKey || !IsChannelAffinityChannelAllowed(channel.Id) {
 		return 0, false
 	}
 	keys := channel.GetKeys()
@@ -791,7 +827,7 @@ func IsChannelAffinityHit(c *gin.Context) bool {
 }
 
 func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int) {
-	if c == nil || channelID <= 0 {
+	if c == nil || !IsChannelAffinityChannelAllowed(channelID) {
 		return
 	}
 	meta, ok := getChannelAffinityMeta(c)
@@ -850,9 +886,6 @@ func AppendChannelRetryAdminInfo(c *gin.Context, adminInfo map[string]interface{
 }
 
 func RecordChannelAffinity(c *gin.Context, channelID int) {
-	if channelID <= 0 {
-		return
-	}
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil || !setting.Enabled {
 		return
@@ -868,6 +901,9 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 		if successChannelID := c.GetInt("channel_id"); successChannelID > 0 {
 			channelID = successChannelID
 		}
+	}
+	if !IsChannelAffinityChannelAllowed(channelID) {
+		return
 	}
 	cacheKey, ttlSeconds, ok := getChannelAffinityContext(c)
 	if !ok {

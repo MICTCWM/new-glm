@@ -43,6 +43,16 @@ type testResult struct {
 	newAPIError *types.NewAPIError
 }
 
+var unsupportedTestChannelTypes = []int{
+	constant.ChannelTypeMidjourney,
+	constant.ChannelTypeMidjourneyPlus,
+	constant.ChannelTypeSunoAPI,
+	constant.ChannelTypeKling,
+	constant.ChannelTypeJimeng,
+	constant.ChannelTypeDoubaoVideo,
+	constant.ChannelTypeVidu,
+}
+
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
@@ -63,15 +73,6 @@ func testChannel(channel *model.Channel, testModel string, endpointType string, 
 
 func testChannelWithUsingKey(channel *model.Channel, testModel string, endpointType string, isStream bool, usingKey string) testResult {
 	tik := time.Now()
-	var unsupportedTestChannelTypes = []int{
-		constant.ChannelTypeMidjourney,
-		constant.ChannelTypeMidjourneyPlus,
-		constant.ChannelTypeSunoAPI,
-		constant.ChannelTypeKling,
-		constant.ChannelTypeJimeng,
-		constant.ChannelTypeDoubaoVideo,
-		constant.ChannelTypeVidu,
-	}
 	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)
 		return testResult{
@@ -1020,10 +1021,16 @@ func testAllChannels(notify bool) error {
 			if newAPIError != nil {
 				shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
 			}
+			probeFailure := service.IsChannelProbeError(newAPIError)
+			if channel.IsProbeEnabled() {
+				// Probe-managed channels ignore normal auto-ban conditions, but the
+				// explicit probe response remains a disable signal.
+				shouldBanChannel = probeFailure
+			}
 
 			// 兜底/GPT 模式渠道不受自动禁用制约，跳过 429 候选列表与立即禁用逻辑
 			channelExcludedFromAutoBan := channel.IsExcludedFromAutoBan()
-			if channelExcludedFromAutoBan && shouldBanChannel && channel.GetAutoBan() {
+			if channelExcludedFromAutoBan && shouldBanChannel && channel.GetAutoBan() && !probeFailure {
 				common.SysLog(fmt.Sprintf("通道「%s」（#%d）已开启兜底/GPT 模式，测试时跳过自动禁用", channel.Name, channel.Id))
 				shouldBanChannel = false
 			}
@@ -1041,7 +1048,7 @@ func testAllChannels(notify bool) error {
 			}
 
 			// disable channel
-			if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
+			if isChannelEnabled && shouldBanChannel && (channel.GetAutoBan() || channel.IsProbeEnabled()) {
 				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, nil)
 			}
 
@@ -1072,6 +1079,64 @@ func TestAllChannels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
+	})
+}
+
+var channelProbeTaskOnce sync.Once
+
+func probeConfiguredChannels() {
+	channels, err := model.GetAllChannels(0, 0, true, false)
+	if err != nil {
+		common.SysError(fmt.Sprintf("获取探针渠道失败: %v", err))
+		return
+	}
+	for _, channel := range channels {
+		if channel == nil || !channel.IsProbeEnabled() {
+			continue
+		}
+		// Probe must not override an administrator's manual or normal auto disable.
+		if channel.Status != common.ChannelStatusEnabled &&
+			channel.Status != common.ChannelStatusAutoDisabled &&
+			channel.Status != common.ChannelStatusProbeDisabled {
+			continue
+		}
+		if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
+			continue
+		}
+
+		result := testChannel(channel, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		probeFailed := result.newAPIError != nil || result.localErr != nil
+		if !probeFailed {
+			if channel.Status == common.ChannelStatusProbeDisabled {
+				service.EnableChannel(channel.Id, "", channel.Name)
+			}
+		} else if channel.Status == common.ChannelStatusEnabled || channel.Status == common.ChannelStatusProbeDisabled {
+			channelError := *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan())
+			reason := ""
+			if result.newAPIError != nil {
+				reason = result.newAPIError.ErrorWithStatusCode()
+			}
+			if result.localErr != nil && strings.TrimSpace(reason) == "" {
+				reason = result.localErr.Error()
+			}
+			service.DisableChannelForProbe(channelError, reason)
+		}
+		time.Sleep(common.RequestInterval)
+	}
+}
+
+// AutomaticallyProbeChannels runs the hourly health check on master nodes.
+func AutomaticallyProbeChannels() {
+	if !common.IsMasterNode {
+		return
+	}
+	channelProbeTaskOnce.Do(func() {
+		probeConfiguredChannels()
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			probeConfiguredChannels()
+		}
 	})
 }
 

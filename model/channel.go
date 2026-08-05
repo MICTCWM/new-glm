@@ -714,7 +714,11 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 			channel.ChannelInfo.MultiKeyDisabledTime[keyIndex] = common.GetTimestamp()
 		}
 		if len(channel.ChannelInfo.MultiKeyStatusList) >= channel.ChannelInfo.MultiKeySize {
-			channel.Status = common.ChannelStatusAutoDisabled
+			if status == common.ChannelStatusProbeDisabled {
+				channel.Status = common.ChannelStatusProbeDisabled
+			} else {
+				channel.Status = common.ChannelStatusAutoDisabled
+			}
 			info := channel.GetOtherInfo()
 			info["status_reason"] = "All keys are disabled"
 			info["status_time"] = common.GetTimestamp()
@@ -801,6 +805,61 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
 			return false
 		}
+	}
+	return true
+}
+
+// UpdateChannelProbeStatus changes the channel-level probe state without
+// touching per-key status entries. Probe health is a channel concern: a
+// failed probe must remove the whole channel from routing, while a successful
+// probe must not resurrect keys that were disabled for another reason.
+func UpdateChannelProbeStatus(channelId int, status int, reason string) bool {
+	if status != common.ChannelStatusEnabled && status != common.ChannelStatusProbeDisabled {
+		return false
+	}
+
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+	}
+
+	channel, err := GetChannelById(channelId, true)
+	if err != nil {
+		return false
+	}
+	if status == common.ChannelStatusProbeDisabled {
+		if channel.Status != common.ChannelStatusEnabled &&
+			channel.Status != common.ChannelStatusAutoDisabled &&
+			channel.Status != common.ChannelStatusProbeDisabled {
+			return false
+		}
+	} else if channel.Status != common.ChannelStatusAutoDisabled && channel.Status != common.ChannelStatusProbeDisabled {
+		return false
+	}
+	if channel.Status == status {
+		return false
+	}
+
+	info := channel.GetOtherInfo()
+	if status == common.ChannelStatusEnabled {
+		delete(info, "status_reason")
+		delete(info, "status_time")
+	} else {
+		info["status_reason"] = reason
+		info["status_time"] = common.GetTimestamp()
+	}
+	channel.SetOtherInfo(info)
+	channel.Status = status
+	if err = channel.SaveWithoutKey(); err != nil {
+		common.SysLog(fmt.Sprintf("failed to update probe status: channel_id=%d, status=%d, error=%v", channelId, status, err))
+		return false
+	}
+
+	if common.MemoryCacheEnabled {
+		CacheUpdateChannelStatus(channelId, status)
+	}
+	if err = UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled); err != nil {
+		common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
 	}
 	return true
 }
@@ -928,6 +987,7 @@ func updateChannelCallCount(id int, count int) {
 		}
 		if count > 0 &&
 			channel.Status == common.ChannelStatusEnabled &&
+			!channel.IsProbeEnabled() &&
 			channel.MaxCallCount > 0 &&
 			nextUsedCallCount >= channel.MaxCallCount {
 			info := channel.GetOtherInfo()
@@ -961,7 +1021,7 @@ func DeleteChannelByStatus(status int64) (int64, error) {
 }
 
 func DeleteDisabledChannel() (int64, error) {
-	result := DB.Where("status = ? or status = ?", common.ChannelStatusAutoDisabled, common.ChannelStatusManuallyDisabled).Delete(&Channel{})
+	result := DB.Where("status = ? or status = ? or status = ?", common.ChannelStatusAutoDisabled, common.ChannelStatusManuallyDisabled, common.ChannelStatusProbeDisabled).Delete(&Channel{})
 	return result.RowsAffected, result.Error
 }
 
@@ -1107,15 +1167,21 @@ func (channel *Channel) IsExcludedFromRpmOverloadTransfer() bool {
 
 // IsExcludedFromAutoBan reports whether the channel must be exempted from
 // automatic disabling (including 429/401/503 delayed-disable and balance-based
-// disabling). Channels with GPT-only mode or fallback mode enabled are managed
-// separately and must never be auto-banned, so that traffic can still be served
-// through their dedicated routes even when upstream returns transient errors.
+// disabling). Channels with GPT-only mode, fallback mode, or probe mode enabled
+// are managed separately and must never be auto-banned by normal conditions.
 func (channel *Channel) IsExcludedFromAutoBan() bool {
 	if channel == nil {
 		return false
 	}
 	setting := channel.GetSetting()
-	return setting.GptModeRequired || setting.FallbackModelEnabled
+	return setting.GptModeRequired || setting.FallbackModelEnabled || setting.ProbeEnabled
+}
+
+// IsProbeEnabled reports whether this channel is managed by the probe system.
+// Probe-managed channels ignore normal automatic disable conditions; the probe
+// error path is responsible for moving them to ChannelStatusProbeDisabled.
+func (channel *Channel) IsProbeEnabled() bool {
+	return channel != nil && channel.GetSetting().ProbeEnabled
 }
 
 func (channel *Channel) IsSupportFallback() bool {

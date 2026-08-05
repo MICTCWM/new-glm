@@ -45,6 +45,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { SettingsSection } from '../../components/settings-section'
 import { useUpdateOption } from '../../hooks/use-update-option'
+import { ChannelMultiSelect } from '@/features/vendors/components/channel-multi-select'
 import { getCacheStats, clearAllCache, clearRuleCache } from './api'
 import { RULE_TEMPLATES, cloneTemplate, makeUniqueName } from './constants'
 import { RuleEditorDialog } from './rule-editor-dialog'
@@ -87,6 +88,9 @@ export function ChannelAffinitySection(props: Props) {
   const [defaultTtl, setDefaultTtl] = useState(
     props.defaultValues['channel_affinity_setting.default_ttl_seconds']
   )
+  const [allowedChannelIds, setAllowedChannelIds] = useState(
+    props.defaultValues['channel_affinity_setting.allowed_channel_ids'] ?? []
+  )
   const [rules, setRules] = useState<AffinityRule[]>(() =>
     parseRules(props.defaultValues['channel_affinity_setting.rules'])
   )
@@ -120,6 +124,9 @@ export function ChannelAffinitySection(props: Props) {
     setMaxEntries(props.defaultValues['channel_affinity_setting.max_entries'])
     setDefaultTtl(
       props.defaultValues['channel_affinity_setting.default_ttl_seconds']
+    )
+    setAllowedChannelIds(
+      props.defaultValues['channel_affinity_setting.allowed_channel_ids'] ?? []
     )
     const parsed = parseRules(
       props.defaultValues['channel_affinity_setting.rules']
@@ -228,6 +235,26 @@ export function ChannelAffinitySection(props: Props) {
           key: 'channel_affinity_setting.default_ttl_seconds',
           value: String(defaultTtl),
         })
+
+      const normalizedAllowedChannelIds = Array.from(
+        new Set(
+          allowedChannelIds.filter(
+            (channelId) => Number.isInteger(channelId) && channelId > 0
+          )
+        )
+      )
+      const originalAllowedChannelIds =
+        props.defaultValues['channel_affinity_setting.allowed_channel_ids'] ??
+        []
+      if (
+        JSON.stringify(normalizedAllowedChannelIds) !==
+        JSON.stringify(originalAllowedChannelIds)
+      ) {
+        updates.push({
+          key: 'channel_affinity_setting.allowed_channel_ids',
+          value: JSON.stringify(normalizedAllowedChannelIds),
+        })
+      }
 
       const origRules = props.defaultValues['channel_affinity_setting.rules']
       const origSerialized = (() => {
@@ -371,6 +398,25 @@ export function ChannelAffinitySection(props: Props) {
               onChange={(e) => setDefaultTtl(Number(e.target.value))}
             />
           </div>
+        </div>
+
+        <div className='grid gap-1.5'>
+          <Label>{t('Allowed Affinity Channels')}</Label>
+          <ChannelMultiSelect
+            value={allowedChannelIds.map(String)}
+            onChange={(values) =>
+              setAllowedChannelIds(
+                values
+                  .map((value) => Number(value))
+                  .filter((value) => Number.isInteger(value) && value > 0)
+              )
+            }
+          />
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Only selected channels can be used for channel affinity. An empty list disables affinity routing.',
+            )}
+          </p>
         </div>
 
         <div className='flex items-center gap-2'>

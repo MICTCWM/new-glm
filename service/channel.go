@@ -19,6 +19,14 @@ func formatNotifyType(channelId int, status int) string {
 // disable & notify
 func DisableChannel(channelError types.ChannelError, reason string) {
 	common.SysLog(fmt.Sprintf("通道「%s」（#%d）发生错误，准备禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, reason))
+	if channel, err := model.CacheGetChannel(channelError.ChannelId); err == nil && channel != nil && channel.IsProbeEnabled() {
+		if strings.Contains(strings.ToLower(reason), strings.ToLower(ChannelProbeErrorKeyword)) {
+			DisableChannelForProbe(channelError, reason)
+		} else {
+			common.SysLog(fmt.Sprintf("通道「%s」（#%d）已启用探针，跳过普通禁用", channelError.ChannelName, channelError.ChannelId))
+		}
+		return
+	}
 
 	// 检查是否启用自动禁用功能
 	if !channelError.AutoBan {
@@ -35,7 +43,15 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 }
 
 func EnableChannel(channelId int, usingKey string, channelName string) {
-	success := model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "")
+	success := false
+	if channel, err := model.CacheGetChannel(channelId); err == nil && channel != nil &&
+		(channel.Status == common.ChannelStatusProbeDisabled ||
+			(channel.Status == common.ChannelStatusAutoDisabled && channel.IsProbeEnabled())) {
+		success = model.UpdateChannelProbeStatus(channelId, common.ChannelStatusEnabled, "")
+	}
+	if !success {
+		success = model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "")
+	}
 	if success {
 		subject := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
 		content := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
@@ -87,6 +103,12 @@ func ShouldHardDisableChannel(err *types.NewAPIError) bool {
 
 // HardDisableChannel 硬禁用渠道，根据错误码设置对应的禁用原因
 func HardDisableChannel(channelError types.ChannelError, err *types.NewAPIError) {
+	if channel, getErr := model.CacheGetChannel(channelError.ChannelId); getErr == nil && channel != nil && channel.IsProbeEnabled() {
+		if IsChannelProbeError(err) {
+			DisableChannelForProbe(channelError, err.ErrorWithStatusCode())
+		}
+		return
+	}
 	reason := model.ChannelStatusReasonRateLimit
 	if err.StatusCode == 401 {
 		reason = model.ChannelStatusReasonAuthError

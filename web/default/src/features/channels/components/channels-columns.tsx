@@ -534,13 +534,12 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
   }
 
   const ratio = animatedRatio
-  const isLow = ratio <= 0.5
   const isMid = ratio > 0.5 && ratio < 0.9
   const isHigh = ratio >= 0.9
 
   return (
     <div className='flex w-[90px] flex-col gap-0.5'>
-      <span className='text-xs font-mono tabular-nums'>
+      <span className='font-mono text-xs tabular-nums'>
         <motion.span
           className={cn(
             isHigh
@@ -558,11 +557,7 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
         <motion.div
           className={cn(
             'h-full rounded-full will-change-[width]',
-            isHigh
-              ? 'bg-destructive'
-              : isMid
-                ? 'bg-warning'
-                : 'bg-foreground'
+            isHigh ? 'bg-destructive' : isMid ? 'bg-warning' : 'bg-foreground'
           )}
           style={{ width: barWidthStyle }}
         />
@@ -583,644 +578,653 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
 export function useChannelsColumns(): ColumnDef<Channel>[] {
   const { t } = useTranslation()
   // Re-create columns only when the translation function changes
-  return useMemo(() => [
-    // Checkbox column
-    {
-      id: 'select',
-      header: ({ table }) => (
-        <Checkbox
-          checked={table.getIsAllPageRowsSelected()}
-          indeterminate={table.getIsSomePageRowsSelected()}
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label='Select all'
-        />
-      ),
-      cell: ({ row }) => {
-        const isTagRow = isTagAggregateRow(row.original)
-
-        // Don't show checkbox for tag rows
-        if (isTagRow) {
-          return null
-        }
-
-        return (
+  return useMemo(
+    () => [
+      // Checkbox column
+      {
+        id: 'select',
+        header: ({ table }) => (
           <Checkbox
-            checked={row.getIsSelected()}
-            onCheckedChange={(value) => row.toggleSelected(!!value)}
-            aria-label='Select row'
+            checked={table.getIsAllPageRowsSelected()}
+            indeterminate={table.getIsSomePageRowsSelected()}
+            onCheckedChange={(value) =>
+              table.toggleAllPageRowsSelected(!!value)
+            }
+            aria-label='Select all'
           />
-        )
-      },
-      enableSorting: false,
-      enableHiding: false,
-      size: 40,
-    },
+        ),
+        cell: ({ row }) => {
+          const isTagRow = isTagAggregateRow(row.original)
 
-    // ID column
-    {
-      accessorKey: 'id',
-      meta: { label: t('ID'), mobileHidden: true },
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title='ID' />
-      ),
-      cell: ({ row }) => {
-        const id = row.getValue('id') as number
-        return (
-          <StatusBadge
-            label={String(id)}
-            variant='neutral'
-            copyText={String(id)}
-            size='sm'
-            className='font-mono'
-          />
-        )
-      },
-      size: 80,
-    },
+          // Don't show checkbox for tag rows
+          if (isTagRow) {
+            return null
+          }
 
-    // Type column
-    {
-      accessorKey: 'type',
-      meta: { label: t('Type') },
-      header: t('Type'),
-      cell: ({ row }) => {
-        const isTagRow = isTagAggregateRow(row.original)
-
-        if (isTagRow) {
           return (
-            <StatusBadge
-              label={t('Tag Aggregate')}
-              variant='blue'
-              size='sm'
-              copyable={false}
+            <Checkbox
+              checked={row.getIsSelected()}
+              onCheckedChange={(value) => row.toggleSelected(!!value)}
+              aria-label='Select row'
             />
           )
-        }
+        },
+        enableSorting: false,
+        enableHiding: false,
+        size: 40,
+      },
 
-        const type = row.getValue('type') as number
-        const typeNameKey = getChannelTypeLabel(type)
-        const typeName = t(typeNameKey)
-        const iconName = getChannelTypeIcon(type)
-        const icon = getLobeIcon(`${iconName}.Color`, 20)
-        const channel = row.original as Channel
-        const isMultiKey = isMultiKeyChannel(channel)
-        const multiKeyMode = channel.channel_info?.multi_key_mode ?? 'random'
-        const MultiKeyModeIcon =
-          multiKeyMode === 'random' ? Shuffle : ListOrdered
-        const multiKeyTooltip =
-          multiKeyMode === 'random'
-            ? t('Multi-key: Random rotation')
-            : t('Multi-key: Polling rotation')
-
-        const ionetMeta = parseIonetMeta(channel.other_info)
-        const isIonet = ionetMeta?.source === 'ionet'
-        const deploymentId =
-          typeof ionetMeta?.deployment_id === 'string'
-            ? ionetMeta?.deployment_id
-            : undefined
-
-        return (
-          <div className='flex items-center gap-2'>
-            <div className='flex items-center gap-1.5'>
-              {isMultiKey && (
-                <TooltipProvider delay={100}>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span className='border-border bg-muted text-primary inline-flex h-6 w-6 items-center justify-center rounded-md border' />
-                      }
-                    >
-                      <MultiKeyModeIcon className='h-3.5 w-3.5' />
-                    </TooltipTrigger>
-                    <TooltipContent side='top'>
-                      {multiKeyTooltip}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-              {icon}
-            </div>
+      // ID column
+      {
+        accessorKey: 'id',
+        meta: { label: t('ID'), mobileHidden: true },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='ID' />
+        ),
+        cell: ({ row }) => {
+          const id = row.getValue('id') as number
+          return (
             <StatusBadge
-              label={typeName}
-              autoColor={typeName}
+              label={String(id)}
+              variant='neutral'
+              copyText={String(id)}
               size='sm'
-              copyable={false}
+              className='font-mono'
             />
-            {isIonet && (
-              <TooltipProvider delay={100}>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span
-                        className='flex cursor-pointer items-center gap-1.5 text-xs font-medium'
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (!deploymentId) return
-                          const targetUrl = `/console/deployment?deployment_id=${deploymentId}`
-                          window.open(targetUrl, '_blank', 'noopener')
-                        }}
-                      />
-                    }
-                  >
-                    <span className='text-muted-foreground/30'>·</span>
-                    <span className={cn(textColorMap.purple)}>IO.NET</span>
-                  </TooltipTrigger>
-                  <TooltipContent side='top'>
-                    <div className='max-w-xs space-y-1'>
-                      <div className='text-xs'>
-                        {t('From IO.NET deployment')}
-                      </div>
-                      {deploymentId && (
-                        <div className='text-muted-foreground font-mono text-xs'>
-                          {t('Deployment ID')}: {deploymentId}
-                        </div>
-                      )}
-                      <div className='text-muted-foreground text-xs'>
-                        {t('Click to open deployment')}
-                      </div>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-          </div>
-        )
+          )
+        },
+        size: 80,
       },
-      filterFn: (row, id, value) => {
-        if (!value || value.length === 0 || value.includes('all')) return true
-        return value.includes(String(row.getValue(id)))
-      },
-      size: 140,
-      enableSorting: false,
-    },
 
-    // RPM Usage column
-    {
-      accessorKey: 'rpm_usage',
-      meta: { label: t('RPM') },
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title='RPM' />
-      ),
-      cell: ({ row }) => (
-        <AnimatedRpmBar
-          currentRpm={row.original.current_rpm ?? 0}
-          maxRpm={row.original.max_rpm ?? 0}
-        />
-      ),
-      size: 110,
-      enableSorting: false,
-    },
+      // Type column
+      {
+        accessorKey: 'type',
+        meta: { label: t('Type') },
+        header: t('Type'),
+        cell: ({ row }) => {
+          const isTagRow = isTagAggregateRow(row.original)
 
-    // Name column
-    {
-      accessorKey: 'name',
-      meta: { label: t('Name'), mobileTitle: true },
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Name')} />
-      ),
-      cell: ({ row }) => {
-        const isTagRow = isTagAggregateRow(row.original)
-        const name = row.getValue('name') as string
-        const channel = row.original
-        const isMultiKey = isMultiKeyChannel(channel)
+          if (isTagRow) {
+            return (
+              <StatusBadge
+                label={t('Tag Aggregate')}
+                variant='blue'
+                size='sm'
+                copyable={false}
+              />
+            )
+          }
 
-        // Tag row with expand/collapse
-        if (isTagRow) {
-          const tag = (row.original as TagRow).tag || name
-          const childrenCount = (row.original as TagRow).children?.length || 0
+          const type = row.getValue('type') as number
+          const typeNameKey = getChannelTypeLabel(type)
+          const typeName = t(typeNameKey)
+          const iconName = getChannelTypeIcon(type)
+          const icon = getLobeIcon(`${iconName}.Color`, 20)
+          const channel = row.original as Channel
+          const isMultiKey = isMultiKeyChannel(channel)
+          const multiKeyMode = channel.channel_info?.multi_key_mode ?? 'random'
+          const MultiKeyModeIcon =
+            multiKeyMode === 'random' ? Shuffle : ListOrdered
+          const multiKeyTooltip =
+            multiKeyMode === 'random'
+              ? t('Multi-key: Random rotation')
+              : t('Multi-key: Polling rotation')
+
+          const ionetMeta = parseIonetMeta(channel.other_info)
+          const isIonet = ionetMeta?.source === 'ionet'
+          const deploymentId =
+            typeof ionetMeta?.deployment_id === 'string'
+              ? ionetMeta?.deployment_id
+              : undefined
 
           return (
             <div className='flex items-center gap-2'>
-              <Button
-                variant='ghost'
-                size='sm'
-                className='h-6 w-6 p-0'
-                onClick={row.getToggleExpandedHandler()}
-              >
-                {row.getIsExpanded() ? (
-                  <ChevronDown className='h-4 w-4' />
-                ) : (
-                  <ChevronRight className='h-4 w-4' />
-                )}
-              </Button>
               <div className='flex items-center gap-1.5'>
-                <span className='font-semibold'>Tag：{tag}</span>
-                <StatusBadge
-                  label={`${childrenCount} channels`}
-                  variant='blue'
-                  size='sm'
-                  copyable={false}
-                />
-              </div>
-            </div>
-          )
-        }
-
-        // Regular channel row
-        const settings = parseChannelSettings(channel.setting)
-        const isPassThrough = settings.pass_through_body_enabled === true
-
-        return (
-          <div className='flex items-center gap-2'>
-            <div className='flex flex-col gap-1'>
-              <div className='flex items-center gap-1.5'>
-                <span className='font-medium'>{truncateText(name, 30)}</span>
-                {isPassThrough && (
+                {isMultiKey && (
                   <TooltipProvider delay={100}>
                     <Tooltip>
                       <TooltipTrigger
                         render={
-                          <AlertTriangle className='h-3.5 w-3.5 flex-shrink-0 text-amber-500' />
+                          <span className='border-border bg-muted text-primary inline-flex h-6 w-6 items-center justify-center rounded-md border' />
                         }
-                      ></TooltipTrigger>
+                      >
+                        <MultiKeyModeIcon className='h-3.5 w-3.5' />
+                      </TooltipTrigger>
                       <TooltipContent side='top'>
-                        {t(
-                          'Request body pass-through is enabled. The request body will be sent directly to the upstream without any conversion.'
-                        )}
+                        {multiKeyTooltip}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 )}
-                {isMultiKey && (
-                  <StatusBadge
-                    label={`${channel.channel_info.multi_key_size} keys`}
-                    variant='purple'
-                    size='sm'
-                    copyable={false}
-                  />
-                )}
-                <UpstreamUpdateTags channel={channel} />
+                {icon}
               </div>
-              {channel.remark && (
-                <TooltipProvider delay={200}>
+              <StatusBadge
+                label={typeName}
+                autoColor={typeName}
+                size='sm'
+                copyable={false}
+              />
+              {isIonet && (
+                <TooltipProvider delay={100}>
                   <Tooltip>
                     <TooltipTrigger
                       render={
-                        <span className='text-muted-foreground text-xs' />
+                        <span
+                          className='flex cursor-pointer items-center gap-1.5 text-xs font-medium'
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (!deploymentId) return
+                            const targetUrl = `/console/deployment?deployment_id=${deploymentId}`
+                            window.open(targetUrl, '_blank', 'noopener')
+                          }}
+                        />
                       }
                     >
-                      {truncateText(channel.remark, 40)}
+                      <span className='text-muted-foreground/30'>·</span>
+                      <span className={cn(textColorMap.purple)}>IO.NET</span>
                     </TooltipTrigger>
-                    <TooltipContent side='bottom' className='max-w-xs'>
-                      {channel.remark}
+                    <TooltipContent side='top'>
+                      <div className='max-w-xs space-y-1'>
+                        <div className='text-xs'>
+                          {t('From IO.NET deployment')}
+                        </div>
+                        {deploymentId && (
+                          <div className='text-muted-foreground font-mono text-xs'>
+                            {t('Deployment ID')}: {deploymentId}
+                          </div>
+                        )}
+                        <div className='text-muted-foreground text-xs'>
+                          {t('Click to open deployment')}
+                        </div>
+                      </div>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               )}
             </div>
-          </div>
-        )
+          )
+        },
+        filterFn: (row, id, value) => {
+          if (!value || value.length === 0 || value.includes('all')) return true
+          return value.includes(String(row.getValue(id)))
+        },
+        size: 140,
+        enableSorting: false,
       },
-      minSize: 200,
-    },
 
-    // Status column
-    {
-      accessorKey: 'status',
-      meta: { label: t('Status'), mobileBadge: true },
-      header: t('Status'),
-      cell: ({ row }) => {
-        const isTagRow = isTagAggregateRow(row.original)
-        const status = row.getValue('status') as number
-        const channel = row.original as Channel
+      // RPM Usage column
+      {
+        accessorKey: 'rpm_usage',
+        meta: { label: t('RPM') },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title='RPM' />
+        ),
+        cell: ({ row }) => (
+          <AnimatedRpmBar
+            currentRpm={row.original.current_rpm ?? 0}
+            maxRpm={row.original.max_rpm ?? 0}
+          />
+        ),
+        size: 110,
+        enableSorting: false,
+      },
 
-        // Tag row: show aggregated status
-        if (isTagRow) {
-          const childrenCount = (row.original as TagRow).children?.length || 0
-          const hasEnabled = status === 1
+      // Name column
+      {
+        accessorKey: 'name',
+        meta: { label: t('Name'), mobileTitle: true },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title={t('Name')} />
+        ),
+        cell: ({ row }) => {
+          const isTagRow = isTagAggregateRow(row.original)
+          const name = row.getValue('name') as string
+          const channel = row.original
+          const isMultiKey = isMultiKeyChannel(channel)
 
-          if (hasEnabled) {
+          // Tag row with expand/collapse
+          if (isTagRow) {
+            const tag = (row.original as TagRow).tag || name
+            const childrenCount = (row.original as TagRow).children?.length || 0
+
             return (
-              <StatusBadge
-                label={`Active (${childrenCount})`}
-                variant='success'
-                showDot
-                size='sm'
-                copyable={false}
-              />
+              <div className='flex items-center gap-2'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='h-6 w-6 p-0'
+                  onClick={row.getToggleExpandedHandler()}
+                >
+                  {row.getIsExpanded() ? (
+                    <ChevronDown className='h-4 w-4' />
+                  ) : (
+                    <ChevronRight className='h-4 w-4' />
+                  )}
+                </Button>
+                <div className='flex items-center gap-1.5'>
+                  <span className='font-semibold'>Tag：{tag}</span>
+                  <StatusBadge
+                    label={`${childrenCount} channels`}
+                    variant='blue'
+                    size='sm'
+                    copyable={false}
+                  />
+                </div>
+              </div>
             )
-          } else {
-            return (
-              <StatusBadge
-                label={`Inactive (${childrenCount})`}
-                variant='neutral'
-                size='sm'
-                copyable={false}
-              />
-            )
-          }
-        }
-
-        // Regular channel row
-        const config =
-          CHANNEL_STATUS_CONFIG[status as keyof typeof CHANNEL_STATUS_CONFIG] ||
-          CHANNEL_STATUS_CONFIG[0]
-
-        const isMultiKey = isMultiKeyChannel(channel)
-        const keySize = channel.channel_info?.multi_key_size ?? 0
-        const disabledCount = channel.channel_info?.multi_key_status_list
-          ? Object.keys(channel.channel_info.multi_key_status_list).length
-          : 0
-        const enabledCount = Math.max(0, keySize - disabledCount)
-        const label =
-          isMultiKey && keySize > 0
-            ? `${t(config.label)} (${enabledCount}/${keySize})`
-            : t(config.label)
-
-        // Auto-disabled: show reason and time tooltip
-        if (status === 3) {
-          let statusReason = ''
-          let statusTime = ''
-          try {
-            const otherInfo = channel.other_info
-              ? JSON.parse(channel.other_info)
-              : null
-            if (otherInfo) {
-              statusReason = otherInfo.status_reason || ''
-              statusTime = otherInfo.status_time
-                ? formatTimestampToDate(otherInfo.status_time)
-                : ''
-            }
-          } catch {
-            /* empty */
           }
 
-          if (statusReason === 'quota_exhausted') {
-            statusReason = t('Quota exhausted')
-          }
+          // Regular channel row
+          const settings = parseChannelSettings(channel.setting)
+          const isPassThrough = settings.pass_through_body_enabled === true
 
-          if (statusReason || statusTime) {
-            return (
-              <TooltipProvider delay={100}>
-                <Tooltip>
-                  <TooltipTrigger render={<span />}>
+          return (
+            <div className='flex items-center gap-2'>
+              <div className='flex flex-col gap-1'>
+                <div className='flex items-center gap-1.5'>
+                  <span className='font-medium'>{truncateText(name, 30)}</span>
+                  {isPassThrough && (
+                    <TooltipProvider delay={100}>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <AlertTriangle className='h-3.5 w-3.5 flex-shrink-0 text-amber-500' />
+                          }
+                        ></TooltipTrigger>
+                        <TooltipContent side='top'>
+                          {t(
+                            'Request body pass-through is enabled. The request body will be sent directly to the upstream without any conversion.'
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                  {isMultiKey && (
                     <StatusBadge
-                      label={label}
-                      variant={config.variant}
-                      showDot={config.showDot}
+                      label={`${channel.channel_info.multi_key_size} keys`}
+                      variant='purple'
                       size='sm'
                       copyable={false}
                     />
-                  </TooltipTrigger>
-                  <TooltipContent side='top' className='max-w-xs'>
-                    <div className='space-y-1 text-xs'>
-                      {statusReason && (
-                        <div>
-                          {t('Reason:')} {statusReason}
-                        </div>
-                      )}
-                      {statusTime && (
-                        <div>
-                          {t('Time:')} {statusTime}
-                        </div>
-                      )}
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )
+                  )}
+                  <UpstreamUpdateTags channel={channel} />
+                </div>
+                {channel.remark && (
+                  <TooltipProvider delay={200}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span className='text-muted-foreground text-xs' />
+                        }
+                      >
+                        {truncateText(channel.remark, 40)}
+                      </TooltipTrigger>
+                      <TooltipContent side='bottom' className='max-w-xs'>
+                        {channel.remark}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
+            </div>
+          )
+        },
+        minSize: 200,
+      },
+
+      // Status column
+      {
+        accessorKey: 'status',
+        meta: { label: t('Status'), mobileBadge: true },
+        header: t('Status'),
+        cell: ({ row }) => {
+          const isTagRow = isTagAggregateRow(row.original)
+          const status = row.getValue('status') as number
+          const channel = row.original as Channel
+
+          // Tag row: show aggregated status
+          if (isTagRow) {
+            const childrenCount = (row.original as TagRow).children?.length || 0
+            const hasEnabled = status === 1
+
+            if (hasEnabled) {
+              return (
+                <StatusBadge
+                  label={`Active (${childrenCount})`}
+                  variant='success'
+                  showDot
+                  size='sm'
+                  copyable={false}
+                />
+              )
+            } else {
+              return (
+                <StatusBadge
+                  label={`Inactive (${childrenCount})`}
+                  variant='neutral'
+                  size='sm'
+                  copyable={false}
+                />
+              )
+            }
           }
-        }
 
-        return (
-          <StatusBadge
-            label={label}
-            variant={config.variant}
-            showDot={config.showDot}
-            size='sm'
-            copyable={false}
-          />
-        )
-      },
-      filterFn: (row, id, value) => {
-        if (!value || value.length === 0 || value.includes('all')) return true
-        const status = row.getValue(id) as number
-        if (value.includes('enabled')) return status === 1
-        if (value.includes('disabled')) return status !== 1
-        return false
-      },
-      size: 120,
-      enableSorting: false,
-    },
+          // Regular channel row
+          const config =
+            CHANNEL_STATUS_CONFIG[
+              status as keyof typeof CHANNEL_STATUS_CONFIG
+            ] || CHANNEL_STATUS_CONFIG[0]
 
-    // Models column
-    {
-      accessorKey: 'models',
-      meta: { label: t('Models'), mobileHidden: true },
-      header: t('Models'),
-      cell: ({ row }) => {
-        const models = row.getValue('models') as string
-        const modelArray = parseModelsList(models)
+          const isMultiKey = isMultiKeyChannel(channel)
+          const keySize = channel.channel_info?.multi_key_size ?? 0
+          const disabledCount = channel.channel_info?.multi_key_status_list
+            ? Object.keys(channel.channel_info.multi_key_status_list).length
+            : 0
+          const enabledCount = Math.max(0, keySize - disabledCount)
+          const label =
+            isMultiKey && keySize > 0
+              ? `${t(config.label)} (${enabledCount}/${keySize})`
+              : t(config.label)
 
-        if (modelArray.length === 0) {
-          return <span className='text-muted-foreground text-xs'>-</span>
-        }
+          // Auto-disabled: show reason and time tooltip
+          if (status === 3 || status === 4) {
+            let statusReason = ''
+            let statusTime = ''
+            try {
+              const otherInfo = channel.other_info
+                ? JSON.parse(channel.other_info)
+                : null
+              if (otherInfo) {
+                statusReason = otherInfo.status_reason || ''
+                statusTime = otherInfo.status_time
+                  ? formatTimestampToDate(otherInfo.status_time)
+                  : ''
+              }
+            } catch {
+              /* empty */
+            }
 
-        const modelBadges = modelArray.map((model, idx) => (
-          <StatusBadge
-            key={idx}
-            label={model}
-            autoColor={model}
-            size='sm'
-            className='font-mono'
-          />
-        ))
+            if (statusReason === 'quota_exhausted') {
+              statusReason = t('Quota exhausted')
+            }
 
-        return (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger render={<div />}>
-                {renderLimitedItems(modelBadges, 2)}
-              </TooltipTrigger>
-              {modelArray.length > 2 && (
-                <TooltipContent
-                  side='top'
-                  className='border-border bg-popover max-h-48 max-w-[320px] overflow-y-auto p-2'
-                >
-                  <div className='flex flex-wrap gap-1'>{modelBadges}</div>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
-        )
-      },
-      size: 200,
-      enableSorting: false,
-    },
+            if (statusReason || statusTime) {
+              return (
+                <TooltipProvider delay={100}>
+                  <Tooltip>
+                    <TooltipTrigger render={<span />}>
+                      <StatusBadge
+                        label={label}
+                        variant={config.variant}
+                        showDot={config.showDot}
+                        size='sm'
+                        copyable={false}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent side='top' className='max-w-xs'>
+                      <div className='space-y-1 text-xs'>
+                        {statusReason && (
+                          <div>
+                            {t('Reason:')} {statusReason}
+                          </div>
+                        )}
+                        {statusTime && (
+                          <div>
+                            {t('Time:')} {statusTime}
+                          </div>
+                        )}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )
+            }
+          }
 
-    // Group column
-    {
-      accessorKey: 'group',
-      meta: { label: t('Groups'), mobileHidden: true },
-      header: t('Groups'),
-      cell: ({ row }) => {
-        const group = row.getValue('group') as string
-        const groupArray = parseGroupsList(group)
-
-        const groupBadges = groupArray.map((g) => (
-          <GroupBadge key={g} group={g} size='sm' />
-        ))
-
-        return (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger render={<div />}>
-                {renderLimitedItems(groupBadges, 2)}
-              </TooltipTrigger>
-              {groupArray.length > 2 && (
-                <TooltipContent
-                  side='top'
-                  className='border-border bg-popover max-h-48 max-w-[320px] overflow-y-auto p-2'
-                >
-                  <div className='flex flex-wrap gap-1'>{groupBadges}</div>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
-        )
-      },
-      filterFn: (row, id, value) => {
-        if (!value || value.length === 0 || value.includes('all')) return true
-        const group = row.getValue(id) as string
-        const groupArray = parseGroupsList(group)
-        return groupArray.some((g) => value.includes(g))
-      },
-      size: 150,
-      enableSorting: false,
-    },
-
-    // Tag column
-    {
-      accessorKey: 'tag',
-      meta: { label: t('Tag'), mobileHidden: true },
-      header: t('Tag'),
-      cell: ({ row }) => {
-        const tag = row.getValue('tag') as string | null
-        if (!tag)
-          return <span className='text-muted-foreground text-xs'>-</span>
-
-        return <StatusBadge label={tag} autoColor={tag} size='sm' />
-      },
-      size: 120,
-      enableSorting: false,
-    },
-
-    // Priority column
-    {
-      accessorKey: 'priority',
-      meta: { label: t('Priority'), mobileHidden: true },
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Priority')} />
-      ),
-      cell: ({ row }) => <PriorityCell channel={row.original} />,
-      size: 100,
-    },
-
-    // Weight column
-    {
-      accessorKey: 'weight',
-      meta: { label: t('Weight'), mobileHidden: true },
-      header: t('Weight'),
-      cell: ({ row }) => <WeightCell channel={row.original} />,
-      size: 90,
-      enableSorting: false,
-    },
-
-    // Balance column (Used/Remaining)
-    {
-      accessorKey: 'balance',
-      meta: { label: t('Used / Remaining') },
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Used / Remaining')} />
-      ),
-      cell: ({ row }) => <BalanceCell channel={row.original} />,
-      size: 180,
-    },
-
-    // Response Time column
-    {
-      accessorKey: 'response_time',
-      meta: { label: t('Response'), mobileHidden: true },
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Response')} />
-      ),
-      cell: ({ row }) => {
-        const responseTime = row.getValue('response_time') as number
-        const config = getResponseTimeConfig(responseTime)
-
-        return (
-          <StatusBadge
-            label={formatResponseTime(responseTime, t)}
-            variant={config.variant}
-            size='sm'
-            copyable={false}
-          />
-        )
-      },
-      size: 110,
-    },
-
-    // Test Time column
-    {
-      accessorKey: 'test_time',
-      meta: { label: t('Last Tested'), mobileHidden: true },
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Last Tested')} />
-      ),
-      cell: ({ row }) => {
-        const testTime = row.getValue('test_time') as number
-
-        // For invalid timestamps, show "Never" badge
-        if (!testTime || testTime === 0) {
-          return <span className='text-muted-foreground text-xs'>-</span>
-        }
-
-        const timeText = formatRelativeTime(testTime)
-        const fullDate = formatTimestampToDate(testTime)
-
-        // For valid timestamps, show tooltip with full date
-        return (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span className='text-muted-foreground cursor-pointer font-mono text-sm' />
-                }
-              >
-                {timeText}
-              </TooltipTrigger>
-              <TooltipContent side='top'>
-                <p className='font-mono text-sm'>{fullDate}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )
-      },
-      size: 120,
-      enableSorting: false,
-    },
-
-    // Actions column
-    {
-      id: 'actions',
-      cell: ({ row }) => {
-        // Check if this is a tag row (has children)
-        const isTagRow = isTagAggregateRow(row.original)
-
-        if (isTagRow) {
           return (
-            <DataTableTagRowActions
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              row={row as any}
+            <StatusBadge
+              label={label}
+              variant={config.variant}
+              showDot={config.showDot}
+              size='sm'
+              copyable={false}
             />
           )
-        }
-
-        return <DataTableRowActions row={row} />
+        },
+        filterFn: (row, id, value) => {
+          if (!value || value.length === 0 || value.includes('all')) return true
+          const status = row.getValue(id) as number
+          if (value.includes('enabled')) return status === 1
+          if (value.includes('disabled')) return status !== 1
+          return false
+        },
+        size: 120,
+        enableSorting: false,
       },
-      size: 132,
-      enableSorting: false,
-      enableHiding: false,
-    },
-  ], [t])
+
+      // Models column
+      {
+        accessorKey: 'models',
+        meta: { label: t('Models'), mobileHidden: true },
+        header: t('Models'),
+        cell: ({ row }) => {
+          const models = row.getValue('models') as string
+          const modelArray = parseModelsList(models)
+
+          if (modelArray.length === 0) {
+            return <span className='text-muted-foreground text-xs'>-</span>
+          }
+
+          const modelBadges = modelArray.map((model, idx) => (
+            <StatusBadge
+              key={idx}
+              label={model}
+              autoColor={model}
+              size='sm'
+              className='font-mono'
+            />
+          ))
+
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger render={<div />}>
+                  {renderLimitedItems(modelBadges, 2)}
+                </TooltipTrigger>
+                {modelArray.length > 2 && (
+                  <TooltipContent
+                    side='top'
+                    className='border-border bg-popover max-h-48 max-w-[320px] overflow-y-auto p-2'
+                  >
+                    <div className='flex flex-wrap gap-1'>{modelBadges}</div>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
+          )
+        },
+        size: 200,
+        enableSorting: false,
+      },
+
+      // Group column
+      {
+        accessorKey: 'group',
+        meta: { label: t('Groups'), mobileHidden: true },
+        header: t('Groups'),
+        cell: ({ row }) => {
+          const group = row.getValue('group') as string
+          const groupArray = parseGroupsList(group)
+
+          const groupBadges = groupArray.map((g) => (
+            <GroupBadge key={g} group={g} size='sm' />
+          ))
+
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger render={<div />}>
+                  {renderLimitedItems(groupBadges, 2)}
+                </TooltipTrigger>
+                {groupArray.length > 2 && (
+                  <TooltipContent
+                    side='top'
+                    className='border-border bg-popover max-h-48 max-w-[320px] overflow-y-auto p-2'
+                  >
+                    <div className='flex flex-wrap gap-1'>{groupBadges}</div>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
+          )
+        },
+        filterFn: (row, id, value) => {
+          if (!value || value.length === 0 || value.includes('all')) return true
+          const group = row.getValue(id) as string
+          const groupArray = parseGroupsList(group)
+          return groupArray.some((g) => value.includes(g))
+        },
+        size: 150,
+        enableSorting: false,
+      },
+
+      // Tag column
+      {
+        accessorKey: 'tag',
+        meta: { label: t('Tag'), mobileHidden: true },
+        header: t('Tag'),
+        cell: ({ row }) => {
+          const tag = row.getValue('tag') as string | null
+          if (!tag)
+            return <span className='text-muted-foreground text-xs'>-</span>
+
+          return <StatusBadge label={tag} autoColor={tag} size='sm' />
+        },
+        size: 120,
+        enableSorting: false,
+      },
+
+      // Priority column
+      {
+        accessorKey: 'priority',
+        meta: { label: t('Priority'), mobileHidden: true },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title={t('Priority')} />
+        ),
+        cell: ({ row }) => <PriorityCell channel={row.original} />,
+        size: 100,
+      },
+
+      // Weight column
+      {
+        accessorKey: 'weight',
+        meta: { label: t('Weight'), mobileHidden: true },
+        header: t('Weight'),
+        cell: ({ row }) => <WeightCell channel={row.original} />,
+        size: 90,
+        enableSorting: false,
+      },
+
+      // Balance column (Used/Remaining)
+      {
+        accessorKey: 'balance',
+        meta: { label: t('Used / Remaining') },
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title={t('Used / Remaining')}
+          />
+        ),
+        cell: ({ row }) => <BalanceCell channel={row.original} />,
+        size: 180,
+      },
+
+      // Response Time column
+      {
+        accessorKey: 'response_time',
+        meta: { label: t('Response'), mobileHidden: true },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title={t('Response')} />
+        ),
+        cell: ({ row }) => {
+          const responseTime = row.getValue('response_time') as number
+          const config = getResponseTimeConfig(responseTime)
+
+          return (
+            <StatusBadge
+              label={formatResponseTime(responseTime, t)}
+              variant={config.variant}
+              size='sm'
+              copyable={false}
+            />
+          )
+        },
+        size: 110,
+      },
+
+      // Test Time column
+      {
+        accessorKey: 'test_time',
+        meta: { label: t('Last Tested'), mobileHidden: true },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title={t('Last Tested')} />
+        ),
+        cell: ({ row }) => {
+          const testTime = row.getValue('test_time') as number
+
+          // For invalid timestamps, show "Never" badge
+          if (!testTime || testTime === 0) {
+            return <span className='text-muted-foreground text-xs'>-</span>
+          }
+
+          const timeText = formatRelativeTime(testTime)
+          const fullDate = formatTimestampToDate(testTime)
+
+          // For valid timestamps, show tooltip with full date
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className='text-muted-foreground cursor-pointer font-mono text-sm' />
+                  }
+                >
+                  {timeText}
+                </TooltipTrigger>
+                <TooltipContent side='top'>
+                  <p className='font-mono text-sm'>{fullDate}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )
+        },
+        size: 120,
+        enableSorting: false,
+      },
+
+      // Actions column
+      {
+        id: 'actions',
+        cell: ({ row }) => {
+          // Check if this is a tag row (has children)
+          const isTagRow = isTagAggregateRow(row.original)
+
+          if (isTagRow) {
+            return (
+              <DataTableTagRowActions
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                row={row as any}
+              />
+            )
+          }
+
+          return <DataTableRowActions row={row} />
+        },
+        size: 132,
+        enableSorting: false,
+        enableHiding: false,
+      },
+    ],
+    [t]
+  )
 }

@@ -202,6 +202,8 @@ export const STATIC_I18N_KEYS = [
   // Channel Affinity section
   'Channel Affinity',
   'Configure channel affinity (sticky routing) rules',
+  'Allowed Affinity Channels',
+  'Only selected channels can be used for channel affinity. An empty list disables affinity routing.',
   'Special Usage Monitoring',
 
   // Models constants

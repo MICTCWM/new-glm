@@ -264,6 +264,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.emergency_plan_enabled ||
     values.fallback_model_enabled ||
     values.support_fallback ||
+    values.probe_enabled ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
     values.upstream_model_update_ignored_models?.trim()
@@ -351,7 +352,9 @@ export function ChannelMutateDrawer({
   const [rateLimitingOpen, setRateLimitingOpen] = useState(false)
   const [paramOverrideEditorOpen, setParamOverrideEditorOpen] = useState(false)
   const [specialUserPickerOpen, setSpecialUserPickerOpen] = useState(false)
-  const [specialBillingModel, setSpecialBillingModel] = useState<string | null>(null)
+  const [specialBillingModel, setSpecialBillingModel] = useState<string | null>(
+    null
+  )
 
   const isEditing = Boolean(currentRow)
   const channelId = currentRow?.id ?? null
@@ -461,7 +464,9 @@ export function ChannelMutateDrawer({
     const tiers = configured?.length
       ? configured.map((tier) => ({
           max_input_tokens:
-            tier.max_input_tokens == null ? null : Number(tier.max_input_tokens),
+            tier.max_input_tokens == null
+              ? null
+              : Number(tier.max_input_tokens),
           price: Number(tier.price),
         }))
       : [
@@ -499,7 +504,9 @@ export function ChannelMutateDrawer({
 
   const removeSpecialBillingTier = useCallback((index: number) => {
     setSpecialBillingDraft((current) =>
-      current.length <= 1 ? current : current.filter((_, tierIndex) => tierIndex !== index)
+      current.length <= 1
+        ? current
+        : current.filter((_, tierIndex) => tierIndex !== index)
     )
   }, [])
 
@@ -512,11 +519,21 @@ export function ChannelMutateDrawer({
     const finiteTiers = specialBillingDraft.filter(
       (tier) => tier.max_input_tokens !== null
     )
-    if (specialBillingDraft.some((tier) => !Number.isFinite(tier.price) || tier.price < 0)) {
+    if (
+      specialBillingDraft.some(
+        (tier) => !Number.isFinite(tier.price) || tier.price < 0
+      )
+    ) {
       toast.error(t('Prices must be non-negative numbers'))
       return
     }
-    if (finiteTiers.some((tier) => !Number.isInteger(tier.max_input_tokens) || tier.max_input_tokens! <= 0)) {
+    if (
+      finiteTiers.some(
+        (tier) =>
+          !Number.isInteger(tier.max_input_tokens) ||
+          tier.max_input_tokens! <= 0
+      )
+    ) {
       toast.error(t('Context limits must be positive integers'))
       return
     }
@@ -1398,7 +1415,9 @@ export function ChannelMutateDrawer({
                           }
                         />
                         <span className='text-muted-foreground shrink-0 text-xs'>
-                          {tier.max_input_tokens === null ? t('Unlimited') : 'tokens'}
+                          {tier.max_input_tokens === null
+                            ? t('Unlimited')
+                            : 'tokens'}
                         </span>
                       </div>
                       <Input
@@ -1434,8 +1453,10 @@ export function ChannelMutateDrawer({
                 <Plus className='mr-2 h-4 w-4' />
                 {t('Add price tier')}
               </Button>
-              <div className='text-muted-foreground rounded-lg bg-muted/50 p-3 text-xs'>
-                {t('The unlimited tier applies to requests above all configured limits.')} 
+              <div className='text-muted-foreground bg-muted/50 rounded-lg p-3 text-xs'>
+                {t(
+                  'The unlimited tier applies to requests above all configured limits.'
+                )}
               </div>
             </div>
             <SheetFooter>
@@ -1562,9 +1583,18 @@ export function ChannelMutateDrawer({
                     <FormItem className='flex items-center justify-between rounded-lg border px-4 py-3'>
                       <div className='space-y-0.5'>
                         <FormLabel>{t('Special Billing')}</FormLabel>
-                        <FormDescription>{t('Use channel-specific per-request prices when configured')}</FormDescription>
+                        <FormDescription>
+                          {t(
+                            'Use channel-specific per-request prices when configured'
+                          )}
+                        </FormDescription>
                       </div>
-                      <FormControl><Switch checked={field.value === true} onCheckedChange={field.onChange} /></FormControl>
+                      <FormControl>
+                        <Switch
+                          checked={field.value === true}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
                     </FormItem>
                   )}
                 />
@@ -2569,11 +2599,27 @@ export function ChannelMutateDrawer({
                       </FormControl>
                       {specialBilling && (
                         <div className='mt-3 space-y-2 rounded-lg border p-3'>
-                          <div className='text-sm font-medium'>{t('Model prices')}</div>
+                          <div className='text-sm font-medium'>
+                            {t('Model prices')}
+                          </div>
                           {currentModelsArray.map((modelName) => (
-                            <div key={modelName} className='flex items-center justify-between gap-2'>
-                              <span className='font-mono text-xs'>{modelName}</span>
-                              <Button type='button' variant='outline' size='sm' onClick={() => setSpecialBillingModel(modelName)}>{t('Set Model Price')}</Button>
+                            <div
+                              key={modelName}
+                              className='flex items-center justify-between gap-2'
+                            >
+                              <span className='font-mono text-xs'>
+                                {modelName}
+                              </span>
+                              <Button
+                                type='button'
+                                variant='outline'
+                                size='sm'
+                                onClick={() =>
+                                  setSpecialBillingModel(modelName)
+                                }
+                              >
+                                {t('Set Model Price')}
+                              </Button>
                             </div>
                           ))}
                         </div>
@@ -2959,6 +3005,29 @@ export function ChannelMutateDrawer({
                                   field.onChange(checked ? 1 : 0)
                                 }
                                 disabled={autoBanLocked}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='probe_enabled'
+                        render={({ field }) => (
+                          <FormItem className='flex items-center justify-between'>
+                            <div className='space-y-0.5'>
+                              <FormLabel>{t('Enable Probe')}</FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'Ignore normal automatic disable conditions. The channel is disabled only by probe health checks and the configured probe error.'
+                                )}
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value === true}
+                                onCheckedChange={field.onChange}
                               />
                             </FormControl>
                           </FormItem>

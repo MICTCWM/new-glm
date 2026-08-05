@@ -112,6 +112,7 @@ export const CHANNEL_STATUS = {
   ENABLED: 1,
   MANUAL_DISABLED: 2,
   AUTO_DISABLED: 3,
+  PROBE_DISABLED: 4,
 } as const
 
 export const CHANNEL_STATUS_LABELS = {
@@ -119,6 +120,7 @@ export const CHANNEL_STATUS_LABELS = {
   [CHANNEL_STATUS.ENABLED]: 'Enabled',
   [CHANNEL_STATUS.MANUAL_DISABLED]: 'Disabled',
   [CHANNEL_STATUS.AUTO_DISABLED]: 'Auto Disabled',
+  [CHANNEL_STATUS.PROBE_DISABLED]: 'Probe Disabled',
 } as const
 
 export const CHANNEL_STATUS_OPTIONS = [
@@ -148,6 +150,11 @@ export const CHANNEL_STATUS_CONFIG = {
     label: 'Auto Disabled',
     showDot: true,
   },
+  [CHANNEL_STATUS.PROBE_DISABLED]: {
+    variant: 'warning' as const,
+    label: 'Probe Disabled',
+    showDot: true,
+  },
 }
 
 // ============================================================================
@@ -158,12 +165,14 @@ export const MULTI_KEY_STATUS = {
   ENABLED: 1,
   MANUAL_DISABLED: 2,
   AUTO_DISABLED: 3,
+  PROBE_DISABLED: 4,
 } as const
 
 export const MULTI_KEY_STATUS_LABELS = {
   [MULTI_KEY_STATUS.ENABLED]: 'Enabled',
   [MULTI_KEY_STATUS.MANUAL_DISABLED]: 'Manual Disabled',
   [MULTI_KEY_STATUS.AUTO_DISABLED]: 'Auto Disabled',
+  [MULTI_KEY_STATUS.PROBE_DISABLED]: 'Probe Disabled',
 } as const
 
 export const MULTI_KEY_STATUS_CONFIG = {
@@ -178,6 +187,10 @@ export const MULTI_KEY_STATUS_CONFIG = {
   [MULTI_KEY_STATUS.AUTO_DISABLED]: {
     variant: 'danger' as const,
     label: 'Auto Disabled',
+  },
+  [MULTI_KEY_STATUS.PROBE_DISABLED]: {
+    variant: 'warning' as const,
+    label: 'Probe Disabled',
   },
 }
 

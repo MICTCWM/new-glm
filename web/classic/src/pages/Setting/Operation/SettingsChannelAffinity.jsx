@@ -64,6 +64,7 @@ const KEY_ENABLED = 'channel_affinity_setting.enabled';
 const KEY_SWITCH_ON_SUCCESS = 'channel_affinity_setting.switch_on_success';
 const KEY_MAX_ENTRIES = 'channel_affinity_setting.max_entries';
 const KEY_DEFAULT_TTL = 'channel_affinity_setting.default_ttl_seconds';
+const KEY_ALLOWED_CHANNEL_IDS = 'channel_affinity_setting.allowed_channel_ids';
 const KEY_RULES = 'channel_affinity_setting.rules';
 
 const KEY_SOURCE_TYPES = [
@@ -242,8 +243,10 @@ export default function SettingsChannelAffinity(props) {
     [KEY_SWITCH_ON_SUCCESS]: true,
     [KEY_MAX_ENTRIES]: 100000,
     [KEY_DEFAULT_TTL]: 3600,
+    [KEY_ALLOWED_CHANNEL_IDS]: [],
     [KEY_RULES]: '[]',
   });
+  const [affinityChannels, setAffinityChannels] = useState([]);
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
   const [editMode, setEditMode] = useState('visual');
@@ -822,6 +825,8 @@ export default function SettingsChannelAffinity(props) {
       let value = '';
       if (item.key === KEY_RULES) {
         value = compactRules;
+      } else if (item.key === KEY_ALLOWED_CHANNEL_IDS) {
+        value = JSON.stringify(inputs[item.key] || []);
       } else if (typeof inputs[item.key] === 'boolean') {
         value = String(inputs[item.key]);
       } else {
@@ -855,6 +860,7 @@ export default function SettingsChannelAffinity(props) {
           KEY_SWITCH_ON_SUCCESS,
           KEY_MAX_ENTRIES,
           KEY_DEFAULT_TTL,
+          KEY_ALLOWED_CHANNEL_IDS,
           KEY_RULES,
         ].includes(key)
       )
@@ -867,6 +873,22 @@ export default function SettingsChannelAffinity(props) {
         currentInputs[key] = Number(props.options[key] || 0) || 0;
       else if (key === KEY_DEFAULT_TTL)
         currentInputs[key] = Number(props.options[key] || 0) || 0;
+      else if (key === KEY_ALLOWED_CHANNEL_IDS) {
+        try {
+          const parsed = JSON.parse(props.options[key] || '[]');
+          currentInputs[key] = Array.isArray(parsed)
+            ? Array.from(
+                new Set(
+                  parsed
+                    .map((value) => Number(value))
+                    .filter((value) => Number.isInteger(value) && value > 0),
+                ),
+              )
+            : [];
+        } catch (e) {
+          currentInputs[key] = [];
+        }
+      }
       else if (key === KEY_RULES) {
         try {
           const obj = JSON.parse(props.options[key] || '[]');
@@ -882,6 +904,44 @@ export default function SettingsChannelAffinity(props) {
     setRules(parseRulesJson(currentInputs[KEY_RULES]));
     refreshCacheStats();
   }, [props.options]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAffinityChannels = async () => {
+      try {
+        const channels = [];
+        let page = 1;
+        let total = 0;
+        do {
+          const res = await API.get('/api/channel', {
+            params: { p: page, page_size: 100 },
+          });
+          const data = res?.data?.data;
+          const items = Array.isArray(data?.items) ? data.items : [];
+          channels.push(...items);
+          total = Number(data?.total || channels.length);
+          page += 1;
+          if (items.length === 0) break;
+        } while (channels.length < total);
+
+        if (!cancelled) {
+          setAffinityChannels(
+            channels.map((channel) => ({
+              value: channel.id,
+              label: `${channel.name || `#${channel.id}`} (#${channel.id})`,
+            })),
+          );
+        }
+      } catch (e) {
+        if (!cancelled) setAffinityChannels([]);
+      }
+    };
+
+    loadAffinityChannels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const prevEditMode = prevEditModeRef.current;

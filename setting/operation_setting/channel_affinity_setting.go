@@ -37,6 +37,7 @@ type ChannelAffinitySetting struct {
 	SwitchOnSuccess   bool                  `json:"switch_on_success"`
 	MaxEntries        int                   `json:"max_entries"`
 	DefaultTTLSeconds int                   `json:"default_ttl_seconds"`
+	AllowedChannelIDs []int                 `json:"allowed_channel_ids"`
 	Rules             []ChannelAffinityRule `json:"rules"`
 }
 
@@ -145,6 +146,7 @@ var channelAffinitySetting = ChannelAffinitySetting{
 	SwitchOnSuccess:   true,
 	MaxEntries:        100_000,
 	DefaultTTLSeconds: 3600,
+	AllowedChannelIDs: []int{},
 	Rules: []ChannelAffinityRule{
 		{
 			Name:       "codex cli trace",

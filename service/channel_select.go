@@ -96,7 +96,14 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 // keeps cold starts and multi-instance deployments from randomly splitting a
 // prompt-cache session.
 func CacheGetStableSatisfiedChannel(param *RetryParam, stableKey string) (*model.Channel, string, error) {
-	return cacheGetSatisfiedChannel(param, stableKey)
+	channel, selectGroup, err := cacheGetSatisfiedChannel(param, stableKey)
+	if channel == nil || err != nil || IsChannelAffinityChannelAllowed(channel.Id) {
+		return channel, selectGroup, err
+	}
+	// Stable routing is only an affinity mechanism. If its deterministic
+	// candidate is not allow-listed, fall back to ordinary routing so an
+	// unlisted channel is never treated as an affinity route.
+	return CacheGetRandomSatisfiedChannel(param)
 }
 
 func cacheGetSatisfiedChannel(param *RetryParam, stableKey string) (*model.Channel, string, error) {

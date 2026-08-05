@@ -70,8 +70,19 @@ export const channelFormSchema = z.object({
   fallback_model: z.string().optional(),
   fallback_model_reasoning_effort: z.string().optional(),
   support_fallback: z.boolean().optional(),
+  probe_enabled: z.boolean().optional(),
   special_billing: z.boolean().optional(),
-  special_billing_prices: z.record(z.string(), z.array(z.object({ max_input_tokens: z.number().int().positive().nullable().optional(), price: z.number().nonnegative() }))).optional(),
+  special_billing_prices: z
+    .record(
+      z.string(),
+      z.array(
+        z.object({
+          max_input_tokens: z.number().int().positive().nullable().optional(),
+          price: z.number().nonnegative(),
+        })
+      )
+    )
+    .optional(),
   // Type-specific settings (stored in settings JSON)
   is_enterprise_account: z.boolean().optional(), // OpenRouter specific
   vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
@@ -145,6 +156,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   fallback_model: '',
   fallback_model_reasoning_effort: '',
   support_fallback: false,
+  probe_enabled: false,
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -194,6 +206,7 @@ export function transformChannelToFormDefaults(
     fallback_model: '',
     fallback_model_reasoning_effort: '',
     support_fallback: false,
+    probe_enabled: false,
     special_billing: false,
     special_billing_prices: {},
   }
@@ -222,9 +235,11 @@ export function transformChannelToFormDefaults(
         fallback_model_reasoning_effort:
           parsed.fallback_model_reasoning_effort || '',
         support_fallback: parsed.support_fallback === true,
+        probe_enabled: parsed.probe_enabled === true,
         special_billing: parsed.special_billing === true,
         special_billing_prices:
-          parsed.special_billing_prices && typeof parsed.special_billing_prices === 'object'
+          parsed.special_billing_prices &&
+          typeof parsed.special_billing_prices === 'object'
             ? parsed.special_billing_prices
             : {},
       }
@@ -445,6 +460,7 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     support_fallback: formData.support_fallback === true,
     special_billing: formData.special_billing === true,
     special_billing_prices: formData.special_billing_prices || {},
+    probe_enabled: formData.probe_enabled === true,
   }
   return JSON.stringify(settingObj)
 }

@@ -173,6 +173,18 @@ export async function batchSetChannelTag(
   return res.data
 }
 
+/**
+ * Batch configure channel probes.
+ */
+export async function batchSetChannelProbe(data: {
+  ids: number[]
+  probe_enabled: boolean
+  test_model?: string
+}): Promise<{ success: boolean; message?: string; data?: number }> {
+  const res = await api.post('/api/channel/batch/probe', data)
+  return res.data
+}
+
 // ============================================================================
 // Channel Operations
 // ============================================================================

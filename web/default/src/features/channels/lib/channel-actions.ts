@@ -30,6 +30,7 @@ import {
   batchSetChannelQuotaConfig,
   batchSetChannelResetRule,
   batchSetChannelTag,
+  batchSetChannelProbe,
   enableTagChannels,
   disableTagChannels,
   deleteDisabledChannels,
@@ -441,6 +442,36 @@ export async function handleBatchSetTag(
     }
   } catch (_error) {
     toast.error(i18next.t('Failed to set tag'))
+  }
+}
+
+/**
+ * Batch configure probe mode for selected channels.
+ */
+export async function handleBatchSetProbe(
+  ids: number[],
+  data: { probe_enabled: boolean; test_model?: string },
+  queryClient?: QueryClient,
+  onSuccess?: () => void
+): Promise<void> {
+  if (ids.length === 0) {
+    toast.error(i18next.t('No channels selected'))
+    return
+  }
+
+  try {
+    const response = await batchSetChannelProbe({ ids, ...data })
+    if (response.success) {
+      toast.success(i18next.t('Batch probe settings updated'))
+      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      onSuccess?.()
+    } else {
+      toast.error(
+        response.message || i18next.t('Failed to update probe settings')
+      )
+    }
+  } catch (_error) {
+    toast.error(i18next.t('Failed to update probe settings'))
   }
 }
 

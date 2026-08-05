@@ -21,6 +21,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { type Table } from '@tanstack/react-table'
 import {
   CalendarClock,
+  Radar,
   Power,
   PowerOff,
   RefreshCcw,
@@ -61,6 +62,7 @@ import {
   handleBatchResetQuota,
   handleBatchSetQuotaConfig,
   handleBatchSetResetRule,
+  handleBatchSetProbe,
   handleBatchSetTag,
 } from '../lib'
 import { buildRuleConfig } from '../lib/reset-rule-utils'
@@ -82,6 +84,7 @@ export function DataTableBulkActions<TData>({
   const [showQuotaDialog, setShowQuotaDialog] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [showResetRuleDialog, setShowResetRuleDialog] = useState(false)
+  const [showProbeDialog, setShowProbeDialog] = useState(false)
   const [tagValue, setTagValue] = useState('')
   const [maxCallCount, setMaxCallCount] = useState('0')
   const [resetMinute, setResetMinute] = useState('0')
@@ -95,6 +98,8 @@ export function DataTableBulkActions<TData>({
   const [ruleSpecificTime, setRuleSpecificTime] = useState('')
   const [resetValue, setResetValue] = useState('0')
   const [ruleRemark, setRuleRemark] = useState('')
+  const [probeEnabled, setProbeEnabled] = useState(true)
+  const [probeTestModel, setProbeTestModel] = useState('')
 
   const selectedRows = table.getFilteredSelectedRowModel().rows
   const selectedIds = selectedRows.reduce<number[]>((ids, row) => {
@@ -198,6 +203,24 @@ export function DataTableBulkActions<TData>({
     )
   }
 
+  const handleSetProbe = () => {
+    const testModel = probeTestModel.trim()
+    handleBatchSetProbe(
+      selectedIds,
+      {
+        probe_enabled: probeEnabled,
+        ...(testModel ? { test_model: testModel } : {}),
+      },
+      queryClient,
+      () => {
+        setShowProbeDialog(false)
+        setProbeEnabled(true)
+        setProbeTestModel('')
+        handleClearSelection()
+      }
+    )
+  }
+
   return (
     <>
       <BulkActionsToolbar table={table} entityName='channel'>
@@ -219,6 +242,29 @@ export function DataTableBulkActions<TData>({
           </TooltipTrigger>
           <TooltipContent>
             <p>{t('Enable selected channels')}</p>
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='outline'
+                size='icon'
+                onClick={() => setShowProbeDialog(true)}
+                className='size-8'
+                aria-label={t('Set probe for selected channels')}
+                title={t('Set probe for selected channels')}
+              />
+            }
+          >
+            <Radar />
+            <span className='sr-only'>
+              {t('Set probe for selected channels')}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{t('Set probe for selected channels')}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -358,6 +404,51 @@ export function DataTableBulkActions<TData>({
       </BulkActionsToolbar>
 
       {/* Set Tag Dialog */}
+      <Dialog open={showProbeDialog} onOpenChange={setShowProbeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('Batch Probe Settings')}</DialogTitle>
+            <DialogDescription>
+              {t('Configure probe settings for')} {selectedIds.length}{' '}
+              {t('selected channel(s).')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='grid gap-4 py-4'>
+            <label className='flex cursor-pointer items-center gap-2'>
+              <Checkbox
+                checked={probeEnabled}
+                onCheckedChange={(value) => setProbeEnabled(value === true)}
+              />
+              <span>{t('Enable Probe')}</span>
+            </label>
+            <div className='grid gap-2'>
+              <Label htmlFor='batch-probe-test-model'>{t('Test Model')}</Label>
+              <Input
+                id='batch-probe-test-model'
+                placeholder={t('Leave blank to keep each channel model')}
+                value={probeTestModel}
+                onChange={(e) => setProbeTestModel(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant='outline'
+              onClick={() => {
+                setShowProbeDialog(false)
+                setProbeEnabled(true)
+                setProbeTestModel('')
+              }}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button onClick={handleSetProbe}>{t('Save changes')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
         <DialogContent>
           <DialogHeader>
@@ -675,7 +766,9 @@ export function DataTableBulkActions<TData>({
 
             {ruleType === 'specific_time' && (
               <div className='grid gap-2'>
-                <Label htmlFor='batch-rule-specific'>{t('Specific Time')}</Label>
+                <Label htmlFor='batch-rule-specific'>
+                  {t('Specific Time')}
+                </Label>
                 <Input
                   id='batch-rule-specific'
                   type='datetime-local'

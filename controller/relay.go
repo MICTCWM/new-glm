@@ -1825,10 +1825,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
+	probeManaged := service.HandleChannelProbeError(channelError, err)
 
 	// 兜底模式 / GPT 模式的渠道不受自动禁用制约（包括 429/401/503 等），避免兜底通道被误禁用导致整体不可用
 	if channel, getErr := model.GetChannelById(channelError.ChannelId, false); getErr == nil && channel != nil {
-		if channel.IsExcludedFromAutoBan() {
+		if channel.IsExcludedFromAutoBan() && !probeManaged {
 			common.SysLog(fmt.Sprintf("通道「%s」（#%d）已开启兜底/GPT 模式，跳过自动禁用", channelError.ChannelName, channelError.ChannelId))
 			return
 		}
@@ -1836,7 +1837,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		common.SysError(fmt.Sprintf("processChannelError 获取渠道信息失败 channel_id=%d: %v", channelError.ChannelId, getErr))
 	}
 
-	if channelError.AutoBan {
+	if channelError.AutoBan && !probeManaged {
 		// 401/429/503/invalid token 错误直接禁用，不再走延迟复测
 		if service.ShouldDisableChannel(err) {
 			gopool.Go(func() {

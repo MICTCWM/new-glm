@@ -261,6 +261,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.DELETE("/ollama/delete", controller.OllamaDeleteModel)
 			channelRoute.GET("/ollama/version/:id", controller.OllamaVersion)
 			channelRoute.POST("/batch/tag", controller.BatchSetChannelTag)
+			channelRoute.POST("/batch/probe", controller.BatchSetChannelProbe)
 			channelRoute.GET("/tag/models", controller.GetTagModels)
 			channelRoute.POST("/copy/:id", controller.CopyChannel)
 			channelRoute.POST("/multi_key/manage", controller.ManageMultiKeys)
@@ -356,7 +357,7 @@ func SetApiRouter(router *gin.Engine) {
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
-		logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)
+			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)
 		}
 
 		// Special usage monitoring is an independent admin-only ledger. It is

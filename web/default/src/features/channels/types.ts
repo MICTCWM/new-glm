@@ -40,7 +40,7 @@ export const channelSchema = z.object({
   key: z.string(),
   openai_organization: z.string().nullish(),
   test_model: z.string().nullish(),
-  status: z.number(), // 1: enabled, 0: manual disabled, 2: auto disabled
+  status: z.number(), // 1: enabled, 2: manual disabled, 3: auto disabled, 4: probe disabled
   name: z.string(),
   weight: z.number().nullish(),
   created_time: z.number(),
@@ -106,6 +106,7 @@ export interface ChannelSettings {
   fallback_model?: string
   fallback_model_reasoning_effort?: string
   support_fallback?: boolean
+  probe_enabled?: boolean
 }
 
 export interface ChannelOtherSettings {
@@ -196,7 +197,7 @@ export interface CopyChannelResponse {
 
 export interface KeyStatus {
   index: number
-  status: number // 1: enabled, 2: manual disabled, 3: auto disabled
+  status: number // 1: enabled, 2: manual disabled, 3: auto disabled, 4: probe disabled
   disabled_time?: number
   reason?: string
   key_preview?: string
@@ -304,7 +305,7 @@ export interface MultiKeyManageParams {
   key_index?: number
   page?: number
   page_size?: number
-  status?: number // 1=enabled, 2=manual_disabled, 3=auto_disabled
+  status?: number // 1=enabled, 2=manual_disabled, 3=auto_disabled, 4=probe_disabled
 }
 
 export interface BatchDeleteParams {

@@ -457,8 +457,8 @@ export function validateGroups(groups: string): boolean {
  * Check if channel needs attention (low balance, auto-disabled, etc.)
  */
 export function channelNeedsAttention(channel: Channel): boolean {
-  // Auto-disabled
-  if (channel.status === 3) return true
+  // Auto-disabled or probe-disabled
+  if (channel.status === 3 || channel.status === 4) return true
 
   // Low balance (less than $1)
   if (channel.balance > 0 && channel.balance < 1) return true
@@ -481,6 +481,7 @@ export function channelNeedsAttention(channel: Channel): boolean {
  */
 export function getAttentionReason(channel: Channel): string | null {
   if (channel.status === 3) return 'Auto-disabled'
+  if (channel.status === 4) return 'Probe-disabled'
   if (channel.balance > 0 && channel.balance < 1) return 'Low balance'
   if (
     channel.channel_info?.is_multi_key &&
