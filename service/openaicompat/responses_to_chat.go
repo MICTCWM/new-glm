@@ -175,7 +175,12 @@ func ExtractReasoningTextFromResponses(resp *dto.OpenAIResponsesResponse) string
 		if out.Type != responsesOutputTypeReasoning {
 			continue
 		}
-		for _, content := range out.Content {
+		parts := out.Summary
+		if len(parts) == 0 {
+			// Older compatible gateways used content for reasoning summaries.
+			parts = out.Content
+		}
+		for _, content := range parts {
 			if content.Text != "" {
 				sb.WriteString(content.Text)
 			}

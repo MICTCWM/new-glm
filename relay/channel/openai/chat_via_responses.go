@@ -116,6 +116,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		Status:    []byte(`"completed"`),
 	}
 	var outputText strings.Builder
+	var reasoningSummary strings.Builder
 	var outputItems []dto.ResponsesOutput
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -150,6 +151,16 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			}
 		case "response.output_text.delta":
 			outputText.WriteString(event.Delta)
+		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+			reasoningSummary.WriteString(event.Delta)
+		case "response.reasoning_summary_text.done":
+			if event.Text != "" && reasoningSummary.Len() == 0 {
+				reasoningSummary.WriteString(event.Text)
+			}
+		case "response.reasoning_summary_part.done":
+			if event.Part != nil && reasoningSummary.Len() == 0 {
+				reasoningSummary.WriteString(event.Part.Text)
+			}
 		case "response.output_item.done":
 			if event.Item != nil {
 				outputItems = append(outputItems, *event.Item)
@@ -177,13 +188,26 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	if aggregate.Model == "" {
 		aggregate.Model = info.UpstreamModelName
 	}
-	for _, output := range aggregate.Output {
-		if output.Type == "message" {
-			outputText.Reset()
-			break
+	for _, item := range outputItems {
+		if !responsesOutputExists(aggregate.Output, item) {
+			aggregate.Output = append(aggregate.Output, item)
 		}
 	}
-	if outputText.Len() > 0 {
+
+	hasMessage := false
+	hasReasoning := false
+	for i := range aggregate.Output {
+		switch aggregate.Output[i].Type {
+		case "message":
+			hasMessage = true
+		case "reasoning":
+			hasReasoning = true
+			if reasoningSummary.Len() > 0 && len(aggregate.Output[i].Summary) == 0 && len(aggregate.Output[i].Content) == 0 {
+				aggregate.Output[i].Summary = []dto.ResponsesOutputContent{{Type: "summary_text", Text: reasoningSummary.String()}}
+			}
+		}
+	}
+	if outputText.Len() > 0 && !hasMessage {
 		aggregate.Output = append(aggregate.Output, dto.ResponsesOutput{
 			Type:   "message",
 			Role:   "assistant",
@@ -194,8 +218,17 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			}},
 		})
 	}
-	if len(outputItems) > 0 {
-		aggregate.Output = append(aggregate.Output, outputItems...)
+	if reasoningSummary.Len() > 0 && !hasReasoning {
+		reasoning := dto.ResponsesOutput{
+			Type:   "reasoning",
+			Status: "completed",
+			Summary: []dto.ResponsesOutputContent{{
+				Type: "summary_text",
+				Text: reasoningSummary.String(),
+			}},
+		}
+		// Responses conventionally places reasoning before the assistant message.
+		aggregate.Output = append([]dto.ResponsesOutput{reasoning}, aggregate.Output...)
 	}
 
 	body, err := common.Marshal(aggregate)
@@ -209,6 +242,25 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	}
 	chatResp.Header.Set("Content-Type", "application/json")
 	return OaiResponsesToChatHandler(c, info, chatResp)
+}
+
+func responsesOutputExists(outputs []dto.ResponsesOutput, candidate dto.ResponsesOutput) bool {
+	for _, output := range outputs {
+		if candidate.ID != "" && output.ID == candidate.ID {
+			return true
+		}
+		if candidate.CallId != "" && output.CallId == candidate.CallId {
+			return true
+		}
+		if candidate.ID == "" && candidate.CallId == "" && output.Type == candidate.Type &&
+			output.Role == candidate.Role && output.Name == candidate.Name &&
+			output.ArgumentsString() == candidate.ArgumentsString() &&
+			service.ExtractOutputTextFromResponses(&dto.OpenAIResponsesResponse{Output: []dto.ResponsesOutput{output}}) ==
+				service.ExtractOutputTextFromResponses(&dto.OpenAIResponsesResponse{Output: []dto.ResponsesOutput{candidate}}) {
+			return true
+		}
+	}
+	return false
 }
 
 func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -240,7 +292,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	toolCallCanonicalIDByItemID := make(map[string]string)
 	hasSentReasoningSummary := false
 	needsReasoningSummarySeparator := false
-	//reasoningSummaryTextByKey := make(map[string]string)
+	reasoningSummaryTextByKey := make(map[string]string)
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -358,6 +410,17 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return true
 	}
 
+	sendReasoningSummarySnapshot := func(itemID string, summaryIndex *int, text string) bool {
+		if text == "" {
+			return true
+		}
+		key := responsesStreamIndexKey(strings.TrimSpace(itemID), summaryIndex)
+		previous := reasoningSummaryTextByKey[key]
+		delta := stringDeltaFromPrefix(previous, text)
+		reasoningSummaryTextByKey[key] = text
+		return sendReasoningSummaryDelta(delta)
+	}
+
 	sendToolCallDelta := func(callID string, name string, argsDelta string) bool {
 		if callID == "" {
 			return true
@@ -453,33 +516,29 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		//case "response.reasoning_text.done":
 
 		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+			key := responsesStreamIndexKey(strings.TrimSpace(streamResp.ItemID), streamResp.SummaryIndex)
+			reasoningSummaryTextByKey[key] += streamResp.Delta
 			if !sendReasoningSummaryDelta(streamResp.Delta) {
 				sr.Stop(streamErr)
 				return
 			}
 
 		case "response.reasoning_summary_text.done":
+			if !sendReasoningSummarySnapshot(streamResp.ItemID, streamResp.SummaryIndex, streamResp.Text) {
+				sr.Stop(streamErr)
+				return
+			}
 			if hasSentReasoningSummary {
 				needsReasoningSummarySeparator = true
 			}
 
-		//case "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
-		//	key := responsesStreamIndexKey(strings.TrimSpace(streamResp.ItemID), streamResp.SummaryIndex)
-		//	if key == "" || streamResp.Part == nil {
-		//		break
-		//	}
-		//	// Only handle summary text parts, ignore other part types.
-		//	if streamResp.Part.Type != "" && streamResp.Part.Type != "summary_text" {
-		//		break
-		//	}
-		//	prev := reasoningSummaryTextByKey[key]
-		//	next := streamResp.Part.Text
-		//	delta := stringDeltaFromPrefix(prev, next)
-		//	reasoningSummaryTextByKey[key] = next
-		//	if !sendReasoningSummaryDelta(delta) {
-		//		sr.Stop(streamErr)
-		//		return
-		//	}
+		case "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
+			if streamResp.Part != nil && (streamResp.Part.Type == "" || streamResp.Part.Type == "summary_text") {
+				if !sendReasoningSummarySnapshot(streamResp.ItemID, streamResp.SummaryIndex, streamResp.Part.Text) {
+					sr.Stop(streamErr)
+					return
+				}
+			}
 
 		case "response.output_text.delta":
 			if !sendStartIfNeeded() {
@@ -513,6 +572,22 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 		case "response.output_item.added", "response.output_item.done":
 			if streamResp.Item == nil {
+				break
+			}
+			if streamResp.Item.Type == "reasoning" {
+				summaries := streamResp.Item.Summary
+				if len(summaries) == 0 {
+					summaries = streamResp.Item.Content
+				}
+				for index, summary := range summaries {
+					if summary.Type != "" && summary.Type != "summary_text" {
+						continue
+					}
+					if !sendReasoningSummarySnapshot(streamResp.Item.ID, &index, summary.Text) {
+						sr.Stop(streamErr)
+						return
+					}
+				}
 				break
 			}
 			if streamResp.Item.Type != "function_call" {

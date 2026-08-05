@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
@@ -131,6 +132,55 @@ func TestOaiResponsesToChatStreamHandlerNeverLeaksResponsesEvents(t *testing.T) 
 	}
 }
 
+func TestOaiResponsesToChatStreamHandlerConvertsReasoningSummarySSE(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	body := strings.Join([]string{
+		`data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":"plan"}`,
+		`data: {"type":"response.reasoning_summary_text.done","item_id":"rs_1","summary_index":0,"text":"plan"}`,
+		`data: {"type":"response.output_text.delta","delta":"answer"}`,
+		`data: {"type":"response.completed","response":{"id":"resp-1","model":"gpt-test","status":"completed","usage":{"input_tokens":2,"output_tokens":2,"total_tokens":4}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream; charset=utf-8"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "gpt-test",
+			ChannelSetting: dto.ChannelSettings{
+				ThinkingToContent: true,
+			},
+		},
+		RelayFormat: types.RelayFormatOpenAI,
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		IsStream:    true,
+	}
+
+	if _, apiErr := OaiResponsesToChatStreamHandler(ctx, info, resp); apiErr != nil {
+		t.Fatalf("apiErr = %v, want nil", apiErr)
+	}
+	got := recorder.Body.String()
+	if !strings.Contains(got, `"reasoning_content":"plan"`) {
+		t.Fatalf("reasoning summary was not converted to Chat reasoning_content: %s", got)
+	}
+	if strings.Count(got, `"reasoning_content":"plan"`) != 1 {
+		t.Fatalf("reasoning summary was duplicated: %s", got)
+	}
+	if !strings.Contains(got, `"content":"answer"`) {
+		t.Fatalf("output text was not converted: %s", got)
+	}
+}
+
 func TestOaiResponsesToChatBufferedStreamHandlerReturnsChatJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
@@ -162,6 +212,35 @@ func TestOaiResponsesToChatBufferedStreamHandlerReturnsChatJSON(t *testing.T) {
 	}
 	if !strings.Contains(got, `"object":"chat.completion"`) || !strings.Contains(got, `"content":"hello"`) {
 		t.Fatalf("unexpected buffered Chat response: %s", got)
+	}
+}
+
+func TestOaiResponsesToChatBufferedStreamHandlerDoesNotDuplicateCompletedOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	body := strings.Join([]string{
+		`data: {"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"city\":\"Paris\"}"}}`,
+		`data: {"type":"response.completed","response":{"id":"resp-1","model":"grok-4.5","status":"completed","output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{\"city\":\"Paris\"}"}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "grok-4.5"},
+		RelayFormat: types.RelayFormatOpenAI,
+	}
+
+	if _, apiErr := OaiResponsesToChatBufferedStreamHandler(ctx, info, resp); apiErr != nil {
+		t.Fatalf("apiErr = %v, want nil", apiErr)
+	}
+	if strings.Count(recorder.Body.String(), `"id":"call_1"`) != 1 {
+		t.Fatalf("function call was duplicated: %s", recorder.Body.String())
 	}
 }
 

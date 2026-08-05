@@ -54,6 +54,19 @@ func ChatCompletionsResponseToResponsesResponse(resp *dto.OpenAITextResponse, id
 		out.IncompleteDetails = details
 	}
 
+	if reasoning := choice.Message.GetReasoningContent(); reasoning != "" {
+		out.Output = append(out.Output, dto.ResponsesOutput{
+			Type:   responsesOutputTypeReasoning,
+			ID:     fmt.Sprintf("%s_reasoning_0", id),
+			Status: responseOutputStatus(out),
+			Summary: []dto.ResponsesOutputContent{
+				{
+					Type: "summary_text",
+					Text: reasoning,
+				},
+			},
+		})
+	}
 	if text := choice.Message.StringContent(); text != "" {
 		out.Output = append(out.Output, dto.ResponsesOutput{
 			Type:   responsesOutputTypeMessage,
@@ -65,19 +78,6 @@ func ChatCompletionsResponseToResponsesResponse(resp *dto.OpenAITextResponse, id
 					Type:        "output_text",
 					Text:        text,
 					Annotations: []interface{}{},
-				},
-			},
-		})
-	}
-	if reasoning := choice.Message.GetReasoningContent(); reasoning != "" {
-		out.Output = append(out.Output, dto.ResponsesOutput{
-			Type:   responsesOutputTypeReasoning,
-			ID:     fmt.Sprintf("%s_reasoning_0", id),
-			Status: responseOutputStatus(out),
-			Content: []dto.ResponsesOutputContent{
-				{
-					Type: "summary_text",
-					Text: reasoning,
 				},
 			},
 		})
@@ -308,6 +308,7 @@ func (s *ChatToResponsesStreamState) appendReasoningDelta(delta string) []ChatTo
 				ID:      s.reasoningID(),
 				Status:  "in_progress",
 				Content: []dto.ResponsesOutputContent{},
+				Summary: []dto.ResponsesOutputContent{},
 			},
 		}))
 	}
@@ -396,10 +397,7 @@ func (s *ChatToResponsesStreamState) doneDeltaEvents() []ChatToResponsesStreamEv
 			OutputIndex:  intPtr(s.reasoningIndex),
 			SummaryIndex: intPtr(0),
 			ItemID:       s.reasoningID(),
-			Part: &dto.ResponsesReasoningSummaryPart{
-				Type: "summary_text",
-				Text: s.reasoning.String(),
-			},
+			Text:         s.reasoning.String(),
 		}))
 		events = append(events, responsesStreamEvent(responsesEventOutputItemDone, dto.ResponsesStreamResponse{
 			Type:        responsesEventOutputItemDone,
@@ -526,10 +524,11 @@ func (s *ChatToResponsesStreamState) messageOutput(status string) *dto.Responses
 
 func (s *ChatToResponsesStreamState) reasoningOutput(status string) *dto.ResponsesOutput {
 	return &dto.ResponsesOutput{
-		Type:   responsesOutputTypeReasoning,
-		ID:     s.reasoningID(),
-		Status: status,
-		Content: []dto.ResponsesOutputContent{
+		Type:    responsesOutputTypeReasoning,
+		ID:      s.reasoningID(),
+		Status:  status,
+		Content: []dto.ResponsesOutputContent{},
+		Summary: []dto.ResponsesOutputContent{
 			{
 				Type: "summary_text",
 				Text: s.reasoning.String(),

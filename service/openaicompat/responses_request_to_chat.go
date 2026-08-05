@@ -246,6 +246,18 @@ func responsesMessageContent(raw any) (any, error) {
 				InputAudio:   audio,
 				CacheControl: cacheControl,
 			})
+		case "input_video", "video_url", "video":
+			video := partMap["video_url"]
+			if video == nil {
+				video = partMap["video"]
+			}
+			media = append(media, dto.MediaContent{
+				Type: dto.ContentTypeVideoUrl,
+				VideoUrl: &dto.MessageVideoUrl{
+					Url: responsesURLString(video),
+				},
+				CacheControl: cacheControl,
+			})
 		case "input_file", "file":
 			file := map[string]any{}
 			for _, key := range []string{"file_id", "file_data", "filename"} {

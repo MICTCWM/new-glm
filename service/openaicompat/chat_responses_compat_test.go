@@ -90,7 +90,7 @@ func TestResponsesResponseToChatPreservesTextReasoningToolsAndIncompleteStatus(t
 		Status:            []byte(`"incomplete"`),
 		IncompleteDetails: &dto.IncompleteDetails{Reason: "max_output_tokens"},
 		Output: []dto.ResponsesOutput{
-			{Type: "reasoning", Content: []dto.ResponsesOutputContent{{Type: "summary_text", Text: "thinking"}}},
+			{Type: "reasoning", Summary: []dto.ResponsesOutputContent{{Type: "summary_text", Text: "thinking"}}},
 			{Type: "message", Role: "assistant", Content: []dto.ResponsesOutputContent{{Type: "output_text", Text: "answer"}}},
 			{Type: "function_call", ID: "fc_1", CallId: "call_1", Name: "lookup", Arguments: []byte(`{"q":"x"}`)},
 		},
@@ -105,6 +105,24 @@ func TestResponsesResponseToChatPreservesTextReasoningToolsAndIncompleteStatus(t
 	require.Equal(t, "thinking", chat.Choices[0].Message.GetReasoningContent())
 	require.Len(t, chat.Choices[0].Message.ParseToolCalls(), 1)
 	require.Equal(t, "call_1", chat.Choices[0].Message.ParseToolCalls()[0].ID)
+}
+
+func TestResponsesResponseToChatReadsStandardSummaryJSON(t *testing.T) {
+	var resp dto.OpenAIResponsesResponse
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"id":"resp_1",
+		"model":"gpt-test",
+		"status":"completed",
+		"output":[
+			{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"plan"}]},
+			{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"answer"}]}
+		]
+	}`), &resp))
+
+	chat, _, err := ResponsesResponseToChatCompletionsResponse(&resp, "chatcmpl_1")
+	require.NoError(t, err)
+	require.Equal(t, "answer", chat.Choices[0].Message.StringContent())
+	require.Equal(t, "plan", chat.Choices[0].Message.GetReasoningContent())
 }
 
 func TestResponsesFinishReasonFromStatusUsesStandardReasonField(t *testing.T) {
@@ -137,8 +155,9 @@ func TestChatCompletionsResponseToResponsesPreservesTextToolsAndUsage(t *testing
 	require.NoError(t, err)
 	require.Equal(t, "completed", string(resp.Status[1:len(resp.Status)-1]))
 	require.Equal(t, 5, usage.TotalTokens)
-	require.Equal(t, "output_text", resp.Output[0].Content[0].Type)
-	require.Equal(t, "summary_text", resp.Output[1].Content[0].Type)
+	require.Equal(t, "reasoning", resp.Output[0].Type)
+	require.Equal(t, "summary_text", resp.Output[0].Summary[0].Type)
+	require.Equal(t, "output_text", resp.Output[1].Content[0].Type)
 	require.Equal(t, "function_call", resp.Output[2].Type)
 	require.Equal(t, "call_1", resp.Output[2].CallId)
 }

@@ -117,7 +117,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		data = string(sanitizeResponsesInstructions([]byte(data)))
 		switch streamResponse.Type {
-		case "response.completed":
+		case "response.completed", "response.done", "response.incomplete":
 			completed := streamResponse
 			completedStreamResponse = &completed
 			completedData = data

@@ -60,6 +60,24 @@ func TestResponsesRequestToChatPreservesCacheControl(t *testing.T) {
 	require.JSONEq(t, `{"type":"ephemeral"}`, string(content[0].CacheControl))
 }
 
+func TestResponsesRequestToChatConvertsVideoInput(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: []byte(`[{
+			"role":"user",
+			"content":[{"type":"input_video","video_url":"https://example.test/video.mp4"}]
+		}]`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 1)
+	content := got.Messages[0].ParseContent()
+	require.Len(t, content, 1)
+	require.Equal(t, dto.ContentTypeVideoUrl, content[0].Type)
+	require.Equal(t, "https://example.test/video.mp4", content[0].GetVideoUrl().Url)
+}
+
 func TestResponsesRequestToChatConvertsResponseFormat(t *testing.T) {
 	req := &dto.OpenAIResponsesRequest{
 		Model: "gpt-test",
