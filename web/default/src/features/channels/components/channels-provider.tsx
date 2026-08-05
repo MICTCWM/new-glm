@@ -41,6 +41,8 @@ type DialogType =
   | 'reset-rule'
   | null
 
+export type ChannelsViewMode = 'legacy' | 'modern'
+
 type UpstreamUpdateState = ReturnType<typeof useChannelUpstreamUpdates>
 
 type ChannelsContextType = {
@@ -54,6 +56,10 @@ type ChannelsContextType = {
   setEnableTagMode: (enabled: boolean) => void
   idSort: boolean
   setIdSort: (enabled: boolean) => void
+  viewMode: ChannelsViewMode
+  setViewMode: (mode: ChannelsViewMode) => void
+  folderDialogOpen: boolean
+  setFolderDialogOpen: (open: boolean) => void
   upstream: UpstreamUpdateState
 }
 
@@ -79,6 +85,17 @@ export function ChannelsProvider({ children }: { children: React.ReactNode }) {
   const [idSort, setIdSort] = useState(() => {
     return localStorage.getItem('channels-id-sort') === 'true'
   })
+  const [viewMode, setViewModeState] = useState<ChannelsViewMode>(() => {
+    return localStorage.getItem('channels-view-mode') === 'modern'
+      ? 'modern'
+      : 'legacy'
+  })
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+
+  const setViewMode = useCallback((mode: ChannelsViewMode) => {
+    localStorage.setItem('channels-view-mode', mode)
+    setViewModeState(mode)
+  }, [])
 
   const queryClient = useQueryClient()
   const refreshChannels = useCallback(async () => {
@@ -99,6 +116,10 @@ export function ChannelsProvider({ children }: { children: React.ReactNode }) {
         setEnableTagMode,
         idSort,
         setIdSort,
+        viewMode,
+        setViewMode,
+        folderDialogOpen,
+        setFolderDialogOpen,
         upstream,
       }}
     >

@@ -29,6 +29,7 @@ import {
   SortAsc,
   RefreshCw,
   ArrowUpFromLine,
+  FolderPlus,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
@@ -60,6 +61,8 @@ export function ChannelsPrimaryButtons() {
     setEnableTagMode,
     idSort,
     setIdSort,
+    viewMode,
+    setFolderDialogOpen,
     upstream,
   } = useChannels()
   const queryClient = useQueryClient()
@@ -109,6 +112,18 @@ export function ChannelsPrimaryButtons() {
           <span className='max-sm:hidden'>{t('Create Channel')}</span>
           <span className='sm:hidden'>{t('Create')}</span>
         </Button>
+
+        {viewMode === 'modern' && (
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => setFolderDialogOpen(true)}
+          >
+            <FolderPlus className='h-4 w-4' />
+            <span className='max-sm:hidden'>{t('Create Folder')}</span>
+            <span className='sm:hidden'>{t('Folder')}</span>
+          </Button>
+        )}
 
         {/* More Actions */}
         <DropdownMenu>
