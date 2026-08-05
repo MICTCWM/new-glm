@@ -355,6 +355,30 @@ func TestChannelAffinityGenericRouteSupportsSessionHeader(t *testing.T) {
 	require.Equal(t, affinityFingerprint("conversation-header-123"), meta.KeyFingerprint)
 }
 
+func TestChannelAffinityGenericRoutePrefersAuthenticatedUserOverBodyUserID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"provider-model","metadata":{"user_id":"request-unique-9f31"}}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Set("id", 42)
+	ctx.Set("token_id", 67890)
+
+	_, found := GetPreferredChannelByAffinity(ctx, "provider-model", "default")
+	require.False(t, found)
+
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "context_int", meta.KeySourceType)
+	require.Equal(t, "id", meta.KeySourceKey)
+	require.Equal(t, affinityFingerprint("42"), meta.KeyFingerprint)
+}
+
 func TestPromptCacheRouteKeyFallsBackToTokenWithoutConfiguredRuleMatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -65,6 +65,10 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
+	// Claude's thinking object is otherwise lost when an Anthropic request is
+	// converted directly to Chat Completions. Preserve the channel's emergency
+	// or model-mapping reasoning override before the OpenAI adaptor runs.
+	info.ApplyFallbackReasoningToOpenAIRequest(aiRequest)
 	//if common.DebugEnabled {
 	//	println(fmt.Sprintf("convert claude to openai request result: %s", common.GetJsonString(aiRequest)))
 	//	// Save request body to file for debugging

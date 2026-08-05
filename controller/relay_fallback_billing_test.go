@@ -141,6 +141,55 @@ func TestAffinityRpmTimeoutPreservesSourceFallbackPolicy(t *testing.T) {
 	require.True(t, ctx.GetBool("source_channel_supports_fallback"))
 }
 
+func TestEmergencyChannelFailureFallsBackWithoutSupportFlag(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+	})
+
+	fallbackChannel := &model.Channel{
+		Id:     904,
+		Type:   constant.ChannelTypeOpenAI,
+		Key:    "sk-emergency-fallback",
+		Name:   "emergency-fallback-channel",
+		Status: common.ChannelStatusEnabled,
+		Group:  "default",
+	}
+	fallbackChannel.SetSetting(dto.ChannelSettings{
+		FallbackModelEnabled: true,
+		FallbackModel:        "fallback-model",
+	})
+	require.NoError(t, db.Create(fallbackChannel).Error)
+
+	emergencyChannel := &model.Channel{}
+	emergencyChannel.SetSetting(dto.ChannelSettings{EmergencyPlanEnabled: true})
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("fallback_force_next", true)
+	require.True(t, setRelayFallbackSource(ctx, emergencyChannel))
+	require.True(t, canRelayFallback(ctx, &service.RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "default",
+		ModelName:  "requested-model",
+		Retry:      common.GetPointer(1),
+	}))
+
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "requested-model",
+		ChannelMeta:     &relaycommon.ChannelMeta{},
+	}
+	channel, apiErr := getChannel(ctx, info, &service.RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "default",
+		ModelName:  "requested-model",
+		Retry:      common.GetPointer(1),
+	})
+	require.Nil(t, apiErr)
+	require.NotNil(t, channel)
+	require.Equal(t, fallbackChannel.Id, channel.Id)
+}
+
 func TestGetChannelSelectsFallbackChannelsInOrder(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	oldMemoryCacheEnabled := common.MemoryCacheEnabled

@@ -78,6 +78,68 @@ func buildPassHeaderTemplate(headers []string) map[string]interface{} {
 	}
 }
 
+// defaultAPITokenStableRouteKeySources keeps authenticated identity behind
+// explicit conversation/session identifiers, but ahead of request-body user
+// fields. Some clients reuse metadata.user_id as a per-request identifier;
+// letting it win would continuously split one user's upstream cache route.
+func defaultAPITokenStableRouteKeySources() []ChannelAffinityKeySource {
+	return []ChannelAffinityKeySource{
+		{Type: "gjson", Path: "prompt_cache_key"},
+		{Type: "header", Key: "Session_id"},
+		{Type: "header", Key: "X-Session-Id"},
+		{Type: "header", Key: "X-Conversation-Id"},
+		{Type: "header", Key: "Conversation-Id"},
+		{Type: "header", Key: "X-Thread-Id"},
+		{Type: "header", Key: "Thread-Id"},
+		{Type: "gjson", Path: "metadata.conversation_id"},
+		{Type: "gjson", Path: "metadata.session_id"},
+		{Type: "gjson", Path: "conversation_id"},
+		{Type: "gjson", Path: "conversation.id"},
+		{Type: "gjson", Path: "thread_id"},
+		{Type: "gjson", Path: "session_id"},
+		{Type: "context_int", Key: "id"},
+		{Type: "context_int", Key: "token_id"},
+		{Type: "gjson", Path: "metadata.user_id"},
+		{Type: "gjson", Path: "metadata.userId"},
+		{Type: "gjson", Path: "user_id"},
+	}
+}
+
+func normalizeDefaultAPITokenStableRouteKeySources(sources []ChannelAffinityKeySource) []ChannelAffinityKeySource {
+	canonical := defaultAPITokenStableRouteKeySources()
+	known := make(map[string]struct{}, len(canonical))
+	for _, source := range canonical {
+		known[source.Type+"\x00"+source.Key+"\x00"+source.Path] = struct{}{}
+	}
+
+	ordered := make([]ChannelAffinityKeySource, 0, len(sources))
+	seen := make(map[string]struct{}, len(sources))
+	for _, source := range canonical {
+		key := source.Type + "\x00" + source.Key + "\x00" + source.Path
+		for _, configured := range sources {
+			configuredKey := configured.Type + "\x00" + configured.Key + "\x00" + configured.Path
+			if configuredKey == key {
+				if _, exists := seen[configuredKey]; !exists {
+					ordered = append(ordered, configured)
+					seen[configuredKey] = struct{}{}
+				}
+			}
+		}
+	}
+	for _, source := range sources {
+		key := source.Type + "\x00" + source.Key + "\x00" + source.Path
+		if _, exists := known[key]; exists {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		ordered = append(ordered, source)
+		seen[key] = struct{}{}
+	}
+	return ordered
+}
+
 var channelAffinitySetting = ChannelAffinitySetting{
 	Enabled:           true,
 	SwitchOnSuccess:   true,
@@ -120,29 +182,10 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			// prompt_cache_key. Keep the same user's requests on one
 			// upstream channel so the provider's automatic prefix cache
 			// does not get split by channel rotation.
-			Name:       "api token stable route",
-			ModelRegex: []string{"^.+$"},
-			PathRegex:  []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"},
-			KeySources: []ChannelAffinityKeySource{
-				{Type: "gjson", Path: "prompt_cache_key"},
-				{Type: "header", Key: "Session_id"},
-				{Type: "header", Key: "X-Session-Id"},
-				{Type: "header", Key: "X-Conversation-Id"},
-				{Type: "header", Key: "Conversation-Id"},
-				{Type: "header", Key: "X-Thread-Id"},
-				{Type: "header", Key: "Thread-Id"},
-				{Type: "gjson", Path: "metadata.conversation_id"},
-				{Type: "gjson", Path: "conversation_id"},
-				{Type: "gjson", Path: "conversation.id"},
-				{Type: "gjson", Path: "metadata.session_id"},
-				{Type: "gjson", Path: "metadata.user_id"},
-				{Type: "gjson", Path: "metadata.userId"},
-				{Type: "gjson", Path: "thread_id"},
-				{Type: "gjson", Path: "session_id"},
-				{Type: "gjson", Path: "user_id"},
-				{Type: "context_int", Key: "id"},
-				{Type: "context_int", Key: "token_id"},
-			},
+			Name:               "api token stable route",
+			ModelRegex:         []string{"^.+$"},
+			PathRegex:          []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"},
+			KeySources:         defaultAPITokenStableRouteKeySources(),
 			TTLSeconds:         0,
 			SkipRetryOnFailure: false,
 			IncludeUsingGroup:  true,
@@ -157,29 +200,10 @@ var channelAffinityDefaultsMu sync.Mutex
 
 func defaultAPITokenStableRouteRule() ChannelAffinityRule {
 	return ChannelAffinityRule{
-		Name:       "api token stable route",
-		ModelRegex: []string{"^.+$"},
-		PathRegex:  []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"},
-		KeySources: []ChannelAffinityKeySource{
-			{Type: "gjson", Path: "prompt_cache_key"},
-			{Type: "header", Key: "Session_id"},
-			{Type: "header", Key: "X-Session-Id"},
-			{Type: "header", Key: "X-Conversation-Id"},
-			{Type: "header", Key: "Conversation-Id"},
-			{Type: "header", Key: "X-Thread-Id"},
-			{Type: "header", Key: "Thread-Id"},
-			{Type: "gjson", Path: "metadata.conversation_id"},
-			{Type: "gjson", Path: "conversation_id"},
-			{Type: "gjson", Path: "conversation.id"},
-			{Type: "gjson", Path: "metadata.session_id"},
-			{Type: "gjson", Path: "metadata.user_id"},
-			{Type: "gjson", Path: "metadata.userId"},
-			{Type: "gjson", Path: "thread_id"},
-			{Type: "gjson", Path: "session_id"},
-			{Type: "gjson", Path: "user_id"},
-			{Type: "context_int", Key: "id"},
-			{Type: "context_int", Key: "token_id"},
-		},
+		Name:               "api token stable route",
+		ModelRegex:         []string{"^.+$"},
+		PathRegex:          []string{"/v1/chat/completions", "/v1/responses", "/v1/messages"},
+		KeySources:         defaultAPITokenStableRouteKeySources(),
 		TTLSeconds:         0,
 		SkipRetryOnFailure: false,
 		IncludeUsingGroup:  true,
@@ -198,6 +222,7 @@ func ensureDefaultChannelAffinityRules() {
 		if !strings.EqualFold(strings.TrimSpace(rule.Name), "api token stable route") {
 			continue
 		}
+		rule.KeySources = normalizeDefaultAPITokenStableRouteKeySources(rule.KeySources)
 
 		hasPromptCacheKey := false
 		hasUserID := false
@@ -268,6 +293,7 @@ func ensureDefaultChannelAffinityRules() {
 			updated = append(updated, missing...)
 			updated = append(updated, rule.KeySources[insertAt:]...)
 			rule.KeySources = updated
+			rule.KeySources = normalizeDefaultAPITokenStableRouteKeySources(rule.KeySources)
 		}
 		return
 	}

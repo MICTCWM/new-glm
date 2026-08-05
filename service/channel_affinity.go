@@ -410,14 +410,15 @@ func ensurePromptCacheRouteMeta(c *gin.Context) (channelAffinityMeta, bool) {
 		{Type: "header", Key: "Thread-Id"},
 		{Type: "gjson", Path: "metadata.conversation_id"},
 		{Type: "gjson", Path: "metadata.session_id"},
-		{Type: "gjson", Path: "metadata.user_id"},
-		{Type: "gjson", Path: "metadata.userId"},
 		{Type: "gjson", Path: "conversation_id"},
+		{Type: "gjson", Path: "conversation.id"},
 		{Type: "gjson", Path: "thread_id"},
 		{Type: "gjson", Path: "session_id"},
-		{Type: "gjson", Path: "user_id"},
 		{Type: "context_int", Key: "id"},
 		{Type: "context_int", Key: "token_id"},
+		{Type: "gjson", Path: "metadata.user_id"},
+		{Type: "gjson", Path: "metadata.userId"},
+		{Type: "gjson", Path: "user_id"},
 	}
 
 	var value string

@@ -1538,7 +1538,10 @@ func setRelayFallbackSource(c *gin.Context, channel *model.Channel) bool {
 	if c == nil || channel == nil {
 		return false
 	}
-	supportsFallback := channel.IsSupportFallback()
+	// An emergency channel is already part of the failure-handling route. If
+	// it fails, it must continue to the configured fallback channel even when
+	// the separate SupportFallback flag was not enabled on that channel.
+	supportsFallback := channel.IsSupportFallback() || channel.IsEmergencyPlanEnabled()
 	c.Set("source_channel_supports_fallback", supportsFallback)
 	return supportsFallback
 }

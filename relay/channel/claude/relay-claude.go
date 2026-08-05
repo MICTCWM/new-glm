@@ -221,6 +221,11 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 				Type:         "enabled",
 				BudgetTokens: common.GetPointer[int](4096),
 			}
+		case "xhigh", "max":
+			claudeRequest.Thinking = &dto.Thinking{
+				Type:         "enabled",
+				BudgetTokens: common.GetPointer[int](8192),
+			}
 		}
 	}
 

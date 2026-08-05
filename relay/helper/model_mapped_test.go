@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
@@ -77,5 +78,56 @@ func TestModelMappedHelperRejectsInvalidMappingReasoningEffort(t *testing.T) {
 
 	if err := ModelMappedHelper(c, info, nil); err == nil {
 		t.Fatal("ModelMappedHelper() error = nil, want invalid reasoning effort error")
+	}
+}
+
+func TestApplyModelMappingToRawJSONPreservesUnknownFieldsAndReasoning(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		OriginModelName:       "client-model",
+		MappedReasoningEffort: "xhigh",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeOpenAI,
+			UpstreamModelName: "upstream-model",
+		},
+	}
+	info.IsModelMapped = true
+
+	body, err := ApplyModelMappingToRawJSON([]byte(`{"model":"client-model","messages":[],"vendor_field":{"keep":true}}`), info, false)
+	if err != nil {
+		t.Fatalf("ApplyModelMappingToRawJSON() error = %v", err)
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("patched body is invalid JSON: %v", err)
+	}
+	if string(payload["model"]) != `"upstream-model"` {
+		t.Fatalf("model = %s, want upstream-model", payload["model"])
+	}
+	if string(payload["reasoning_effort"]) != `"xhigh"` {
+		t.Fatalf("reasoning_effort = %s, want xhigh", payload["reasoning_effort"])
+	}
+	if string(payload["vendor_field"]) != `{"keep":true}` {
+		t.Fatalf("vendor_field was not preserved: %s", payload["vendor_field"])
+	}
+}
+
+func TestApplyModelMappingToRawJSONUsesResponsesReasoningShape(t *testing.T) {
+	info := &relaycommon.RelayInfo{MappedReasoningEffort: "xhigh"}
+	body, err := ApplyModelMappingToRawJSON([]byte(`{"model":"gpt-5"}`), info, true)
+	if err != nil {
+		t.Fatalf("ApplyModelMappingToRawJSON() error = %v", err)
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("patched body is invalid JSON: %v", err)
+	}
+	var reasoning dto.Reasoning
+	if err := json.Unmarshal(payload["reasoning"], &reasoning); err != nil {
+		t.Fatalf("reasoning is invalid JSON: %v", err)
+	}
+	if reasoning.Effort != "xhigh" || reasoning.Summary != "detailed" {
+		t.Fatalf("reasoning = %+v, want xhigh/detailed", reasoning)
 	}
 }

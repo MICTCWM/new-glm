@@ -56,6 +56,39 @@ func TestEnsureOpenAIPromptCacheKeyDerivesStableKey(t *testing.T) {
 	require.Equal(t, "gpt-5", gjson.GetBytes(first, "model").String())
 }
 
+func TestEnsureOpenAIPromptCacheKeyIgnoresChangingBodyUserIDForAuthenticatedUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeOpenAI,
+			ApiType:           constant.APITypeOpenAI,
+			UpstreamModelName: "gpt-5",
+		},
+	}
+
+	firstContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	firstContext.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-5","metadata":{"user_id":"request-1"}}`),
+	)
+	firstContext.Set("id", 42)
+	first, err := ensureOpenAIPromptCacheKey(firstContext, info, []byte(`{"model":"gpt-5","metadata":{"user_id":"request-1"}}`), "")
+	require.NoError(t, err)
+
+	secondContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	secondContext.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-5","metadata":{"user_id":"request-2"}}`),
+	)
+	secondContext.Set("id", 42)
+	second, err := ensureOpenAIPromptCacheKey(secondContext, info, []byte(`{"model":"gpt-5","metadata":{"user_id":"request-2"}}`), "")
+	require.NoError(t, err)
+
+	require.Equal(t, gjson.GetBytes(first, "prompt_cache_key").String(), gjson.GetBytes(second, "prompt_cache_key").String())
+}
+
 func TestEnsureOpenAIPromptCacheKeyPreservesExplicitAndSkipsCompatibleProviders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

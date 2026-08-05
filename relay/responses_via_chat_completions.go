@@ -13,6 +13,7 @@ import (
 	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
@@ -59,6 +60,13 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 		if err != nil {
 			return nil, newAPIErrorFromParamOverride(err)
+		}
+	}
+	switch convertedRequest.(type) {
+	case *dto.GeneralOpenAIRequest, dto.GeneralOpenAIRequest:
+		jsonData, err = helper.ApplyModelMappingToRawJSON(jsonData, info, false)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 	}
 	jsonData, err = ensureOpenAIPromptCacheKey(c, info, jsonData, chatRequest.PromptCacheKey)

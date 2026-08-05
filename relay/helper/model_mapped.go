@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -125,4 +126,73 @@ func parseModelMappingTarget(raw json.RawMessage) (string, string, error) {
 		}
 	}
 	return strings.TrimSpace(objectTarget.Model), effort, nil
+}
+
+// ApplyModelMappingToRawJSON keeps channel model/reasoning overrides effective
+// when pass-through mode is enabled. Pass-through intentionally preserves
+// unknown request fields, so serializing the typed request would be a
+// regression; patch only the fields owned by the mapping here instead.
+func ApplyModelMappingToRawJSON(body []byte, info *common.RelayInfo, responsesProtocol bool) ([]byte, error) {
+	if len(body) == 0 || info == nil {
+		return body, nil
+	}
+
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("unmarshal_request_body_for_model_mapping_failed: %w", err)
+	}
+	channelType := 0
+	if info.ChannelMeta != nil {
+		channelType = info.ChannelType
+	}
+
+	changed := false
+	if info.ChannelMeta != nil && info.IsModelMapped && strings.TrimSpace(info.UpstreamModelName) != "" &&
+		strings.TrimSpace(info.UpstreamModelName) != strings.TrimSpace(info.OriginModelName) {
+		modelJSON, err := json.Marshal(info.UpstreamModelName)
+		if err != nil {
+			return nil, fmt.Errorf("marshal_mapped_model_failed: %w", err)
+		}
+		payload["model"] = modelJSON
+		changed = true
+	}
+
+	effort := info.GetFallbackReasoningEffort()
+	if effort != "" {
+		var reasoningJSON []byte
+		switch {
+		case responsesProtocol:
+			reasoningJSON, _ = json.Marshal(dto.Reasoning{Effort: effort, Summary: "detailed"})
+		case channelType == constant.ChannelTypeOpenRouter:
+			reasoning := map[string]any{"enabled": effort != "none"}
+			if effort != "none" {
+				reasoning["effort"] = effort
+			}
+			reasoningJSON, _ = json.Marshal(reasoning)
+		case channelType == constant.ChannelTypeDeepSeek:
+			thinkingType := "enabled"
+			if effort == "none" {
+				thinkingType = "disabled"
+			}
+			reasoningJSON, _ = json.Marshal(map[string]string{"type": thinkingType})
+		default:
+			reasoningJSON, _ = json.Marshal(effort)
+			payload["reasoning_effort"] = reasoningJSON
+			changed = true
+		}
+		if len(reasoningJSON) > 0 && (responsesProtocol ||
+			channelType == constant.ChannelTypeOpenRouter || channelType == constant.ChannelTypeDeepSeek) {
+			field := "reasoning"
+			if channelType == constant.ChannelTypeDeepSeek && !responsesProtocol {
+				field = "thinking"
+			}
+			payload[field] = reasoningJSON
+			changed = true
+		}
+	}
+
+	if !changed {
+		return body, nil
+	}
+	return json.Marshal(payload)
 }

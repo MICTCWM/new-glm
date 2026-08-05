@@ -121,7 +121,11 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		passThroughStorage = storage
 		requestBody = common.ReaderOnly(storage)
 		if body, bodyErr := storage.Bytes(); bodyErr == nil {
-			patched, patchErr := ensureOpenAIPromptCacheKey(c, info, body, responsesPromptCacheKeyString(request.PromptCacheKey))
+			mappedBody, mappingErr := helper.ApplyModelMappingToRawJSON(body, info, true)
+			if mappingErr != nil {
+				return types.NewError(mappingErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			patched, patchErr := ensureOpenAIPromptCacheKey(c, info, mappedBody, responsesPromptCacheKeyString(request.PromptCacheKey))
 			if patchErr != nil {
 				return types.NewError(patchErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
@@ -158,6 +162,13 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 			if err != nil {
 				return newAPIErrorFromParamOverride(err)
+			}
+		}
+		switch convertedRequest.(type) {
+		case *dto.OpenAIResponsesRequest, dto.OpenAIResponsesRequest:
+			jsonData, err = helper.ApplyModelMappingToRawJSON(jsonData, info, true)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
 		}
 		jsonData, err = ensureOpenAIPromptCacheKey(c, info, jsonData, responsesPromptCacheKeyString(request.PromptCacheKey))
