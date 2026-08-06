@@ -1448,8 +1448,10 @@ func refreshRelayChannelPricing(c *gin.Context, info *relaycommon.RelayInfo, pro
 			info.VisionRouteCacheHits,
 		)
 		priceData.FreeModel = false
-		info.PriceData = priceData
 	}
+
+	// Ensure PriceData is set for all code paths
+	info.PriceData = priceData
 
 	return nil
 }
@@ -1466,9 +1468,23 @@ func ensureRelayPreConsume(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 }
 
 func executeFallbackChannel(c *gin.Context, info *relaycommon.RelayInfo, channel *model.Channel, relayFormat types.RelayFormat, promptTokens int, meta *types.TokenCountMeta) *types.NewAPIError {
+	// Save original channel's billing prices before refreshing for fallback.
+	// Fallback only changes the upstream model; billing standard should remain from the original channel.
+	originalModelPrice := info.PriceData.ModelPrice
+	originalUsePrice := info.PriceData.UsePrice
+
 	if priceErr := refreshRelayChannelPricing(c, info, promptTokens, meta); priceErr != nil {
 		return priceErr
 	}
+
+	// Restore original channel's billing prices (fallback does not change billing standard).
+	if originalUsePrice {
+		info.PriceData.ModelPrice = originalModelPrice
+		info.PriceData.UsePrice = originalUsePrice
+		logger.LogInfo(c, fmt.Sprintf("Fallback preserves original billing: ModelPrice=%.6f (original channel), fallback_channel_id=%d",
+			originalModelPrice, channel.Id))
+	}
+
 	if priceErr := ensureRelayPreConsume(c, info); priceErr != nil {
 		return priceErr
 	}
