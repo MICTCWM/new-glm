@@ -203,7 +203,13 @@ func responsesMessageContent(raw any) (any, error) {
 	}
 	parts, ok := raw.([]any)
 	if !ok {
-		return responsesValueString(raw), nil
+		if part, isObject := raw.(map[string]any); isObject {
+			// A single content part is valid in several compatible Responses
+			// implementations. Normalize it through the same typed-part path
+			// instead of serializing the whole protocol object as user text.
+			return responsesMessageContent([]any{part})
+		}
+		return nil, fmt.Errorf("unsupported Responses message content type %T", raw)
 	}
 
 	media := make([]dto.MediaContent, 0, len(parts))
@@ -276,15 +282,16 @@ func responsesMessageContent(raw any) (any, error) {
 				CacheControl: cacheControl,
 			})
 		default:
-			text := responsesValueString(partMap["text"])
-			if text == "" {
-				text = responsesValueString(part)
+			// Do not marshal an unknown protocol block into visible prompt text.
+			// Keep a plain text field when a compatible provider adds a new block
+			// type, but drop opaque structured data rather than leaking its JSON.
+			if text, ok := partMap["text"].(string); ok && text != "" {
+				media = append(media, dto.MediaContent{
+					Type:         dto.ContentTypeText,
+					Text:         text,
+					CacheControl: cacheControl,
+				})
 			}
-			media = append(media, dto.MediaContent{
-				Type:         dto.ContentTypeText,
-				Text:         text,
-				CacheControl: cacheControl,
-			})
 		}
 	}
 	return media, nil

@@ -357,7 +357,9 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		case relaycommon.LastMessageTypeTools:
 			base := info.ClaudeConvertInfo.ToolCallBaseIndex
 			for offset := 0; offset <= info.ClaudeConvertInfo.ToolCallMaxIndexOffset; offset++ {
-				claudeResponses = append(claudeResponses, generateStopBlock(base+offset))
+				if info.ClaudeConvertInfo.ToolCallStarted[base+offset] {
+					claudeResponses = append(claudeResponses, generateStopBlock(base+offset))
+				}
 			}
 		}
 	}
@@ -373,13 +375,82 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		stopOpenBlocks()
 		switch info.ClaudeConvertInfo.LastMessagesType {
 		case relaycommon.LastMessageTypeTools:
-			info.ClaudeConvertInfo.Index = info.ClaudeConvertInfo.ToolCallBaseIndex + info.ClaudeConvertInfo.ToolCallMaxIndexOffset + 1
+			info.ClaudeConvertInfo.Index = info.ClaudeConvertInfo.ToolCallBaseIndex
+			if info.ClaudeConvertInfo.ToolCallMaxIndexOffset >= 0 {
+				info.ClaudeConvertInfo.Index += info.ClaudeConvertInfo.ToolCallMaxIndexOffset + 1
+			}
 			info.ClaudeConvertInfo.ToolCallBaseIndex = 0
-			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = 0
+			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = -1
+			info.ClaudeConvertInfo.ToolCallStarted = nil
+			info.ClaudeConvertInfo.ToolCallPendingArgs = nil
 		default:
 			info.ClaudeConvertInfo.Index++
 		}
 		info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeNone
+	}
+	beginToolCalls := func() {
+		if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeTools {
+			if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeNone {
+				stopOpenBlocksAndAdvance()
+			}
+			info.ClaudeConvertInfo.ToolCallBaseIndex = info.ClaudeConvertInfo.Index
+			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = -1
+			info.ClaudeConvertInfo.ToolCallStarted = make(map[int]bool)
+			info.ClaudeConvertInfo.ToolCallPendingArgs = make(map[int]string)
+			info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeTools
+		} else {
+			if info.ClaudeConvertInfo.ToolCallStarted == nil {
+				info.ClaudeConvertInfo.ToolCallStarted = make(map[int]bool)
+			}
+			if info.ClaudeConvertInfo.ToolCallPendingArgs == nil {
+				info.ClaudeConvertInfo.ToolCallPendingArgs = make(map[int]string)
+			}
+			if info.ClaudeConvertInfo.ToolCallMaxIndexOffset < -1 {
+				info.ClaudeConvertInfo.ToolCallMaxIndexOffset = -1
+			}
+		}
+	}
+	appendToolCall := func(toolCall dto.ToolCallResponse, fallbackOffset int) {
+		beginToolCalls()
+		offset := fallbackOffset
+		if toolCall.Index != nil && *toolCall.Index >= 0 {
+			offset = *toolCall.Index
+		}
+		if offset > info.ClaudeConvertInfo.ToolCallMaxIndexOffset {
+			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = offset
+		}
+		blockIndex := info.ClaudeConvertInfo.ToolCallBaseIndex + offset
+		if toolCall.Function.Name != "" && !info.ClaudeConvertInfo.ToolCallStarted[blockIndex] {
+			idx := blockIndex
+			claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+				Index: &idx,
+				Type:  "content_block_start",
+				ContentBlock: &dto.ClaudeMediaMessage{
+					Id:    toolCall.ID,
+					Type:  "tool_use",
+					Name:  toolCall.Function.Name,
+					Input: map[string]interface{}{},
+				},
+			})
+			info.ClaudeConvertInfo.ToolCallStarted[blockIndex] = true
+		}
+		arguments := info.ClaudeConvertInfo.ToolCallPendingArgs[blockIndex] + toolCall.Function.Arguments
+		if info.ClaudeConvertInfo.ToolCallStarted[blockIndex] {
+			delete(info.ClaudeConvertInfo.ToolCallPendingArgs, blockIndex)
+			if arguments != "" {
+				idx := blockIndex
+				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+					Index: &idx,
+					Type:  "content_block_delta",
+					Delta: &dto.ClaudeMediaMessage{
+						Type:        "input_json_delta",
+						PartialJson: &arguments,
+					},
+				})
+			}
+		} else if arguments != "" {
+			info.ClaudeConvertInfo.ToolCallPendingArgs[blockIndex] = arguments
+		}
 	}
 	if info.SendResponseCount == 1 && !info.RpmQueueThinkingNoticeSent {
 		// 强制使用用户原始请求的 model ID，避免上游（聚合/中转）把内部 model 名字写到响应里
@@ -406,42 +477,8 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		//	Type: "ping",
 		//})
 		if openAIResponse.IsToolCall() {
-			info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeTools
-			info.ClaudeConvertInfo.ToolCallBaseIndex = 0
-			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = 0
-			var toolCall dto.ToolCallResponse
-			if len(openAIResponse.Choices) > 0 && len(openAIResponse.Choices[0].Delta.ToolCalls) > 0 {
-				toolCall = openAIResponse.Choices[0].Delta.ToolCalls[0]
-			} else {
-				first := openAIResponse.GetFirstToolCall()
-				if first != nil {
-					toolCall = *first
-				} else {
-					toolCall = dto.ToolCallResponse{}
-				}
-			}
-			resp := &dto.ClaudeResponse{
-				Type: "content_block_start",
-				ContentBlock: &dto.ClaudeMediaMessage{
-					Id:    toolCall.ID,
-					Type:  "tool_use",
-					Name:  toolCall.Function.Name,
-					Input: map[string]interface{}{},
-				},
-			}
-			resp.SetIndex(0)
-			claudeResponses = append(claudeResponses, resp)
-			// 首块包含工具 delta，则追加 input_json_delta
-			if toolCall.Function.Arguments != "" {
-				idx := 0
-				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-					Index: &idx,
-					Type:  "content_block_delta",
-					Delta: &dto.ClaudeMediaMessage{
-						Type:        "input_json_delta",
-						PartialJson: &toolCall.Function.Arguments,
-					},
-				})
+			for i, toolCall := range openAIResponse.Choices[0].Delta.ToolCalls {
+				appendToolCall(toolCall, i)
 			}
 		} else {
 
@@ -573,54 +610,13 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		claudeResponse.Type = "content_block_delta"
 		if len(chosenChoice.Delta.ToolCalls) > 0 {
 			toolCalls := chosenChoice.Delta.ToolCalls
-			if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeTools {
-				stopOpenBlocksAndAdvance()
-				info.ClaudeConvertInfo.ToolCallBaseIndex = info.ClaudeConvertInfo.Index
-				info.ClaudeConvertInfo.ToolCallMaxIndexOffset = 0
-			}
-			info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeTools
-			base := info.ClaudeConvertInfo.ToolCallBaseIndex
-			maxOffset := info.ClaudeConvertInfo.ToolCallMaxIndexOffset
-
 			for i, toolCall := range toolCalls {
-				offset := 0
-				if toolCall.Index != nil {
-					offset = *toolCall.Index
-				} else {
-					offset = i
-				}
-				if offset > maxOffset {
-					maxOffset = offset
-				}
-				blockIndex := base + offset
-
-				idx := blockIndex
-				if toolCall.Function.Name != "" {
-					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-						Index: &idx,
-						Type:  "content_block_start",
-						ContentBlock: &dto.ClaudeMediaMessage{
-							Id:    toolCall.ID,
-							Type:  "tool_use",
-							Name:  toolCall.Function.Name,
-							Input: map[string]interface{}{},
-						},
-					})
-				}
-
-				if len(toolCall.Function.Arguments) > 0 {
-					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-						Index: &idx,
-						Type:  "content_block_delta",
-						Delta: &dto.ClaudeMediaMessage{
-							Type:        "input_json_delta",
-							PartialJson: &toolCall.Function.Arguments,
-						},
-					})
-				}
+				appendToolCall(toolCall, i)
 			}
-			info.ClaudeConvertInfo.ToolCallMaxIndexOffset = maxOffset
-			info.ClaudeConvertInfo.Index = base + maxOffset
+			if info.ClaudeConvertInfo.ToolCallMaxIndexOffset >= 0 {
+				info.ClaudeConvertInfo.Index = info.ClaudeConvertInfo.ToolCallBaseIndex + info.ClaudeConvertInfo.ToolCallMaxIndexOffset
+			}
+			isEmpty = true
 		} else {
 			reasoning := chosenChoice.Delta.GetReasoningContent()
 			textContent := chosenChoice.Delta.GetContentString()

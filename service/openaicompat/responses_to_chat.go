@@ -156,7 +156,16 @@ func ExtractOutputTextFromResponses(resp *dto.OpenAIResponsesResponse) string {
 	if sb.Len() > 0 {
 		return sb.String()
 	}
+	// Never promote arbitrary output item content to assistant text. Reasoning,
+	// tool results, and provider-specific items may contain internal or
+	// structured data that must not be exposed as normal Chat content.
 	for _, out := range resp.Output {
+		if out.Type != responsesOutputTypeMessage {
+			continue
+		}
+		if out.Role != "" && out.Role != "assistant" {
+			continue
+		}
 		for _, content := range out.Content {
 			if content.Text != "" {
 				sb.WriteString(content.Text)

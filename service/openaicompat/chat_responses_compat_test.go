@@ -125,6 +125,24 @@ func TestResponsesResponseToChatReadsStandardSummaryJSON(t *testing.T) {
 	require.Equal(t, "plan", chat.Choices[0].Message.GetReasoningContent())
 }
 
+func TestResponsesResponseToChatDoesNotExposeReasoningContentAsText(t *testing.T) {
+	const internalData = `{"internal":"reasoning payload"}`
+	resp := &dto.OpenAIResponsesResponse{
+		ID: "resp_1",
+		Output: []dto.ResponsesOutput{
+			{
+				Type:    "reasoning",
+				Content: []dto.ResponsesOutputContent{{Type: "reasoning_text", Text: internalData}},
+			},
+		},
+	}
+
+	chat, _, err := ResponsesResponseToChatCompletionsResponse(resp, "chatcmpl_1")
+	require.NoError(t, err)
+	require.Empty(t, chat.Choices[0].Message.StringContent())
+	require.Equal(t, internalData, chat.Choices[0].Message.GetReasoningContent())
+}
+
 func TestResponsesFinishReasonFromStatusUsesStandardReasonField(t *testing.T) {
 	resp := &dto.OpenAIResponsesResponse{
 		Status:            []byte(`"incomplete"`),

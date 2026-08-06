@@ -120,3 +120,141 @@ func TestStreamResponseOpenAI2ClaudeFiltersPlaceholderText(t *testing.T) {
 	// 占位符应被完全过滤，不产生任何 content_block_start / text_delta
 	require.Empty(t, converted)
 }
+
+func TestStreamResponseOpenAI2ClaudeStartsAllParallelToolBlocks(t *testing.T) {
+	index0 := 0
+	index1 := 1
+	info := &relaycommon.RelayInfo{
+		SendResponseCount: 1,
+		ClaudeConvertInfo: &relaycommon.ClaudeConvertInfo{
+			LastMessagesType: relaycommon.LastMessageTypeNone,
+		},
+	}
+	response := &dto.ChatCompletionsStreamResponse{
+		Id: "completion-1",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					ToolCalls: []dto.ToolCallResponse{
+						{
+							Index: &index0,
+							ID:    "call-0",
+							Function: dto.FunctionResponse{
+								Name: "first_tool",
+							},
+						},
+						{
+							Index: &index1,
+							ID:    "call-1",
+							Function: dto.FunctionResponse{
+								Name: "second_tool",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	converted := StreamResponseOpenAI2Claude(response, info)
+
+	starts := make(map[int]bool)
+	for _, event := range converted {
+		if event.Type == "content_block_start" {
+			starts[event.GetIndex()] = true
+		}
+	}
+	require.Equal(t, map[int]bool{0: true, 1: true}, starts)
+
+	info.SendResponseCount = 2
+	arguments := "{}"
+	converted = StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					ToolCalls: []dto.ToolCallResponse{
+						{
+							Index:    &index1,
+							Function: dto.FunctionResponse{Arguments: arguments},
+						},
+					},
+				},
+			},
+		},
+	}, info)
+
+	require.Len(t, converted, 1)
+	require.Equal(t, "content_block_delta", converted[0].Type)
+	require.Equal(t, 1, converted[0].GetIndex())
+}
+
+func TestStreamResponseOpenAI2ClaudeBuffersToolArgumentsUntilBlockStarts(t *testing.T) {
+	index0 := 0
+	index1 := 1
+	info := &relaycommon.RelayInfo{
+		SendResponseCount: 1,
+		ClaudeConvertInfo: &relaycommon.ClaudeConvertInfo{
+			LastMessagesType: relaycommon.LastMessageTypeNone,
+		},
+	}
+	first := &dto.ChatCompletionsStreamResponse{
+		Id: "completion-2",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					ToolCalls: []dto.ToolCallResponse{
+						{
+							Index: &index0,
+							ID:    "call-0",
+							Function: dto.FunctionResponse{
+								Name: "first_tool",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	require.NotEmpty(t, StreamResponseOpenAI2Claude(first, info))
+
+	info.SendResponseCount = 2
+	require.Empty(t, StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					ToolCalls: []dto.ToolCallResponse{
+						{
+							Index:    &index1,
+							Function: dto.FunctionResponse{Arguments: `{"city":"Paris"}`},
+						},
+					},
+				},
+			},
+		},
+	}, info))
+
+	converted := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Choices: []dto.ChatCompletionsStreamResponseChoice{
+			{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					ToolCalls: []dto.ToolCallResponse{
+						{
+							Index: &index1,
+							ID:    "call-1",
+							Function: dto.FunctionResponse{
+								Name: "second_tool",
+							},
+						},
+					},
+				},
+			},
+		},
+	}, info)
+
+	require.Len(t, converted, 2)
+	require.Equal(t, "content_block_start", converted[0].Type)
+	require.Equal(t, 1, converted[0].GetIndex())
+	require.Equal(t, "content_block_delta", converted[1].Type)
+	require.Equal(t, 1, converted[1].GetIndex())
+	require.Equal(t, `{"city":"Paris"}`, *converted[1].Delta.PartialJson)
+}

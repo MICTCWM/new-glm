@@ -78,6 +78,18 @@ func TestResponsesRequestToChatConvertsVideoInput(t *testing.T) {
 	require.Equal(t, "https://example.test/video.mp4", content[0].GetVideoUrl().Url)
 }
 
+func TestResponsesRequestToChatDoesNotSerializeUnknownContentAsText(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: []byte(`[{"role":"user","content":[{"type":"provider_payload","payload":{"secret":"internal"}}]}]`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 1)
+	require.Empty(t, got.Messages[0].ParseContent())
+}
+
 func TestResponsesRequestToChatConvertsResponseFormat(t *testing.T) {
 	req := &dto.OpenAIResponsesRequest{
 		Model: "gpt-test",
