@@ -16,11 +16,65 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from '@tanstack/react-router'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { getStatus } from '@/lib/api'
 
 export function NotInServiceAreaError() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [isRetrying, setIsRetrying] = useState(false)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  const handleRetry = async () => {
+    setIsRetrying(true)
+    try {
+      const status = await getStatus()
+      
+      // 验证响应有效性
+      if (!isMountedRef.current) return
+      
+      if (!status || typeof status.region_blocked !== 'boolean') {
+        toast.error(t('Invalid response from server, please try again'))
+        return
+      }
+
+      if (status.region_blocked) {
+        toast.error(
+          t('Still not in service area. Please ensure you are connected from a supported region.'),
+          { duration: 5000 }
+        )
+      } else {
+        toast.success(t('Access granted, redirecting...'))
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            navigate({ to: '/' })
+          }
+        }, 500)
+      }
+    } catch (error) {
+      if (!isMountedRef.current) return
+      
+      console.error('Status check failed:', error)
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : t('Network error, please check your connection and try again')
+      toast.error(errorMessage)
+    } finally {
+      if (isMountedRef.current) {
+        setIsRetrying(false)
+      }
+    }
+  }
   return (
     <div className='h-svh'>
       <div className='m-auto flex h-full w-full flex-col items-center justify-center gap-2'>
@@ -33,8 +87,12 @@ export function NotInServiceAreaError() {
           {t('If you believe this is a mistake, please contact the administrator.')}
         </p>
         <div className='mt-6 flex gap-4'>
-          <Button variant='outline' onClick={() => window.location.reload()}>
-            {t('Retry')}
+          <Button 
+            variant='outline' 
+            onClick={handleRetry}
+            disabled={isRetrying}
+          >
+            {isRetrying ? t('Checking...') : t('Retry')}
           </Button>
         </div>
       </div>
