@@ -39,12 +39,19 @@ import (
 const HiddenUpstreamModelID = "gpt-5.4-mini"
 
 // skipGlobalRpmOverloadTransfer keeps channels that have their own routing
-// mode on the route selected by the distributor. The global RPM overload rule
-// only applies to ordinary channels; failure-based fallback remains handled
+// mode on the route selected by the distributor. Overload protection only
+// applies to ordinary channels; failure-based fallback remains handled
 // separately by source_channel_supports_fallback.
 func skipGlobalRpmOverloadTransfer(c *gin.Context) bool {
 	channel, ok := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel)
 	return ok && channel != nil && channel.IsExcludedFromRpmOverloadTransfer()
+}
+
+func shouldApplyRpmOverloadProtection(c *gin.Context, channel *model.Channel) bool {
+	return channel != nil &&
+		!skipGlobalRpmOverloadTransfer(c) &&
+		!channel.IsExcludedFromRpmOverloadTransfer() &&
+		common.IsOverloadProtectionChannel(channel.Id)
 }
 
 func dailyUsageLimitExceeded(c *gin.Context) bool {
@@ -484,17 +491,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
-		// Atomically count this relay request before selecting a channel. Once
-		// the global threshold is reached, prefer a channel with the fallback
-		// switch enabled. The normal route remains available when no fallback
-		// channel is configured.
-		if !globalRpmAcquired && !skipGlobalRpmOverloadTransfer(c) {
-			globalRpmAcquired = true
-			if service.GetGlobalRpmTracker().TryAcquire() && model.HasAvailableFallbackChannels() {
-				c.Set("overload_protection_triggered", true)
-				c.Set("fallback_force_next", true)
-			}
-		}
 		if !c.GetBool("daily_usage_limit_triggered") && model.HasAvailableFallbackChannels() && dailyUsageLimitExceeded(c) {
 			c.Set("daily_usage_limit_triggered", true)
 			c.Set("fallback_force_next", true)
@@ -527,6 +523,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
 			break
+		}
+
+		// Only selected channels contribute to the shared overload RPM. The
+		// selected channel must be known before counting, otherwise unrelated
+		// traffic would incorrectly consume this budget.
+		if !globalRpmAcquired && shouldApplyRpmOverloadProtection(c, channel) {
+			globalRpmAcquired = true
+			if service.GetGlobalRpmTracker().TryAcquire() && model.HasAvailableFallbackChannels() {
+				c.Set("overload_protection_triggered", true)
+				c.Set("fallback_force_next", true)
+				channel, channelErr = getChannel(c, relayInfo, retryParam)
+				if channelErr != nil {
+					logger.LogError(c, channelErr.Error())
+					newAPIError = channelErr
+					break
+				}
+			}
 		}
 		retryParam.InitialSelectionDone = true
 

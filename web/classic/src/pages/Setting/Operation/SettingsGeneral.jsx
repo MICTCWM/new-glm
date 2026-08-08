@@ -27,6 +27,7 @@ import {
   Spin,
   Modal,
   Input,
+  Select,
   Typography,
 } from '@douyinfe/semi-ui';
 import {
@@ -53,6 +54,7 @@ export default function GeneralSettings(props) {
     QuotaPerUnit: '',
     RetryTimes: '',
     OverloadProtectionRPM: '',
+    OverloadProtectionChannelIds: '[]',
     USDExchangeRate: '',
     DisplayTokenStatEnabled: false,
     DefaultCollapseSidebar: false,
@@ -63,6 +65,8 @@ export default function GeneralSettings(props) {
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
+  const [overloadProtectionChannels, setOverloadProtectionChannels] =
+    useState([]);
 
   function handleFieldChange(fieldName) {
     return (value) => {
@@ -200,6 +204,22 @@ export default function GeneralSettings(props) {
     return '';
   }, [quotaDisplayType, combinedRate, inputs, t]);
 
+  const overloadProtectionChannelIds = useMemo(() => {
+    try {
+      const parsed = JSON.parse(inputs.OverloadProtectionChannelIds || '[]');
+      if (!Array.isArray(parsed)) return [];
+      return Array.from(
+        new Set(
+          parsed
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value > 0),
+        ),
+      );
+    } catch {
+      return [];
+    }
+  }, [inputs.OverloadProtectionChannelIds]);
+
   useEffect(() => {
     const currentInputs = {};
     for (let key in props.options) {
@@ -233,6 +253,44 @@ export default function GeneralSettings(props) {
     setInputsRow(structuredClone(currentInputs));
     refForm.current.setValues(currentInputs);
   }, [props.options]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadChannels = async () => {
+      try {
+        const channels = [];
+        let page = 1;
+        let total = 0;
+        do {
+          const res = await API.get('/api/channel', {
+            params: { p: page, page_size: 100 },
+          });
+          const data = res?.data?.data;
+          const items = Array.isArray(data?.items) ? data.items : [];
+          channels.push(...items);
+          total = Number(data?.total || channels.length);
+          page += 1;
+          if (items.length === 0) break;
+        } while (channels.length < total);
+
+        if (!cancelled) {
+          setOverloadProtectionChannels(
+            channels.map((channel) => ({
+              value: channel.id,
+              label: `${channel.name || `#${channel.id}`} (#${channel.id})`,
+            })),
+          );
+        }
+      } catch {
+        if (!cancelled) setOverloadProtectionChannels([]);
+      }
+    };
+
+    loadChannels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -278,12 +336,41 @@ export default function GeneralSettings(props) {
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.Input
                   field={'OverloadProtectionRPM'}
-                  label={t('防超载全局 RPM')}
+                  label={t('防超载 RPM')}
                   initValue={''}
                   placeholder={t('默认 30，设置为 0 可关闭')}
                   onChange={handleFieldChange('OverloadProtectionRPM')}
                   showClear
                 />
+              </Col>
+              <Col xs={24}>
+                <Form.Slot
+                  label={t('支持防超载转移的渠道')}
+                  extraText={t(
+                    '仅所选渠道共享防超载 RPM；超出阈值的请求将转移到兜底渠道，其他渠道不受影响。',
+                  )}
+                >
+                  <Select
+                    multiple
+                    filter
+                    maxTagCount={5}
+                    optionList={overloadProtectionChannels}
+                    value={overloadProtectionChannelIds}
+                    placeholder={t('请选择渠道')}
+                    onChange={(values) => {
+                      const ids = Array.isArray(values)
+                        ? values
+                            .map((value) => Number(value))
+                            .filter(
+                              (value) => Number.isInteger(value) && value > 0,
+                            )
+                        : [];
+                      handleFieldChange('OverloadProtectionChannelIds')(
+                        JSON.stringify(Array.from(new Set(ids))),
+                      );
+                    }}
+                  />
+                </Form.Slot>
               </Col>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.Select

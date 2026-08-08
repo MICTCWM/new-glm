@@ -32,12 +32,14 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { ChannelMultiSelect } from '@/features/vendors/components/channel-multi-select'
 import { SettingsSection } from '../components/settings-section'
 import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
 const behaviorSchema = z.object({
   OverloadProtectionRPM: z.coerce.number().int().min(0).max(100000),
+  OverloadProtectionChannelIds: z.array(z.number().int().positive()),
   DailyUsageLimit: z.coerce.number().int().min(0).max(2147483647),
   RenewPotentialPassScore: z.coerce.number().min(0).max(100),
   LowQuotaAlertPercent: z.coerce.number().min(0).max(100),
@@ -75,7 +77,10 @@ export function SystemBehaviorSection({
     )
 
     for (const [key, value] of updates) {
-      await updateOption.mutateAsync({ key, value })
+      await updateOption.mutateAsync({
+        key,
+        value: Array.isArray(value) ? JSON.stringify(value) : value,
+      })
     }
   }
 
@@ -105,7 +110,43 @@ export function SystemBehaviorSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Route requests above this global RPM threshold to fallback channels (0 = disabled, default 30)')}
+                  {t(
+                    'Shared RPM threshold for selected channels (0 = disabled, default 30)'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='OverloadProtectionChannelIds'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Overload Protection Channels')}</FormLabel>
+                <FormControl>
+                  <ChannelMultiSelect
+                    value={field.value.map(String)}
+                    onChange={(values) =>
+                      field.onChange(
+                        Array.from(
+                          new Set(
+                            values
+                              .map((value) => Number(value))
+                              .filter(
+                                (value) => Number.isInteger(value) && value > 0
+                              )
+                          )
+                        )
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Only selected channels share this RPM budget. Requests above the threshold are routed to fallback channels; all other channels are unaffected.'
+                  )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -158,7 +199,9 @@ export function SystemBehaviorSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Minimum score for a user to be considered a high-renewal-potential user (0-100)')}
+                  {t(
+                    'Minimum score for a user to be considered a high-renewal-potential user (0-100)'
+                  )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -208,7 +251,9 @@ export function SystemBehaviorSection({
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Days threshold for short-term subscription expiry (1-365)')}
+                  {t(
+                    'Days threshold for short-term subscription expiry (1-365)'
+                  )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -260,7 +305,7 @@ export function SystemBehaviorSection({
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Maximum request duration in seconds (0 = no limit, default 900)',
+                    'Maximum request duration in seconds (0 = no limit, default 900)'
                   )}
                 </FormDescription>
                 <FormMessage />

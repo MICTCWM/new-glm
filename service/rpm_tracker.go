@@ -27,7 +27,7 @@ var (
 
 const RpmWindowSize = 60 * time.Second
 
-// GlobalRpmTracker tracks requests across all channels for overload
+// GlobalRpmTracker tracks requests across the channels selected for overload
 // protection. Unlike a channel tracker it does not have its own limit; the
 // limit is read from common.OverloadProtectionRPM so changes in System
 // Behavior take effect immediately.
@@ -47,8 +47,8 @@ func GetGlobalRpmTracker() *GlobalRpmTracker {
 	return globalRpmTracker
 }
 
-// IsOverloaded reports whether the next request would exceed the configured
-// global RPM threshold. A non-positive threshold disables the feature.
+// IsOverloaded reports whether the next selected-channel request would exceed
+// the configured RPM threshold. A non-positive threshold disables the feature.
 func (t *GlobalRpmTracker) IsOverloaded() bool {
 	limit := common.OverloadProtectionRPM
 	if limit <= 0 {
@@ -74,7 +74,7 @@ func (t *GlobalRpmTracker) TryAcquire() bool {
 	return overloaded
 }
 
-// TryIncrement records an admitted request in the global sliding window.
+// TryIncrement records an admitted request in the selected-channel sliding window.
 // Deprecated: use TryAcquire so the threshold check and increment are atomic.
 func (t *GlobalRpmTracker) TryIncrement() {
 	_ = t.TryAcquire()

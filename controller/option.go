@@ -162,6 +162,11 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorMsg(c, "日用量限制必须是大于等于 0 的整数")
 			return
 		}
+	case "OverloadProtectionChannelIds":
+		if _, err := common.ParseOverloadProtectionChannelIDs(option.Value.(string)); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
 	default:
 		if isPaymentComplianceOptionKey(option.Key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")

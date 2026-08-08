@@ -166,10 +166,9 @@ const RetryTimes = 0
 // controller and does not depend on this value.
 const FailoverRetryTimes = 1
 
-// OverloadProtectionRPM is the global request threshold for overload protection.
-// Once the current global request rate reaches this value, new requests are
-// routed to fallback channels when any are available. A value <= 0 disables
-// overload protection.
+// OverloadProtectionRPM is the shared request threshold for overload
+// protection. It applies only to channels selected in
+// OverloadProtectionChannelIds. A value <= 0 disables overload protection.
 var OverloadProtectionRPM = 30
 
 // UpstreamRetryTimes is intentionally hard-coded. Every primary upstream
