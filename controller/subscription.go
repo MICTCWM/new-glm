@@ -160,23 +160,50 @@ func normalizeSubscriptionPlanAccessibleGroups(plan *model.SubscriptionPlan) err
 	if plan == nil {
 		return fmt.Errorf("套餐不能为空")
 	}
-	groups, err := model.NormalizeSubscriptionAccessibleGroups(plan.AccessibleGroups)
+	accessibleGroups, err := model.NormalizeSubscriptionAccessibleGroups(plan.AccessibleGroups)
 	if err != nil {
 		return err
 	}
-	plan.AccessibleGroups = groups
-	normalizedGroups, err := model.SubscriptionPlanAccessibleGroups(plan)
+	plan.AccessibleGroups = accessibleGroups
+	restrictedGroups, err := model.NormalizeSubscriptionRestrictedGroups(plan.RestrictedGroups)
+	if err != nil {
+		return err
+	}
+	plan.RestrictedGroups = restrictedGroups
+	normalizedAccessibleGroups, err := model.SubscriptionPlanAccessibleGroups(plan)
+	if err != nil {
+		return err
+	}
+	normalizedRestrictedGroups, err := model.SubscriptionPlanRestrictedGroups(plan)
 	if err != nil {
 		return err
 	}
 	groupRatios := ratio_setting.GetGroupRatioCopy()
 	gptGroupRatios := ratio_setting.GetGptGroupRatioCopy()
-	for _, group := range normalizedGroups {
-		if _, ok := groupRatios[group]; ok {
-			continue
+	validateGroups := func(groups []string, fieldName string) error {
+		for _, group := range groups {
+			if _, ok := groupRatios[group]; ok {
+				continue
+			}
+			if _, ok := gptGroupRatios[group]; !ok {
+				return fmt.Errorf("%s不存在: %s", fieldName, group)
+			}
 		}
-		if _, ok := gptGroupRatios[group]; !ok {
-			return fmt.Errorf("可访问分组不存在: %s", group)
+		return nil
+	}
+	if err := validateGroups(normalizedAccessibleGroups, "可访问分组"); err != nil {
+		return err
+	}
+	if err := validateGroups(normalizedRestrictedGroups, "限制访问分组"); err != nil {
+		return err
+	}
+	accessibleSet := make(map[string]struct{}, len(normalizedAccessibleGroups))
+	for _, group := range normalizedAccessibleGroups {
+		accessibleSet[group] = struct{}{}
+	}
+	for _, group := range normalizedRestrictedGroups {
+		if _, ok := accessibleSet[group]; ok {
+			return fmt.Errorf("可访问分组和限制访问分组不能包含相同分组: %s", group)
 		}
 	}
 	return nil
@@ -378,6 +405,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"special_config_updated_at":   specialConfigUpdatedAt,
 			"upgrade_group":               req.Plan.UpgradeGroup,
 			"accessible_groups":           req.Plan.AccessibleGroups,
+			"restricted_groups":           req.Plan.RestrictedGroups,
 			"quota_reset_period":          req.Plan.QuotaResetPeriod,
 			"quota_reset_custom_seconds":  req.Plan.QuotaResetCustomSeconds,
 			"updated_at":                  common.GetTimestamp(),

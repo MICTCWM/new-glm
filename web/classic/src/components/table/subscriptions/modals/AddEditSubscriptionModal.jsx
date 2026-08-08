@@ -101,6 +101,7 @@ const AddEditSubscriptionModal = ({
     special_weekly_amount_limit: 0,
     upgrade_group: '',
     accessible_groups: [],
+    restricted_groups: [],
     stripe_price_id: '',
     creem_product_id: '',
   });
@@ -139,6 +140,9 @@ const AddEditSubscriptionModal = ({
       accessible_groups: Array.isArray(p.accessible_groups)
         ? p.accessible_groups
         : [],
+      restricted_groups: Array.isArray(p.restricted_groups)
+        ? p.restricted_groups
+        : [],
       stripe_price_id: p.stripe_price_id || '',
       creem_product_id: p.creem_product_id || '',
     };
@@ -162,6 +166,21 @@ const AddEditSubscriptionModal = ({
   const submit = async (values) => {
     if (!values.title || values.title.trim() === '') {
       showError(t('套餐标题不能为空'));
+      return;
+    }
+    const accessibleGroups = Array.isArray(values.accessible_groups)
+      ? values.accessible_groups
+      : [];
+    const restrictedGroups = Array.isArray(values.restricted_groups)
+      ? values.restricted_groups
+      : [];
+    const overlappingGroup = restrictedGroups.find((group) =>
+      accessibleGroups.includes(group),
+    );
+    if (overlappingGroup) {
+      showError(
+        t('可访问分组和限制访问分组不能包含相同分组') + `: ${overlappingGroup}`,
+      );
       return;
     }
     setLoading(true);
@@ -193,6 +212,9 @@ const AddEditSubscriptionModal = ({
           upgrade_group: values.upgrade_group || '',
           accessible_groups: Array.isArray(values.accessible_groups)
             ? values.accessible_groups
+            : [],
+          restricted_groups: Array.isArray(values.restricted_groups)
+            ? values.restricted_groups
             : [],
         },
       };
@@ -377,6 +399,25 @@ const AddEditSubscriptionModal = ({
                       <Form.Select
                         field='accessible_groups'
                         label={t('可访问的分组')}
+                        placeholder={t('留空代表允许全部未限制分组')}
+                        multiple
+                        loading={groupLoading}
+                        optionList={(groupOptions || []).map((group) => ({
+                          label: group,
+                          value: group,
+                        }))}
+                        extraText={t(
+                          '留空代表允许全部未限制分组；填写后该订阅额度仅可用于选中分组。用户有多条订阅时，匹配的受限订阅会优先消耗。',
+                        )}
+                        style={{ width: '100%' }}
+                        position='top'
+                      />
+                    </Col>
+
+                    <Col span={24}>
+                      <Form.Select
+                        field='restricted_groups'
+                        label={t('限制访问的分组')}
                         placeholder={t('留空代表不限制分组')}
                         multiple
                         loading={groupLoading}
@@ -385,7 +426,7 @@ const AddEditSubscriptionModal = ({
                           value: group,
                         }))}
                         extraText={t(
-                          '留空代表不限制分组；填写后该订阅额度仅可用于选中分组。用户有多条订阅时，匹配的受限订阅会优先消耗。',
+                          '留空时仅由可访问分组决定；填写后该订阅额度不能用于选中分组，且限制访问分组优先。',
                         )}
                         style={{ width: '100%' }}
                         position='top'

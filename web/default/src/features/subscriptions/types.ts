@@ -45,6 +45,7 @@ export const subscriptionPlanSchema = z.object({
   special_weekly_amount_limit: z.number().optional(),
   upgrade_group: z.string().optional(),
   accessible_groups: z.array(z.string()).default([]),
+  restricted_groups: z.array(z.string()).default([]),
   stripe_price_id: z.string().optional(),
   creem_product_id: z.string().optional(),
 })

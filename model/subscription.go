@@ -173,6 +173,10 @@ type SubscriptionPlan struct {
 	// An empty list keeps the plan global for backwards compatibility.
 	AccessibleGroups JSONValue `json:"accessible_groups" gorm:"type:json"`
 
+	// RestrictedGroups excludes request groups from this plan. It takes
+	// precedence over AccessibleGroups when evaluating a request.
+	RestrictedGroups JSONValue `json:"restricted_groups" gorm:"type:json"`
+
 	// Total quota (amount in quota units, 0 = unlimited)
 	TotalAmount int64 `json:"total_amount" gorm:"type:bigint;not null;default:0"`
 
@@ -200,13 +204,13 @@ type SubscriptionPlan struct {
 // NormalizeSubscriptionAccessibleGroups validates, trims, and de-duplicates
 // the JSON array persisted on a subscription plan. Empty or null values mean
 // the plan is global and are normalized to an empty array.
-func NormalizeSubscriptionAccessibleGroups(groups JSONValue) (JSONValue, error) {
+func normalizeSubscriptionPlanGroups(groups JSONValue, fieldName string) (JSONValue, error) {
 	if len(groups) == 0 {
 		return JSONValue([]byte("[]")), nil
 	}
 	var values []string
 	if err := json.Unmarshal(groups, &values); err != nil {
-		return nil, errors.New("可访问分组必须是字符串数组")
+		return nil, fmt.Errorf("%s必须是字符串数组", fieldName)
 	}
 	seen := make(map[string]struct{}, len(values))
 	normalized := make([]string, 0, len(values))
@@ -228,6 +232,14 @@ func NormalizeSubscriptionAccessibleGroups(groups JSONValue) (JSONValue, error) 
 	return JSONValue(data), nil
 }
 
+func NormalizeSubscriptionAccessibleGroups(groups JSONValue) (JSONValue, error) {
+	return normalizeSubscriptionPlanGroups(groups, "可访问分组")
+}
+
+func NormalizeSubscriptionRestrictedGroups(groups JSONValue) (JSONValue, error) {
+	return normalizeSubscriptionPlanGroups(groups, "限制访问分组")
+}
+
 // SubscriptionPlanAccessibleGroups returns the normalized group list for a
 // plan. A nil or empty list identifies a global subscription plan.
 func SubscriptionPlanAccessibleGroups(plan *SubscriptionPlan) ([]string, error) {
@@ -245,16 +257,40 @@ func SubscriptionPlanAccessibleGroups(plan *SubscriptionPlan) ([]string, error) 
 	return groups, nil
 }
 
+func SubscriptionPlanRestrictedGroups(plan *SubscriptionPlan) ([]string, error) {
+	if plan == nil {
+		return nil, errors.New("subscription plan is nil")
+	}
+	normalized, err := NormalizeSubscriptionRestrictedGroups(plan.RestrictedGroups)
+	if err != nil {
+		return nil, err
+	}
+	var groups []string
+	if err := json.Unmarshal(normalized, &groups); err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
 func subscriptionPlanMatchesGroup(plan *SubscriptionPlan, targetGroup string) (matches bool, restricted bool, err error) {
-	groups, err := SubscriptionPlanAccessibleGroups(plan)
+	accessibleGroups, err := SubscriptionPlanAccessibleGroups(plan)
 	if err != nil {
 		return false, false, err
 	}
-	if len(groups) == 0 {
-		return true, false, nil
+	restrictedGroups, err := SubscriptionPlanRestrictedGroups(plan)
+	if err != nil {
+		return false, false, err
 	}
 	targetGroup = strings.TrimSpace(targetGroup)
-	for _, group := range groups {
+	for _, group := range restrictedGroups {
+		if group == targetGroup {
+			return false, len(accessibleGroups) > 0, nil
+		}
+	}
+	if len(accessibleGroups) == 0 {
+		return true, false, nil
+	}
+	for _, group := range accessibleGroups {
 		if group == targetGroup {
 			return true, true, nil
 		}

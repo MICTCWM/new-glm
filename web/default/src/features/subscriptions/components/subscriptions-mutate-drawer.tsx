@@ -105,6 +105,8 @@ export function SubscriptionsMutateDrawer({
   const durationUnit = form.watch('duration_unit')
   const resetPeriod = form.watch('quota_reset_period')
   const specialQuotaEnabled = form.watch('special_quota_enabled')
+  const accessibleGroups = form.watch('accessible_groups')
+  const restrictedGroups = form.watch('restricted_groups')
 
   const onSubmit = async (values: PlanFormValues) => {
     setIsSubmitting(true)
@@ -351,10 +353,12 @@ export function SubscriptionsMutateDrawer({
                     <FormLabel>{t('Accessible Groups')}</FormLabel>
                     <FormControl>
                       <MultiSelect
-                        options={groupOptions.map((group) => ({
-                          label: group,
-                          value: group,
-                        }))}
+                        options={groupOptions
+                          .filter((group) => !restrictedGroups.includes(group))
+                          .map((group) => ({
+                            label: group,
+                            value: group,
+                          }))}
                         selected={field.value}
                         onChange={field.onChange}
                         placeholder={t('Select accessible groups')}
@@ -362,7 +366,36 @@ export function SubscriptionsMutateDrawer({
                     </FormControl>
                     <FormDescription>
                       {t(
-                        'Leave blank to allow all groups. When selected, this subscription quota can only be used for the listed groups. With multiple subscriptions, matching restricted subscriptions are used first.'
+                        'Leave blank to allow all groups except restricted groups. When selected, this subscription quota can only be used for the listed groups. With multiple subscriptions, matching restricted subscriptions are used first.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='restricted_groups'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Restricted Groups')}</FormLabel>
+                    <FormControl>
+                      <MultiSelect
+                        options={groupOptions
+                          .filter((group) => !accessibleGroups.includes(group))
+                          .map((group) => ({
+                            label: group,
+                            value: group,
+                          }))}
+                        selected={field.value}
+                        onChange={field.onChange}
+                        placeholder={t('Select restricted groups')}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Leave blank to rely on accessible groups only. Selected groups cannot use this subscription quota. Restricted groups take precedence over accessible groups.'
                       )}
                     </FormDescription>
                     <FormMessage />

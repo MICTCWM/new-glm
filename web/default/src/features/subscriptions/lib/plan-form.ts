@@ -49,33 +49,59 @@ export function getPlanFormSchema(t: TFunction) {
       special_weekly_amount_limit: z.coerce.number().min(0).default(0),
       upgrade_group: z.string().optional(),
       accessible_groups: z.array(z.string()).default([]),
+      restricted_groups: z.array(z.string()).default([]),
       stripe_price_id: z.string().optional(),
       creem_product_id: z.string().optional(),
     })
     .superRefine((values, ctx) => {
-      if (!values.special_quota_enabled) return
-      if (values.hourly_reset_hours <= 0) {
+      const accessibleGroups = new Set(values.accessible_groups)
+      const overlappingGroup = values.restricted_groups.find((group) =>
+        accessibleGroups.has(group)
+      )
+      if (overlappingGroup) {
+        const message = t(
+          'Accessible and restricted groups cannot contain the same group: {{group}}',
+          { group: overlappingGroup }
+        )
+        ctx.addIssue({
+          code: 'custom',
+          path: ['accessible_groups'],
+          message,
+        })
+        ctx.addIssue({
+          code: 'custom',
+          path: ['restricted_groups'],
+          message,
+        })
+      }
+      if (values.special_quota_enabled && values.hourly_reset_hours <= 0) {
         ctx.addIssue({
           code: 'custom',
           path: ['hourly_reset_hours'],
           message: t('Hourly reset period must be greater than 0'),
         })
       }
-      if (values.hourly_amount_limit <= 0) {
+      if (values.special_quota_enabled && values.hourly_amount_limit <= 0) {
         ctx.addIssue({
           code: 'custom',
           path: ['hourly_amount_limit'],
           message: t('Hourly quota must be greater than 0'),
         })
       }
-      if (![1, 2].includes(values.special_weekly_reset_weeks)) {
+      if (
+        values.special_quota_enabled &&
+        ![1, 2].includes(values.special_weekly_reset_weeks)
+      ) {
         ctx.addIssue({
           code: 'custom',
           path: ['special_weekly_reset_weeks'],
           message: t('Weekly reset period must be 1 or 2 weeks'),
         })
       }
-      if (values.special_weekly_amount_limit <= 0) {
+      if (
+        values.special_quota_enabled &&
+        values.special_weekly_amount_limit <= 0
+      ) {
         ctx.addIssue({
           code: 'custom',
           path: ['special_weekly_amount_limit'],
@@ -108,6 +134,7 @@ export const PLAN_FORM_DEFAULTS: PlanFormValues = {
   special_weekly_amount_limit: 0,
   upgrade_group: '',
   accessible_groups: [],
+  restricted_groups: [],
   stripe_price_id: '',
   creem_product_id: '',
 }
@@ -134,6 +161,7 @@ export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
     special_weekly_amount_limit: Number(plan.special_weekly_amount_limit || 0),
     upgrade_group: plan.upgrade_group || '',
     accessible_groups: plan.accessible_groups || [],
+    restricted_groups: plan.restricted_groups || [],
     stripe_price_id: plan.stripe_price_id || '',
     creem_product_id: plan.creem_product_id || '',
   }
@@ -167,6 +195,7 @@ export function formValuesToPlanPayload(values: PlanFormValues): PlanPayload {
       ),
       upgrade_group: values.upgrade_group || '',
       accessible_groups: values.accessible_groups || [],
+      restricted_groups: values.restricted_groups || [],
     },
   }
 }
