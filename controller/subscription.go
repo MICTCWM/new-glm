@@ -156,6 +156,32 @@ type AdminUpsertSubscriptionPlanRequest struct {
 	Plan model.SubscriptionPlan `json:"plan"`
 }
 
+func normalizeSubscriptionPlanAccessibleGroups(plan *model.SubscriptionPlan) error {
+	if plan == nil {
+		return fmt.Errorf("套餐不能为空")
+	}
+	groups, err := model.NormalizeSubscriptionAccessibleGroups(plan.AccessibleGroups)
+	if err != nil {
+		return err
+	}
+	plan.AccessibleGroups = groups
+	normalizedGroups, err := model.SubscriptionPlanAccessibleGroups(plan)
+	if err != nil {
+		return err
+	}
+	groupRatios := ratio_setting.GetGroupRatioCopy()
+	gptGroupRatios := ratio_setting.GetGptGroupRatioCopy()
+	for _, group := range normalizedGroups {
+		if _, ok := groupRatios[group]; ok {
+			continue
+		}
+		if _, ok := gptGroupRatios[group]; !ok {
+			return fmt.Errorf("可访问分组不存在: %s", group)
+		}
+	}
+	return nil
+}
+
 func AdminCreateSubscriptionPlan(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
 		return
@@ -208,6 +234,10 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		req.Plan.SpecialWeeklyResetWeeks = 1
 	}
 	if err := model.ValidateSpecialQuotaPlan(&req.Plan); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	if err := normalizeSubscriptionPlanAccessibleGroups(&req.Plan); err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
@@ -292,6 +322,10 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
+	if err := normalizeSubscriptionPlanAccessibleGroups(&req.Plan); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
 	req.Plan.UpgradeGroup = strings.TrimSpace(req.Plan.UpgradeGroup)
 	if req.Plan.UpgradeGroup != "" {
 		if _, ok := ratio_setting.GetGroupRatioCopy()[req.Plan.UpgradeGroup]; !ok {
@@ -343,6 +377,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"special_weekly_amount_limit": req.Plan.SpecialWeeklyAmountLimit,
 			"special_config_updated_at":   specialConfigUpdatedAt,
 			"upgrade_group":               req.Plan.UpgradeGroup,
+			"accessible_groups":           req.Plan.AccessibleGroups,
 			"quota_reset_period":          req.Plan.QuotaResetPeriod,
 			"quota_reset_custom_seconds":  req.Plan.QuotaResetCustomSeconds,
 			"updated_at":                  common.GetTimestamp(),

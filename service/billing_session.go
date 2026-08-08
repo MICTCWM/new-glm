@@ -346,9 +346,13 @@ func (s *BillingSession) syncRelayInfo() {
 		info.SubscriptionAmountUsedAfterPreConsume = sub.AmountUsedAfter + int64(s.extraReserved)
 		info.SubscriptionPlanId = sub.PlanId
 		info.SubscriptionPlanTitle = sub.PlanTitle
+		info.SubscriptionTargetGroup = sub.targetGroup
+		info.SubscriptionIsGroupRestricted = sub.IsGroupRestricted
 	} else {
 		info.SubscriptionId = 0
 		info.SubscriptionPreConsumed = 0
+		info.SubscriptionTargetGroup = ""
+		info.SubscriptionIsGroupRestricted = false
 	}
 }
 
@@ -403,10 +407,11 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		session := &BillingSession{
 			relayInfo: relayInfo,
 			funding: &SubscriptionFunding{
-				requestId: relayInfo.RequestId,
-				userId:    relayInfo.UserId,
-				modelName: relayInfo.OriginModelName,
-				amount:    subConsume,
+				requestId:   relayInfo.RequestId,
+				userId:      relayInfo.UserId,
+				modelName:   relayInfo.OriginModelName,
+				targetGroup: relayInfo.UsingGroup,
+				amount:      subConsume,
 			},
 		}
 		// 必须传 subConsume 而非 preConsumedQuota，保证 SubscriptionFunding.amount、

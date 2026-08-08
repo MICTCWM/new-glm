@@ -48,6 +48,7 @@ export function getPlanFormSchema(t: TFunction) {
       special_weekly_reset_weeks: z.coerce.number().min(0).default(1),
       special_weekly_amount_limit: z.coerce.number().min(0).default(0),
       upgrade_group: z.string().optional(),
+      accessible_groups: z.array(z.string()).default([]),
       stripe_price_id: z.string().optional(),
       creem_product_id: z.string().optional(),
     })
@@ -106,6 +107,7 @@ export const PLAN_FORM_DEFAULTS: PlanFormValues = {
   special_weekly_reset_weeks: 1,
   special_weekly_amount_limit: 0,
   upgrade_group: '',
+  accessible_groups: [],
   stripe_price_id: '',
   creem_product_id: '',
 }
@@ -131,6 +133,7 @@ export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
     special_weekly_reset_weeks: Number(plan.special_weekly_reset_weeks || 1),
     special_weekly_amount_limit: Number(plan.special_weekly_amount_limit || 0),
     upgrade_group: plan.upgrade_group || '',
+    accessible_groups: plan.accessible_groups || [],
     stripe_price_id: plan.stripe_price_id || '',
     creem_product_id: plan.creem_product_id || '',
   }
@@ -163,6 +166,7 @@ export function formValuesToPlanPayload(values: PlanFormValues): PlanPayload {
         values.special_weekly_amount_limit || 0
       ),
       upgrade_group: values.upgrade_group || '',
+      accessible_groups: values.accessible_groups || [],
     },
   }
 }

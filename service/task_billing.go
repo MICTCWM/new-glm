@@ -140,6 +140,12 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 	}
 	if task.PrivateData.BillingSource == BillingSourceSubscription && task.PrivateData.SubscriptionId > 0 {
 		other["subscription_id"] = task.PrivateData.SubscriptionId
+		other["subscription_target_group"] = task.PrivateData.SubscriptionTargetGroup
+		if task.PrivateData.SubscriptionIsGroupRestricted {
+			other["subscription_type"] = "restricted"
+		} else {
+			other["subscription_type"] = "global"
+		}
 	}
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other["model_price"] = bc.ModelPrice

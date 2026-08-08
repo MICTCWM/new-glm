@@ -264,6 +264,16 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 		if relayInfo.SubscriptionPlanTitle != "" {
 			other["subscription_plan_title"] = relayInfo.SubscriptionPlanTitle
 		}
+		targetGroup := strings.TrimSpace(relayInfo.SubscriptionTargetGroup)
+		if targetGroup == "" {
+			targetGroup = strings.TrimSpace(relayInfo.UsingGroup)
+		}
+		other["subscription_target_group"] = targetGroup
+		if relayInfo.SubscriptionIsGroupRestricted {
+			other["subscription_type"] = "restricted"
+		} else {
+			other["subscription_type"] = "global"
+		}
 		// Compute "this request" subscription consumed + remaining
 		consumed := relayInfo.SubscriptionPreConsumed + relayInfo.SubscriptionPostDelta
 		usedFinal := relayInfo.SubscriptionAmountUsedAfterPreConsume + relayInfo.SubscriptionPostDelta

@@ -55,13 +55,37 @@ func TestGenerateTextOtherInfo_AppendsGptBillingBreakdown(t *testing.T) {
 func TestTaskBillingOther_IncludesBillingSource(t *testing.T) {
 	other := taskBillingOther(&model.Task{
 		PrivateData: model.TaskPrivateData{
-			BillingSource:  BillingSourceSubscription,
-			SubscriptionId: 123,
+			BillingSource:                 BillingSourceSubscription,
+			SubscriptionId:                123,
+			SubscriptionTargetGroup:       "premium",
+			SubscriptionIsGroupRestricted: true,
 		},
 	})
 
 	assert.Equal(t, BillingSourceSubscription, other["billing_source"])
 	assert.Equal(t, 123, other["subscription_id"])
+	assert.Equal(t, "premium", other["subscription_target_group"])
+	assert.Equal(t, "restricted", other["subscription_type"])
+}
+
+func TestGenerateTextOtherInfo_RecordsSubscriptionEligibility(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	now := time.Now()
+
+	other := GenerateTextOtherInfo(ctx, &relaycommon.RelayInfo{
+		BillingSource:                 BillingSourceSubscription,
+		SubscriptionId:                456,
+		SubscriptionTargetGroup:       "basic",
+		SubscriptionIsGroupRestricted: false,
+		FirstResponseTime:             now,
+		StartTime:                     now,
+		ChannelMeta:                   &relaycommon.ChannelMeta{},
+	}, 1, 1, 1, 0, 0, 0, -1)
+
+	assert.Equal(t, 456, other["subscription_id"])
+	assert.Equal(t, "basic", other["subscription_target_group"])
+	assert.Equal(t, "global", other["subscription_type"])
 }
 
 func TestLogTaskConsumption_GptWalletWritesBillingSourceAndPrefix(t *testing.T) {

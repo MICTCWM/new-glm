@@ -51,6 +51,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { MultiSelect } from '@/components/multi-select'
 import { createPlan, updatePlan, getGroups } from '../api'
 import { getDurationUnitOptions, getResetPeriodOptions } from '../constants'
 import {
@@ -341,6 +342,33 @@ export function SubscriptionsMutateDrawer({
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name='accessible_groups'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Accessible Groups')}</FormLabel>
+                    <FormControl>
+                      <MultiSelect
+                        options={groupOptions.map((group) => ({
+                          label: group,
+                          value: group,
+                        }))}
+                        selected={field.value}
+                        onChange={field.onChange}
+                        placeholder={t('Select accessible groups')}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Leave blank to allow all groups. When selected, this subscription quota can only be used for the listed groups. With multiple subscriptions, matching restricted subscriptions are used first.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
                 <FormField

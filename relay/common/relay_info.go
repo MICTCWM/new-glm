@@ -158,6 +158,10 @@ type RelayInfo struct {
 	// SubscriptionPlanId / SubscriptionPlanTitle are used for logging/UI display.
 	SubscriptionPlanId    int
 	SubscriptionPlanTitle string
+	// SubscriptionTargetGroup and SubscriptionIsGroupRestricted identify the
+	// subscription eligibility decision used for this request's audit log.
+	SubscriptionTargetGroup       string
+	SubscriptionIsGroupRestricted bool
 	// RequestId is used for idempotent pre-consume/refund
 	RequestId string
 	// SubscriptionAmountTotal / SubscriptionAmountUsedAfterPreConsume are used to compute remaining in logs.

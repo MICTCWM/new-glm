@@ -41,7 +41,7 @@ func TestSpecialSubscriptionUsageSurvivesModeSwitch(t *testing.T) {
 	}
 	require.NoError(t, DB.Create(subscription).Error)
 
-	first, err := PreConsumeUserSubscription("special-request-1", user.Id, "test", 0, 60)
+	first, err := PreConsumeUserSubscription("special-request-1", user.Id, "test", "", 0, 60)
 	require.NoError(t, err)
 	require.Equal(t, int64(60), first.AmountUsedAfter)
 
@@ -49,15 +49,15 @@ func TestSpecialSubscriptionUsageSurvivesModeSwitch(t *testing.T) {
 	sub = *subscription
 	require.NoError(t, DB.Model(&sub).Update("hourly_limit_enabled", false).Error)
 
-	_, err = PreConsumeUserSubscription("special-request-2", user.Id, "test", 0, 940)
+	_, err = PreConsumeUserSubscription("special-request-2", user.Id, "test", "", 0, 940)
 	require.NoError(t, err)
-	_, err = PreConsumeUserSubscription("special-request-3", user.Id, "test", 0, 1)
+	_, err = PreConsumeUserSubscription("special-request-3", user.Id, "test", "", 0, 1)
 	require.Error(t, err)
 
 	require.NoError(t, DB.Model(&sub).Update("hourly_limit_enabled", true).Error)
-	_, err = PreConsumeUserSubscription("special-request-4", user.Id, "test", 0, 40)
+	_, err = PreConsumeUserSubscription("special-request-4", user.Id, "test", "", 0, 40)
 	require.Error(t, err)
-	_, err = PreConsumeUserSubscription("special-request-5", user.Id, "test", 0, 1)
+	_, err = PreConsumeUserSubscription("special-request-5", user.Id, "test", "", 0, 1)
 	require.Error(t, err)
 
 	var hourly, weekly SubscriptionUsageBucket

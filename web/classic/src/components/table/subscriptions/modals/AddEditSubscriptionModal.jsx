@@ -100,6 +100,7 @@ const AddEditSubscriptionModal = ({
     special_weekly_reset_weeks: 1,
     special_weekly_amount_limit: 0,
     upgrade_group: '',
+    accessible_groups: [],
     stripe_price_id: '',
     creem_product_id: '',
   });
@@ -135,6 +136,9 @@ const AddEditSubscriptionModal = ({
         quotaToDisplayAmount(p.special_weekly_amount_limit || 0).toFixed(2),
       ),
       upgrade_group: p.upgrade_group || '',
+      accessible_groups: Array.isArray(p.accessible_groups)
+        ? p.accessible_groups
+        : [],
       stripe_price_id: p.stripe_price_id || '',
       creem_product_id: p.creem_product_id || '',
     };
@@ -187,6 +191,9 @@ const AddEditSubscriptionModal = ({
             values.special_weekly_amount_limit,
           ),
           upgrade_group: values.upgrade_group || '',
+          accessible_groups: Array.isArray(values.accessible_groups)
+            ? values.accessible_groups
+            : [],
         },
       };
       if (editingPlan?.plan?.id) {
@@ -364,6 +371,25 @@ const AddEditSubscriptionModal = ({
                           </Select.Option>
                         ))}
                       </Form.Select>
+                    </Col>
+
+                    <Col span={24}>
+                      <Form.Select
+                        field='accessible_groups'
+                        label={t('可访问的分组')}
+                        placeholder={t('留空代表不限制分组')}
+                        multiple
+                        loading={groupLoading}
+                        optionList={(groupOptions || []).map((group) => ({
+                          label: group,
+                          value: group,
+                        }))}
+                        extraText={t(
+                          '留空代表不限制分组；填写后该订阅额度仅可用于选中分组。用户有多条订阅时，匹配的受限订阅会优先消耗。',
+                        )}
+                        style={{ width: '100%' }}
+                        position='top'
+                      />
                     </Col>
 
                     <Col span={12}>

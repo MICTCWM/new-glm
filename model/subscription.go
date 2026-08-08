@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -168,6 +169,10 @@ type SubscriptionPlan struct {
 	// Upgrade user group after purchase (empty = no change)
 	UpgradeGroup string `json:"upgrade_group" gorm:"type:varchar(64);default:''"`
 
+	// AccessibleGroups restricts this plan's quota to the listed request groups.
+	// An empty list keeps the plan global for backwards compatibility.
+	AccessibleGroups JSONValue `json:"accessible_groups" gorm:"type:json"`
+
 	// Total quota (amount in quota units, 0 = unlimited)
 	TotalAmount int64 `json:"total_amount" gorm:"type:bigint;not null;default:0"`
 
@@ -190,6 +195,71 @@ type SubscriptionPlan struct {
 
 	CreatedAt int64 `json:"created_at" gorm:"bigint"`
 	UpdatedAt int64 `json:"updated_at" gorm:"bigint"`
+}
+
+// NormalizeSubscriptionAccessibleGroups validates, trims, and de-duplicates
+// the JSON array persisted on a subscription plan. Empty or null values mean
+// the plan is global and are normalized to an empty array.
+func NormalizeSubscriptionAccessibleGroups(groups JSONValue) (JSONValue, error) {
+	if len(groups) == 0 {
+		return JSONValue([]byte("[]")), nil
+	}
+	var values []string
+	if err := json.Unmarshal(groups, &values); err != nil {
+		return nil, errors.New("可访问分组必须是字符串数组")
+	}
+	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		group := strings.TrimSpace(value)
+		if group == "" {
+			continue
+		}
+		if _, ok := seen[group]; ok {
+			continue
+		}
+		seen[group] = struct{}{}
+		normalized = append(normalized, group)
+	}
+	data, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, err
+	}
+	return JSONValue(data), nil
+}
+
+// SubscriptionPlanAccessibleGroups returns the normalized group list for a
+// plan. A nil or empty list identifies a global subscription plan.
+func SubscriptionPlanAccessibleGroups(plan *SubscriptionPlan) ([]string, error) {
+	if plan == nil {
+		return nil, errors.New("subscription plan is nil")
+	}
+	normalized, err := NormalizeSubscriptionAccessibleGroups(plan.AccessibleGroups)
+	if err != nil {
+		return nil, err
+	}
+	var groups []string
+	if err := json.Unmarshal(normalized, &groups); err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
+func subscriptionPlanMatchesGroup(plan *SubscriptionPlan, targetGroup string) (matches bool, restricted bool, err error) {
+	groups, err := SubscriptionPlanAccessibleGroups(plan)
+	if err != nil {
+		return false, false, err
+	}
+	if len(groups) == 0 {
+		return true, false, nil
+	}
+	targetGroup = strings.TrimSpace(targetGroup)
+	for _, group := range groups {
+		if group == targetGroup {
+			return true, true, nil
+		}
+	}
+	return false, true, nil
 }
 
 func (p *SubscriptionPlan) BeforeCreate(tx *gorm.DB) error {
@@ -913,6 +983,8 @@ type SubscriptionPreConsumeResult struct {
 	AmountTotal        int64
 	AmountUsedBefore   int64
 	AmountUsedAfter    int64
+	TargetGroup        string
+	IsGroupRestricted  bool
 }
 
 // ExpireDueSubscriptions marks expired subscriptions and handles group downgrade.
@@ -1241,8 +1313,10 @@ func decorateSubscriptionWithSpecialUsage(sub *UserSubscription) {
 	}
 }
 
-// PreConsumeUserSubscription pre-consumes from any active subscription quota.
-func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
+// PreConsumeUserSubscription pre-consumes quota from an active subscription
+// that can fund the target request group. Matching restricted subscriptions
+// are selected before global subscriptions.
+func PreConsumeUserSubscription(requestId string, userId int, modelName string, targetGroup string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
 	}
@@ -1252,6 +1326,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 	if amount <= 0 {
 		return nil, errors.New("amount must be > 0")
 	}
+	targetGroup = strings.TrimSpace(targetGroup)
 	now := GetDBTimestamp()
 
 	returnValue := &SubscriptionPreConsumeResult{}
@@ -1270,11 +1345,21 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			if err := tx.Where("id = ?", existing.UserSubscriptionId).First(&sub).Error; err != nil {
 				return err
 			}
+			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
+			if err != nil {
+				return err
+			}
+			_, restricted, err := subscriptionPlanMatchesGroup(plan, targetGroup)
+			if err != nil {
+				return err
+			}
 			returnValue.UserSubscriptionId = sub.Id
 			returnValue.PreConsumed = existing.PreConsumed
 			returnValue.AmountTotal = sub.AmountTotal
 			returnValue.AmountUsedBefore = sub.AmountUsed
 			returnValue.AmountUsedAfter = sub.AmountUsed
+			returnValue.TargetGroup = targetGroup
+			returnValue.IsGroupRestricted = restricted
 			return nil
 		}
 
@@ -1288,111 +1373,122 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 		if len(subs) == 0 {
 			return errors.New("no active subscription")
 		}
-		for _, candidate := range subs {
-			sub := candidate
-			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
-			if err != nil {
-				return err
-			}
-			if err := maybeResetUserSubscriptionWithPlanTx(tx, &sub, plan, now); err != nil {
-				return err
-			}
-			// 检查并重置周限额（与quota_reset_period独立叠加）
-			if err := maybeResetWeeklyQuotaTx(tx, &sub, now); err != nil {
-				return err
-			}
+		for _, restrictedPass := range []bool{true, false} {
+			for _, candidate := range subs {
+				sub := candidate
+				plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
+				if err != nil {
+					return err
+				}
+				matches, isRestricted, err := subscriptionPlanMatchesGroup(plan, targetGroup)
+				if err != nil {
+					return err
+				}
+				if isRestricted != restrictedPass || !matches {
+					continue
+				}
+				if err := maybeResetUserSubscriptionWithPlanTx(tx, &sub, plan, now); err != nil {
+					return err
+				}
+				// 检查并重置周限额（与quota_reset_period独立叠加）
+				if err := maybeResetWeeklyQuotaTx(tx, &sub, now); err != nil {
+					return err
+				}
 
-			var hourlyBucket *SubscriptionUsageBucket
-			var weeklyBucket *SubscriptionUsageBucket
-			usedBefore := sub.AmountUsed
-			effectiveLimit := sub.AmountTotal
-			if plan.SpecialQuotaEnabled {
-				// Both buckets receive every real consumption. Only the user's
-				// selected bucket is enforced, so toggling cannot reset either one.
-				hourlyBucket, err = getSpecialUsageBucketTx(tx, &sub, plan, SubscriptionUsageBucketHourly, now)
-				if err != nil {
-					return err
-				}
-				weeklyBucket, err = getSpecialUsageBucketTx(tx, &sub, plan, SubscriptionUsageBucketWeekly, now)
-				if err != nil {
-					return err
-				}
-				if sub.HourlyLimitEnabled {
-					usedBefore = hourlyBucket.AmountUsed
-					effectiveLimit = plan.HourlyAmountLimit
-					if effectiveLimit > 0 && effectiveLimit-usedBefore < amount {
-						continue
+				var hourlyBucket *SubscriptionUsageBucket
+				var weeklyBucket *SubscriptionUsageBucket
+				usedBefore := sub.AmountUsed
+				effectiveLimit := sub.AmountTotal
+				if plan.SpecialQuotaEnabled {
+					// Both buckets receive every real consumption. Only the user's
+					// selected bucket is enforced, so toggling cannot reset either one.
+					hourlyBucket, err = getSpecialUsageBucketTx(tx, &sub, plan, SubscriptionUsageBucketHourly, now)
+					if err != nil {
+						return err
+					}
+					weeklyBucket, err = getSpecialUsageBucketTx(tx, &sub, plan, SubscriptionUsageBucketWeekly, now)
+					if err != nil {
+						return err
+					}
+					if sub.HourlyLimitEnabled {
+						usedBefore = hourlyBucket.AmountUsed
+						effectiveLimit = plan.HourlyAmountLimit
+						if effectiveLimit > 0 && effectiveLimit-usedBefore < amount {
+							continue
+						}
+					} else {
+						usedBefore = weeklyBucket.AmountUsed
+						effectiveLimit = plan.SpecialWeeklyAmountLimit
+						if effectiveLimit > 0 && effectiveLimit-usedBefore < amount {
+							continue
+						}
 					}
 				} else {
-					usedBefore = weeklyBucket.AmountUsed
-					effectiveLimit = plan.SpecialWeeklyAmountLimit
-					if effectiveLimit > 0 && effectiveLimit-usedBefore < amount {
+					// Existing subscription behavior remains unchanged outside the
+					// special mode.
+					if sub.AmountTotal > 0 && sub.AmountTotal-sub.AmountUsed < amount {
+						continue
+					}
+					if sub.WeeklyAmountLimit > 0 && sub.WeeklyAmountLimit-sub.WeeklyAmountUsed < amount {
 						continue
 					}
 				}
-			} else {
-				// Existing subscription behavior remains unchanged outside the
-				// special mode.
-				if sub.AmountTotal > 0 && sub.AmountTotal-sub.AmountUsed < amount {
-					continue
+				record := &SubscriptionPreConsumeRecord{
+					RequestId:          requestId,
+					UserId:             userId,
+					UserSubscriptionId: sub.Id,
+					PreConsumed:        amount,
+					Status:             "consumed",
 				}
-				if sub.WeeklyAmountLimit > 0 && sub.WeeklyAmountLimit-sub.WeeklyAmountUsed < amount {
-					continue
+				if hourlyBucket != nil {
+					record.HourlyBucketId = hourlyBucket.Id
 				}
-			}
-			record := &SubscriptionPreConsumeRecord{
-				RequestId:          requestId,
-				UserId:             userId,
-				UserSubscriptionId: sub.Id,
-				PreConsumed:        amount,
-				Status:             "consumed",
-			}
-			if hourlyBucket != nil {
-				record.HourlyBucketId = hourlyBucket.Id
-			}
-			if weeklyBucket != nil {
-				record.WeeklyBucketId = weeklyBucket.Id
-			}
-			if err := tx.Create(record).Error; err != nil {
-				var dup SubscriptionPreConsumeRecord
-				if err2 := tx.Where("request_id = ?", requestId).First(&dup).Error; err2 == nil {
-					if dup.Status == "refunded" {
-						return errors.New("subscription pre-consume already refunded")
+				if weeklyBucket != nil {
+					record.WeeklyBucketId = weeklyBucket.Id
+				}
+				if err := tx.Create(record).Error; err != nil {
+					var dup SubscriptionPreConsumeRecord
+					if err2 := tx.Where("request_id = ?", requestId).First(&dup).Error; err2 == nil {
+						if dup.Status == "refunded" {
+							return errors.New("subscription pre-consume already refunded")
+						}
+						returnValue.UserSubscriptionId = sub.Id
+						returnValue.PreConsumed = dup.PreConsumed
+						returnValue.AmountTotal = sub.AmountTotal
+						returnValue.AmountUsedBefore = sub.AmountUsed
+						returnValue.AmountUsedAfter = sub.AmountUsed
+						return nil
 					}
-					returnValue.UserSubscriptionId = sub.Id
-					returnValue.PreConsumed = dup.PreConsumed
-					returnValue.AmountTotal = sub.AmountTotal
-					returnValue.AmountUsedBefore = sub.AmountUsed
-					returnValue.AmountUsedAfter = sub.AmountUsed
-					return nil
-				}
-				return err
-			}
-			sub.AmountUsed += amount
-			if !plan.SpecialQuotaEnabled && sub.WeeklyAmountLimit > 0 {
-				sub.WeeklyAmountUsed += amount
-			}
-			if err := tx.Save(&sub).Error; err != nil {
-				return err
-			}
-			if hourlyBucket != nil {
-				hourlyBucket.AmountUsed += amount
-				if err := tx.Save(hourlyBucket).Error; err != nil {
 					return err
 				}
-			}
-			if weeklyBucket != nil {
-				weeklyBucket.AmountUsed += amount
-				if err := tx.Save(weeklyBucket).Error; err != nil {
+				sub.AmountUsed += amount
+				if !plan.SpecialQuotaEnabled && sub.WeeklyAmountLimit > 0 {
+					sub.WeeklyAmountUsed += amount
+				}
+				if err := tx.Save(&sub).Error; err != nil {
 					return err
 				}
+				if hourlyBucket != nil {
+					hourlyBucket.AmountUsed += amount
+					if err := tx.Save(hourlyBucket).Error; err != nil {
+						return err
+					}
+				}
+				if weeklyBucket != nil {
+					weeklyBucket.AmountUsed += amount
+					if err := tx.Save(weeklyBucket).Error; err != nil {
+						return err
+					}
+				}
+				returnValue.UserSubscriptionId = sub.Id
+				returnValue.PreConsumed = amount
+				returnValue.AmountTotal = effectiveLimit
+				returnValue.AmountUsedBefore = usedBefore
+				returnValue.AmountUsedAfter = usedBefore + amount
+				returnValue.TargetGroup = targetGroup
+				returnValue.IsGroupRestricted = isRestricted
+				return nil
 			}
-			returnValue.UserSubscriptionId = sub.Id
-			returnValue.PreConsumed = amount
-			returnValue.AmountTotal = effectiveLimit
-			returnValue.AmountUsedBefore = usedBefore
-			returnValue.AmountUsedAfter = usedBefore + amount
-			return nil
 		}
 		return fmt.Errorf("subscription quota insufficient, need=%d", amount)
 	})
