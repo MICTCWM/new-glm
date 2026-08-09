@@ -955,6 +955,13 @@ func sendEmergencyPlanThinkingNoticeWithDelay(c *gin.Context, info *relaycommon.
 		return true
 	}
 
+	// 仅当当前渠道在「支持安抚性语言的渠道」列表中才下发紧急方案安抚性提示，
+	// 其余渠道保持静默，避免对所有渠道统一下发安抚内容。
+	if !common.IsReassuranceChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelId)) {
+		info.EmergencyPlanThinkingNoticeSent = true
+		return true
+	}
+
 	// Reuse the established retry notice pipeline so each relay format appends
 	// the reassurance to the same thinking/reasoning stream.
 	relay.SendRetryWaitNotice(c, info)
@@ -983,6 +990,12 @@ func waitForEmergencyPlanThinkingNotice(c *gin.Context, delay time.Duration) boo
 func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	if info == nil || !info.IsStream {
 		return false
+	}
+	// 仅在系统设置「支持安抚性语言的渠道」列表中才推送排队安抚性语言与硬推理提示，
+	// 其余渠道保持静默，避免对所有渠道统一下发安抚内容。
+	if !common.IsReassuranceChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelId)) {
+		info.RpmQueueThinkingNoticeSent = true
+		return true
 	}
 	if info.ChannelMeta == nil {
 		info.InitChannelMeta(c)

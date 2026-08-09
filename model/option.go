@@ -168,6 +168,7 @@ func InitOptionMap() {
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
 	common.OptionMap["OverloadProtectionRPM"] = strconv.Itoa(common.OverloadProtectionRPM)
 	common.OptionMap["OverloadProtectionChannelIds"] = common.OverloadProtectionChannelIDsJSONString()
+	common.OptionMap["ReassuranceChannelIds"] = common.ReassuranceChannelIDsJSONString()
 	common.OptionMap["RenewPotentialPassScore"] = strconv.Itoa(common.RenewPotentialPassScore)
 	common.OptionMap["LowQuotaAlertPercent"] = strconv.Itoa(common.LowQuotaAlertPercent)
 	common.OptionMap["ShortExpiryDays"] = strconv.Itoa(common.ShortExpiryDays)
@@ -547,6 +548,8 @@ func updateOptionMap(key string, value string) (err error) {
 		common.OverloadProtectionRPM, _ = strconv.Atoi(value)
 	case "OverloadProtectionChannelIds":
 		err = common.UpdateOverloadProtectionChannelIDs(value)
+	case "ReassuranceChannelIds":
+		err = common.UpdateReassuranceChannelIDs(value)
 	case "RenewPotentialPassScore":
 		common.RenewPotentialPassScore, _ = strconv.Atoi(value)
 	case "LowQuotaAlertPercent":

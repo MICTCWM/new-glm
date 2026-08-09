@@ -277,6 +277,7 @@ export type BillingSettings = {
 export type OperationsSettings = {
   OverloadProtectionRPM: number
   OverloadProtectionChannelIds: number[]
+  ReassuranceChannelIds: number[]
   DailyUsageLimit: number
   RenewPotentialPassScore: number
   LowQuotaAlertPercent: number
