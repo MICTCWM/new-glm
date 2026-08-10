@@ -47,8 +47,21 @@ func GetGlobalRpmTracker() *GlobalRpmTracker {
 	return globalRpmTracker
 }
 
+// effectiveLoad returns the number of in-flight selected-channel requests that
+// count against the overload threshold. It is the sum of requests already
+// admitted (recorded in t.timestamps) and requests currently waiting in the
+// RPM queue. Without counting the queue, the global tracker would never see
+// pressure that is absorbed by per-channel RPM limits: when a channel's own
+// RPM cap is below OverloadProtectionRPM, every excess request is parked in the
+// queue and the admitted count can never reach the threshold, so overload
+// protection would silently never trigger.
+func (t *GlobalRpmTracker) effectiveLoad() int {
+	return len(t.timestamps) + GetRpmQueue().GetQueueLength()
+}
+
 // IsOverloaded reports whether the next selected-channel request would exceed
-// the configured RPM threshold. A non-positive threshold disables the feature.
+// the configured RPM threshold, counting both admitted and queued requests.
+// A non-positive threshold disables the feature.
 func (t *GlobalRpmTracker) IsOverloaded() bool {
 	limit := common.OverloadProtectionRPM
 	if limit <= 0 {
@@ -58,17 +71,20 @@ func (t *GlobalRpmTracker) IsOverloaded() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.cleanupExpired()
-	return len(t.timestamps) >= limit
+	return t.effectiveLoad() >= limit
 }
 
 // TryAcquire records a request and reports whether it was above the
 // configured threshold. The check and increment are atomic, so concurrent
-// requests cannot all observe the same available slot.
+// requests cannot all observe the same available slot. The threshold check
+// accounts for queued requests so overload protection triggers as soon as the
+// system is actually saturated (admitted + queued), not only when admitted
+// requests alone cross the limit.
 func (t *GlobalRpmTracker) TryAcquire() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.cleanupExpired()
-	overloaded := common.OverloadProtectionRPM > 0 && len(t.timestamps) >= common.OverloadProtectionRPM
+	overloaded := common.OverloadProtectionRPM > 0 && t.effectiveLoad() >= common.OverloadProtectionRPM
 	t.timestamps = append(t.timestamps, time.Now())
 	t.currentRPM.Store(int64(len(t.timestamps)))
 	return overloaded
