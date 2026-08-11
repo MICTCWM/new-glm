@@ -19,6 +19,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func isResponsesTerminalEvent(eventType string) bool {
+	switch eventType {
+	case "response.completed", "response.done", "response.incomplete":
+		return true
+	default:
+		return false
+	}
+}
+
 func responsesStreamIndexKey(itemID string, idx *int) string {
 	if itemID == "" {
 		return ""
@@ -118,6 +127,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	var outputText strings.Builder
 	var reasoningSummary strings.Builder
 	var outputItems []dto.ResponsesOutput
+	terminal := false
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, helper.InitialScannerBufferSize), helper.DefaultMaxScannerBufferSize)
@@ -166,6 +176,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 				outputItems = append(outputItems, *event.Item)
 			}
 		case "response.completed", "response.done", "response.incomplete":
+			terminal = isResponsesTerminalEvent(event.Type)
 			if event.Response != nil {
 				previousOutput := aggregate.Output
 				*aggregate = *event.Response
@@ -176,6 +187,9 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			if event.Type == "response.incomplete" && len(aggregate.Status) == 0 {
 				aggregate.Status = []byte(`"incomplete"`)
 			}
+		}
+		if terminal {
+			break
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -708,6 +722,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				}
 				sentStop = true
 			}
+			sr.Done()
 
 		case "response.error", "response.failed":
 			if streamResp.Response != nil {

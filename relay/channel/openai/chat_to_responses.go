@@ -19,6 +19,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func chatChunkHasFinishReason(chunk *dto.ChatCompletionsStreamResponse) bool {
+	if chunk == nil {
+		return false
+	}
+	for _, choice := range chunk.Choices {
+		if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // ChatCompletionsToResponsesHandler adapts a Chat Completions response from
 // an upstream Chat channel to the Responses format expected by the caller.
 func ChatCompletionsToResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -208,6 +220,9 @@ func ChatCompletionsToResponsesBufferedStreamHandler(c *gin.Context, info *relay
 		if _, err := service.ChatCompletionsStreamChunkToResponsesEvents(&chunk, state); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
+		if chatChunkHasFinishReason(&chunk) {
+			break
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
@@ -293,6 +308,9 @@ func ChatCompletionsToResponsesStreamHandler(c *gin.Context, info *relaycommon.R
 			}
 			data = []byte(relaycommon.OverrideStreamChunkModel(string(data), info))
 			helper.ResponseChunkData(c, event.Payload, string(data))
+		}
+		if chatChunkHasFinishReason(&chunk) {
+			sr.Done()
 		}
 	})
 

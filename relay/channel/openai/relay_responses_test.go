@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -129,6 +130,50 @@ func TestOaiResponsesToChatStreamHandlerNeverLeaksResponsesEvents(t *testing.T) 
 	}
 	if !strings.Contains(got, `"content":"hello"`) {
 		t.Fatalf("converted text delta is missing: %s", got)
+	}
+}
+
+func TestOaiResponsesToChatStreamHandlerStopsAtCompletedEventWithoutDone(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(pw, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"model\":\"gpt-test\",\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n")
+	}()
+	defer pr.Close()
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       pr,
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-test"},
+		RelayFormat: types.RelayFormatOpenAI,
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		IsStream:    true,
+	}
+
+	done := make(chan *types.NewAPIError, 1)
+	go func() {
+		_, apiErr := OaiResponsesToChatStreamHandler(ctx, info, resp)
+		done <- apiErr
+	}()
+
+	select {
+	case apiErr := <-done:
+		if apiErr != nil {
+			t.Fatalf("apiErr = %v, want nil", apiErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("bridge waited for [DONE] after response.completed")
+	}
+
+	if !strings.Contains(recorder.Body.String(), `"finish_reason":"stop"`) {
+		t.Fatalf("missing Chat completion after response.completed: %s", recorder.Body.String())
 	}
 }
 

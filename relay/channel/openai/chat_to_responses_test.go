@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -93,6 +94,50 @@ func TestChatCompletionsToResponsesStreamHandler(t *testing.T) {
 	}
 	if !strings.Contains(got, `"model":"display-model"`) {
 		t.Fatalf("downstream model was not overridden: %s", got)
+	}
+}
+
+func TestChatCompletionsToResponsesStreamHandlerStopsAtFinishReasonWithoutDone(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(pw, "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\n")
+	}()
+	defer pr.Close()
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       pr,
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gpt-test"},
+		RelayFormat: types.RelayFormatOpenAIResponses,
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		IsStream:    true,
+	}
+
+	done := make(chan *types.NewAPIError, 1)
+	go func() {
+		_, apiErr := ChatCompletionsToResponsesStreamHandler(ctx, info, resp)
+		done <- apiErr
+	}()
+
+	select {
+	case apiErr := <-done:
+		if apiErr != nil {
+			t.Fatalf("apiErr = %v, want nil", apiErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("bridge waited for [DONE] after finish_reason")
+	}
+
+	if !strings.Contains(recorder.Body.String(), "response.completed") {
+		t.Fatalf("missing Responses completion after finish_reason: %s", recorder.Body.String())
 	}
 }
 
