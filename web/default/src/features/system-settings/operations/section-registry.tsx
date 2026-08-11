@@ -36,6 +36,7 @@ const OPERATIONS_SECTIONS = [
         defaultValues={{
           OverloadProtectionRPM: settings.OverloadProtectionRPM,
           OverloadProtectionChannelIds: settings.OverloadProtectionChannelIds,
+          LimitedInputTokenChannelIds: settings.LimitedInputTokenChannelIds,
           ReassuranceChannelIds: settings.ReassuranceChannelIds,
           DailyUsageLimit: settings.DailyUsageLimit,
           RenewPotentialPassScore: settings.RenewPotentialPassScore,

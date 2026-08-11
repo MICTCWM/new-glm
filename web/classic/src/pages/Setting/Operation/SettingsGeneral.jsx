@@ -220,6 +220,22 @@ export default function GeneralSettings(props) {
     }
   }, [inputs.OverloadProtectionChannelIds]);
 
+  const limitedInputTokenChannelIds = useMemo(() => {
+    try {
+      const parsed = JSON.parse(inputs.LimitedInputTokenChannelIds || '[]');
+      if (!Array.isArray(parsed)) return [];
+      return Array.from(
+        new Set(
+          parsed
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value > 0),
+        ),
+      );
+    } catch {
+      return [];
+    }
+  }, [inputs.LimitedInputTokenChannelIds]);
+
   useEffect(() => {
     const currentInputs = {};
     for (let key in props.options) {
@@ -366,6 +382,35 @@ export default function GeneralSettings(props) {
                             )
                         : [];
                       handleFieldChange('OverloadProtectionChannelIds')(
+                        JSON.stringify(Array.from(new Set(ids))),
+                      );
+                    }}
+                  />
+                </Form.Slot>
+              </Col>
+              <Col xs={24}>
+                <Form.Slot
+                  label={t('限制输入 Token 的渠道')}
+                  extraText={t(
+                    '仅所选渠道的输入上限为 36 万 token，超出将返回上下文过长；其他渠道不受此限制。',
+                  )}
+                >
+                  <Select
+                    multiple
+                    filter
+                    maxTagCount={5}
+                    optionList={overloadProtectionChannels}
+                    value={limitedInputTokenChannelIds}
+                    placeholder={t('请选择渠道')}
+                    onChange={(values) => {
+                      const ids = Array.isArray(values)
+                        ? values
+                            .map((value) => Number(value))
+                            .filter(
+                              (value) => Number.isInteger(value) && value > 0,
+                            )
+                        : [];
+                      handleFieldChange('LimitedInputTokenChannelIds')(
                         JSON.stringify(Array.from(new Set(ids))),
                       );
                     }}

@@ -104,13 +104,16 @@ func getRetryDelay(retryCount int) time.Duration {
 }
 
 const (
-	fallbackInputTokenLimit    = 360000
 	contextTooLongMessage      = "上下文过长"
 	emergencyPlanFailedMessage = "该模型请求失败，请稍后再次请求。"
 	// Give the emergency preamble a short display window before starting the
 	// upstream request. This matches the first configured retry wait interval.
 	emergencyPlanThinkingDelay = 3 * time.Second
 )
+
+// fallbackInputTokenLimit shares the single source of truth for the input-token
+// cap with the per-channel limited-input-token feature.
+var fallbackInputTokenLimit = common.LimitedInputTokenMaxTokens
 
 func shouldReplaceFallbackWithRetry(info *relaycommon.RelayInfo) bool {
 	return info != nil && info.GetEstimatePromptTokens() > fallbackInputTokenLimit
@@ -443,6 +446,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var selectedChannel *model.Channel // track selected channel for RPM management
 	acquiredTrackers := make([]*service.RpmTracker, 0)
 	globalRpmAcquired := false
+	globalRpmCounted := false // whether the request was actually admitted and counted
 	wasQueued := false // track whether request ever entered the RPM queue
 	queueDeadline := time.Time{}
 	queueNoticeSent := false
@@ -458,7 +462,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		for _, tracker := range acquiredTrackers {
 			tracker.Decrement()
 		}
-		if globalRpmAcquired {
+		if globalRpmCounted {
 			service.GetGlobalRpmTracker().Decrement()
 		}
 		if selectedChannel != nil || len(acquiredTrackers) > 0 {
@@ -525,12 +529,36 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 
+		// Channels selected for input-token limiting reject requests whose
+		// estimated prompt tokens exceed the cap. Channels not in the list are
+		// unaffected and may receive larger inputs. This is checked before the
+		// overload-RPM accounting so a rejected request neither consumes the
+		// shared budget nor triggers fallback (retrying a too-long context is
+		// pointless). The error carries SkipRetry, so the main loop ends here.
+		// Do not reject a channel that was selected as a fallback: a channel in
+		// the limit list must never also be a fallback target, but if it is
+		// misconfigured we keep the fallback path usable instead of silently
+		// dropping the request. The limit applies only to primary selection.
+		if !c.GetBool("fallback_triggered") &&
+			common.IsLimitedInputTokenChannel(channel.Id) &&
+			relayInfo.GetEstimatePromptTokens() > common.LimitedInputTokenMaxTokens {
+			newAPIError = newContextTooLongError()
+			relayInfo.LastError = newAPIError
+			break
+		}
+
 		// Only selected channels contribute to the shared overload RPM. The
 		// selected channel must be known before counting, otherwise unrelated
 		// traffic would incorrectly consume this budget.
+		//
+		// We only check overload status here (read-only) to decide whether to
+		// divert to a fallback channel. The actual accounting (TryAcquire) is
+		// deferred until the request is actually admitted below, so a request
+		// that gets parked in the RPM queue is counted exactly once — by the
+		// queue — instead of being double-counted (admitted + queued).
 		if !globalRpmAcquired && shouldApplyRpmOverloadProtection(c, channel) {
 			globalRpmAcquired = true
-			if service.GetGlobalRpmTracker().TryAcquire() && model.HasAvailableFallbackChannels() {
+			if service.GetGlobalRpmTracker().IsOverloaded() && model.HasAvailableFallbackChannels() {
 				c.Set("overload_protection_triggered", true)
 				c.Set("fallback_force_next", true)
 				channel, channelErr = getChannel(c, relayInfo, retryParam)
@@ -606,7 +634,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			runtimeRpmFull = false
 			selectedChannel = channel
 			acquiredTrackers = append(acquiredTrackers, tracker)
-		}
+			// Count the request against the global overload RPM only now that it is
+			// actually admitted. A request parked in the queue is counted by the
+			// queue length instead, so this avoids double-counting the same request.
+			if !globalRpmCounted && shouldApplyRpmOverloadProtection(c, channel) {
+				globalRpmCounted = true
+				service.GetGlobalRpmTracker().TryAcquire()
+			}
+			}
 
 		if c.GetBool("fallback_triggered") && !fallbackTransferTriggered(c) {
 			if channel.MaxRPM > 0 && len(acquiredTrackers) > 0 {

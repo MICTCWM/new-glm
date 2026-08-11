@@ -30,6 +30,7 @@ import {
 const defaultOperationsSettings: OperationsSettings = {
   OverloadProtectionRPM: 30,
   OverloadProtectionChannelIds: [],
+  LimitedInputTokenChannelIds: [],
   ReassuranceChannelIds: [],
   DailyUsageLimit: 0,
   RenewPotentialPassScore: 60,

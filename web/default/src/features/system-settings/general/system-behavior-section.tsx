@@ -40,6 +40,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 const behaviorSchema = z.object({
   OverloadProtectionRPM: z.coerce.number().int().min(0).max(100000),
   OverloadProtectionChannelIds: z.array(z.number().int().positive()),
+  LimitedInputTokenChannelIds: z.array(z.number().int().positive()),
   ReassuranceChannelIds: z.array(z.number().int().positive()),
   DailyUsageLimit: z.coerce.number().int().min(0).max(2147483647),
   RenewPotentialPassScore: z.coerce.number().min(0).max(100),
@@ -181,6 +182,40 @@ export function SystemBehaviorSection({
                 <FormDescription>
                   {t(
                     '仅所选渠道在排队等待时会显示安抚性语言与硬推理提示；其他渠道保持静默，不显示任何排队安抚内容。'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='LimitedInputTokenChannelIds'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Input Token Limit Channels')}</FormLabel>
+                <FormControl>
+                  <ChannelMultiSelect
+                    value={field.value.map(String)}
+                    onChange={(values) =>
+                      field.onChange(
+                        Array.from(
+                          new Set(
+                            values
+                              .map((value) => Number(value))
+                              .filter(
+                                (value) => Number.isInteger(value) && value > 0
+                              )
+                          )
+                        )
+                      )
+                    }
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Only selected channels are capped at 360000 input tokens. Requests exceeding this are rejected with a context-too-long error; all other channels are unaffected.'
                   )}
                 </FormDescription>
                 <FormMessage />

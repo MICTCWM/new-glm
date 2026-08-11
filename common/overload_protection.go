@@ -147,3 +147,78 @@ func ReassuranceChannelIDsJSONString() string {
 	bytes, _ := json.Marshal(ids)
 	return string(bytes)
 }
+
+// LimitedInputTokenMaxTokens is the maximum estimated prompt token count a
+// limited-input-token channel accepts. Channels not selected in
+// LimitedInputTokenChannelIds are unaffected and may receive larger inputs.
+const LimitedInputTokenMaxTokens = 360000
+
+var (
+	limitedInputTokenChannelIDs   = make(map[int]struct{})
+	limitedInputTokenChannelIDsMu sync.RWMutex
+)
+
+// ParseLimitedInputTokenChannelIDs validates the persisted channel ID list
+// whose input is capped at LimitedInputTokenMaxTokens. The option uses JSON so
+// both management frontends can share it unambiguously.
+func ParseLimitedInputTokenChannelIDs(value string) ([]int, error) {
+	var ids []int
+	if err := json.Unmarshal([]byte(value), &ids); err != nil {
+		return nil, fmt.Errorf("invalid limited input-token channel IDs: %w", err)
+	}
+
+	seen := make(map[int]struct{}, len(ids))
+	normalized := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, fmt.Errorf("limited input-token channel ID must be positive")
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return normalized, nil
+}
+
+// UpdateLimitedInputTokenChannelIDs replaces the set of channels whose input is
+// capped at LimitedInputTokenMaxTokens.
+func UpdateLimitedInputTokenChannelIDs(value string) error {
+	ids, err := ParseLimitedInputTokenChannelIDs(value)
+	if err != nil {
+		return err
+	}
+
+	next := make(map[int]struct{}, len(ids))
+	for _, id := range ids {
+		next[id] = struct{}{}
+	}
+
+	limitedInputTokenChannelIDsMu.Lock()
+	limitedInputTokenChannelIDs = next
+	limitedInputTokenChannelIDsMu.Unlock()
+	return nil
+}
+
+// IsLimitedInputTokenChannel reports whether a channel's input is capped at
+// LimitedInputTokenMaxTokens.
+func IsLimitedInputTokenChannel(channelID int) bool {
+	limitedInputTokenChannelIDsMu.RLock()
+	_, exists := limitedInputTokenChannelIDs[channelID]
+	limitedInputTokenChannelIDsMu.RUnlock()
+	return exists
+}
+
+func LimitedInputTokenChannelIDsJSONString() string {
+	limitedInputTokenChannelIDsMu.RLock()
+	ids := make([]int, 0, len(limitedInputTokenChannelIDs))
+	for id := range limitedInputTokenChannelIDs {
+		ids = append(ids, id)
+	}
+	limitedInputTokenChannelIDsMu.RUnlock()
+
+	sort.Ints(ids)
+	bytes, _ := json.Marshal(ids)
+	return string(bytes)
+}

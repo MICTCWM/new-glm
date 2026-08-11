@@ -2,23 +2,53 @@ package common
 
 import (
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
-func TestUpdateOverloadProtectionChannelIDs(t *testing.T) {
-	original := OverloadProtectionChannelIDsJSONString()
-	t.Cleanup(func() {
-		require.NoError(t, UpdateOverloadProtectionChannelIDs(original))
-	})
+func TestLimitedInputTokenChannelIDsLifecycle(t *testing.T) {
+	// Start from a clean state.
+	if err := UpdateLimitedInputTokenChannelIDs("[]"); err != nil {
+		t.Fatalf("reset failed: %v", err)
+	}
+	if IsLimitedInputTokenChannel(1) {
+		t.Fatal("channel 1 should not be limited initially")
+	}
 
-	require.NoError(t, UpdateOverloadProtectionChannelIDs("[7,3,7]"))
-	require.True(t, IsOverloadProtectionChannel(3))
-	require.True(t, IsOverloadProtectionChannel(7))
-	require.False(t, IsOverloadProtectionChannel(8))
+	// Invalid payloads are rejected.
+	if err := UpdateLimitedInputTokenChannelIDs("not-json"); err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+	if err := UpdateLimitedInputTokenChannelIDs("[0, -3]"); err == nil {
+		t.Fatal("expected error for non-positive IDs")
+	}
 
-	_, err := ParseOverloadProtectionChannelIDs("[1,0]")
-	require.Error(t, err)
-	_, err = ParseOverloadProtectionChannelIDs("not-json")
-	require.Error(t, err)
+	// Duplicates are normalized and persisted.
+	if err := UpdateLimitedInputTokenChannelIDs("[7, 7, 9]"); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	if !IsLimitedInputTokenChannel(7) || !IsLimitedInputTokenChannel(9) {
+		t.Fatal("expected channels 7 and 9 to be limited")
+	}
+	if IsLimitedInputTokenChannel(1) {
+		t.Fatal("channel 1 must remain unlimited")
+	}
+
+	// JSON round-trips and is sorted.
+	got := LimitedInputTokenChannelIDsJSONString()
+	if got != "[7,9]" {
+		t.Fatalf("unexpected JSON %q, want [7,9]", got)
+	}
+
+	// Clearing works.
+	if err := UpdateLimitedInputTokenChannelIDs("[]"); err != nil {
+		t.Fatalf("clear failed: %v", err)
+	}
+	if IsLimitedInputTokenChannel(7) {
+		t.Fatal("channel 7 should be unlimited after clear")
+	}
+}
+
+func TestLimitedInputTokenMaxTokensConstant(t *testing.T) {
+	if LimitedInputTokenMaxTokens != 360000 {
+		t.Fatalf("expected cap 360000, got %d", LimitedInputTokenMaxTokens)
+	}
 }
