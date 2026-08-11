@@ -1,11 +1,14 @@
 package openai
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -13,6 +16,42 @@ import (
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
+
+type synchronizedResponseWriter struct {
+	mu     sync.Mutex
+	header http.Header
+	body   bytes.Buffer
+	status int
+}
+
+func (w *synchronizedResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *synchronizedResponseWriter) WriteHeader(status int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *synchronizedResponseWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.body.Write(data)
+}
+
+func (w *synchronizedResponseWriter) Flush() {}
+
+func (w *synchronizedResponseWriter) Body() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.body.String()
+}
 
 func TestOpenaiHandlerRetriesZeroOutputBeforeWriting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -92,5 +131,73 @@ func TestOaiStreamHandlerRetriesZeroOutputBeforeWriting(t *testing.T) {
 	}
 	if recorder.Body.Len() != 0 {
 		t.Fatalf("response body was written: %q", recorder.Body.String())
+	}
+}
+
+func TestOaiStreamHandlerSendsFirstOutputWithoutWaitingForNextChunk(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	writer := &synchronizedResponseWriter{header: make(http.Header)}
+	ctx, _ := gin.CreateTestContext(writer)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	upstreamReader, upstreamWriter := io.Pipe()
+	defer upstreamReader.Close()
+	defer upstreamWriter.Close()
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       upstreamReader,
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelType:       constant.ChannelTypeOpenAI,
+			UpstreamModelName: "test-model",
+		},
+		RelayFormat: types.RelayFormatOpenAI,
+		RelayMode:   relayconstant.RelayModeChatCompletions,
+		IsStream:    true,
+		DisablePing: true,
+	}
+	info.SetEstimatePromptTokens(10)
+
+	result := make(chan *types.NewAPIError, 1)
+	go func() {
+		_, apiErr := OaiStreamHandler(ctx, info, resp)
+		result <- apiErr
+	}()
+
+	firstChunk := `data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"test-model","choices":[{"index":0,"delta":{"role":"assistant","content":"first-token"},"finish_reason":null}]}`
+	if _, err := io.WriteString(upstreamWriter, firstChunk+"\n"); err != nil {
+		t.Fatalf("write first chunk: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(writer.Body(), "first-token") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(writer.Body(), "first-token") {
+		t.Fatalf("first output was not forwarded before the next upstream chunk: %s", writer.Body())
+	}
+
+	finishChunk := `data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"test-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`
+	if _, err := io.WriteString(upstreamWriter, finishChunk+"\n"); err != nil {
+		t.Fatalf("write finish chunk: %v", err)
+	}
+	if _, err := io.WriteString(upstreamWriter, "data: [DONE]\n"); err != nil {
+		t.Fatalf("write done marker: %v", err)
+	}
+
+	select {
+	case apiErr := <-result:
+		if apiErr != nil {
+			t.Fatalf("OaiStreamHandler returned an error: %v", apiErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OaiStreamHandler did not finish after the upstream stream ended")
 	}
 }

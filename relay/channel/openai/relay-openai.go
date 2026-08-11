@@ -151,7 +151,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var usage = &dto.Usage{}
 	var streamItems []string // store stream items
 	var pendingEmptyStreamItems []string
+	var pendingUsageStreamData string
 	var lastStreamData string
+	var lastStreamDataSent bool
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
 	streamOutputSent := false
 
@@ -159,37 +161,74 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		if lastStreamData != "" {
-			if !streamOutputSent && !streamDataHasOutput(info.RelayMode, lastStreamData) {
-				pendingEmptyStreamItems = append(pendingEmptyStreamItems, lastStreamData)
-			} else {
-				for _, pendingData := range pendingEmptyStreamItems {
-					if err := HandleStreamFormat(c, info, pendingData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-						common.SysLog("error handling buffered stream format: " + err.Error())
-						sr.Stop(err)
-						return
-					}
-				}
-				pendingEmptyStreamItems = nil
-				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-					common.SysLog("error handling stream format: " + err.Error())
-					sr.Stop(err)
-					return
-				}
-				if streamDataHasOutput(info.RelayMode, lastStreamData) {
-					streamOutputSent = true
-				}
-			}
+		if len(data) == 0 {
+			return
 		}
-		if len(data) > 0 {
-			// 对音频模型，保存倒数第二个stream data
-			if isAudioModel && lastStreamData != "" {
-				secondLastStreamData = lastStreamData
-			}
 
-			lastStreamData = data
-			streamItems = append(streamItems, data)
+		// 对音频模型，保存倒数第二个stream data
+		if isAudioModel && lastStreamData != "" {
+			secondLastStreamData = lastStreamData
 		}
+
+		lastStreamData = data
+		lastStreamDataSent = false
+		streamItems = append(streamItems, data)
+
+		sendData := func(streamData string, markAsLast bool) bool {
+			if err := HandleStreamFormat(c, info, streamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				common.SysLog("error handling stream format: " + err.Error())
+				sr.Stop(err)
+				return false
+			}
+			if markAsLast {
+				lastStreamDataSent = true
+			}
+			return true
+		}
+
+		flushPendingEmpty := func() bool {
+			for _, pendingData := range pendingEmptyStreamItems {
+				if !sendData(pendingData, false) {
+					return false
+				}
+			}
+			pendingEmptyStreamItems = nil
+			return true
+		}
+
+		// Zero-output retry requires delaying only metadata/empty chunks before
+		// the first real output. Once output arrives, flush that metadata and
+		// send the current chunk in the same callback instead of waiting for a
+		// later upstream token.
+		if !streamOutputSent {
+			if !streamDataHasOutput(info.RelayMode, data) {
+				pendingEmptyStreamItems = append(pendingEmptyStreamItems, data)
+				return
+			}
+			if !flushPendingEmpty() || !sendData(data, true) {
+				return
+			}
+			streamOutputSent = true
+			return
+		}
+
+		// The final usage-only chunk must remain deferred so include_usage=false
+		// can suppress it. It is otherwise safe to forward every chunk as soon
+		// as it arrives, including finish_reason chunks.
+		if streamDataIsUsageOnly(info.RelayMode, data) {
+			if pendingUsageStreamData != "" && !sendData(pendingUsageStreamData, false) {
+				return
+			}
+			pendingUsageStreamData = data
+			return
+		}
+		if pendingUsageStreamData != "" {
+			if !sendData(pendingUsageStreamData, false) {
+				return
+			}
+			pendingUsageStreamData = ""
+		}
+		sendData(data, true)
 	})
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
@@ -258,11 +297,23 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		for _, pendingData := range pendingEmptyStreamItems {
+			if pendingData == lastStreamData && !shouldSendLastResp {
+				continue
+			}
 			if err := HandleStreamFormat(c, info, pendingData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			}
+			if pendingData == lastStreamData {
+				lastStreamDataSent = true
+			}
 		}
-		if shouldSendLastResp {
+		if pendingUsageStreamData != "" && shouldSendLastResp && !lastStreamDataSent {
+			if err := sendStreamData(c, info, pendingUsageStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			}
+			lastStreamDataSent = pendingUsageStreamData == lastStreamData
+		}
+		if shouldSendLastResp && !lastStreamDataSent {
 			// 强制把流式 chunk 的 model 字段覆盖为用户原始请求的 model ID
 			lastStreamData = relaycommon.OverrideStreamChunkModel(lastStreamData, info)
 			// 占位符过滤：最后一个 chunk 也需要过滤（与 HandleStreamFormat 保持一致）
@@ -290,7 +341,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	}
 
-	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+	HandleFinalResponseWithLastStreamDataSent(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage, lastStreamDataSent)
 
 	// 流非正常结束时（客户端断开、超时、写入失败等），不扣费
 	if info.StreamStatus != nil {

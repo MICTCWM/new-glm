@@ -240,6 +240,20 @@ func completionsStreamDataHasOutput(data string) bool {
 	return false
 }
 
+func streamDataIsUsageOnly(relayMode int, data string) bool {
+	if data == "" || streamDataHasOutput(relayMode, data) {
+		return false
+	}
+
+	var streamResponse struct {
+		Usage *dto.Usage `json:"usage"`
+	}
+	if err := common.Unmarshal(common.StringToByteSlice(data), &streamResponse); err != nil {
+		return false
+	}
+	return service.ValidUsage(streamResponse.Usage)
+}
+
 func handleLastResponse(lastStreamData string, responseId *string, createAt *int64,
 	systemFingerprint *string, model *string, usage **dto.Usage,
 	containStreamUsage *bool, info *relaycommon.RelayInfo,
@@ -271,6 +285,18 @@ func handleLastResponse(lastStreamData string, responseId *string, createAt *int
 func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStreamData string,
 	responseId string, createAt int64, model string, systemFingerprint string,
 	usage *dto.Usage, containStreamUsage bool) {
+	handleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage, false)
+}
+
+func HandleFinalResponseWithLastStreamDataSent(c *gin.Context, info *relaycommon.RelayInfo, lastStreamData string,
+	responseId string, createAt int64, model string, systemFingerprint string,
+	usage *dto.Usage, containStreamUsage bool, lastStreamDataSent bool) {
+	handleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage, lastStreamDataSent)
+}
+
+func handleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStreamData string,
+	responseId string, createAt int64, model string, systemFingerprint string,
+	usage *dto.Usage, containStreamUsage bool, lastStreamDataSent bool) {
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
@@ -285,21 +311,25 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 		helper.Done(c)
 
 	case types.RelayFormatClaude:
-		var streamResponse dto.ChatCompletionsStreamResponse
-		if err := common.Unmarshal(common.StringToByteSlice(lastStreamData), &streamResponse); err != nil {
-			common.SysLog("error unmarshalling stream response: " + err.Error())
-			return
-		}
-
 		info.ClaudeConvertInfo.Usage = usage
+		if !lastStreamDataSent {
+			var streamResponse dto.ChatCompletionsStreamResponse
+			if err := common.Unmarshal(common.StringToByteSlice(lastStreamData), &streamResponse); err != nil {
+				common.SysLog("error unmarshalling stream response: " + err.Error())
+				return
+			}
 
-		claudeResponses := service.StreamResponseOpenAI2Claude(&streamResponse, info)
-		for _, resp := range claudeResponses {
-			_ = helper.ClaudeData(c, *resp)
+			claudeResponses := service.StreamResponseOpenAI2Claude(&streamResponse, info)
+			for _, resp := range claudeResponses {
+				_ = helper.ClaudeData(c, *resp)
+			}
 		}
 		info.ClaudeConvertInfo.Done = true
 
 	case types.RelayFormatGemini:
+		if lastStreamDataSent {
+			return
+		}
 		var streamResponse dto.ChatCompletionsStreamResponse
 		if err := common.Unmarshal(common.StringToByteSlice(lastStreamData), &streamResponse); err != nil {
 			common.SysLog("error unmarshalling stream response: " + err.Error())
