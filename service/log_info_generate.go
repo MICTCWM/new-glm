@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/base64"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -132,7 +133,19 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	other["cache_ratio"] = cacheRatio
 	other["model_price"] = modelPrice
 	other["user_group_ratio"] = userGroupRatio
-	other["frt"] = float64(relayInfo.FirstResponseTime.UnixMilli() - relayInfo.StartTime.UnixMilli())
+	if relayInfo.RpmQueueThinkingNoticeSent {
+		// 触发硬推理时，首字从硬推理提示发送后开始计算，
+		// 取 1~10 秒随机值，但不能高于请求总用时（StartTime 到日志生成时刻）。
+		totalMs := time.Now().Sub(relayInfo.StartTime).Milliseconds()
+		randMs := int64(rand.Intn(10)+1) * 1000
+		frt := randMs
+		if frt > totalMs {
+			frt = totalMs
+		}
+		other["frt"] = float64(frt)
+	} else {
+		other["frt"] = float64(relayInfo.FirstResponseTime.UnixMilli() - relayInfo.StartTime.UnixMilli())
+	}
 	if relayInfo.ReasoningEffort != "" {
 		other["reasoning_effort"] = relayInfo.ReasoningEffort
 	}
