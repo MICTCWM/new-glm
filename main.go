@@ -133,6 +133,9 @@ func main() {
 	// Vendor monitor sample task (passive sampling from logs every 60s)
 	service.StartVendorMonitorSampleTask()
 
+	// Request log notify task (periodic/daily/weekly email summary)
+	service.StartRequestLogNotifyTask()
+
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
 		a := relay.GetTaskAdaptor(platform)
