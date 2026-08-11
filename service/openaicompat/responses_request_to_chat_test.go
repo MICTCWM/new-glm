@@ -130,6 +130,28 @@ func TestResponsesRequestToChatFlattensNamespaceTools(t *testing.T) {
 	require.Equal(t, "list_open_orders", got.Tools[1].Function.Name)
 }
 
+func TestResponsesRequestToChatConvertsWebSearchTool(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-search",
+		Tools: []byte(`[{
+			"type":"web_search",
+			"search_context_size":"high",
+			"user_location":{"type":"approximate","country":"US"}
+		}]`),
+		ToolChoice: []byte(`{"type":"web_search"}`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Empty(t, got.Tools)
+	require.NotNil(t, got.WebSearchOptions)
+	require.Equal(t, "high", got.WebSearchOptions.SearchContextSize)
+	require.JSONEq(t, `{"type":"approximate","country":"US"}`, string(got.WebSearchOptions.UserLocation))
+	// Chat Completions has no web-search tool_choice equivalent. The
+	// web_search_options field enables the provider search path directly.
+	require.Nil(t, got.ToolChoice)
+}
+
 func TestResponsesRequestToChatRejectsUnsupportedNestedNamespaceTool(t *testing.T) {
 	req := &dto.OpenAIResponsesRequest{
 		Model: "gpt-test",

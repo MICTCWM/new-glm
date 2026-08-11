@@ -57,11 +57,12 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		out.ResponseFormat = responseFormat
 	}
 
-	tools, err := responsesToolsToChatTools(req.Tools)
+	tools, webSearchOptions, err := responsesToolsToChatTools(req.Tools)
 	if err != nil {
 		return nil, err
 	}
 	out.Tools = tools
+	out.WebSearchOptions = webSearchOptions
 	if req.ToolChoice != nil {
 		out.ToolChoice = responsesToolChoiceToChat(req.ToolChoice)
 	}
@@ -321,24 +322,34 @@ func responsesMessageToolCalls(raw any) []dto.ToolCallRequest {
 	return toolCalls
 }
 
-func responsesToolsToChatTools(raw json.RawMessage) ([]dto.ToolCallRequest, error) {
+func responsesToolsToChatTools(raw json.RawMessage) ([]dto.ToolCallRequest, *dto.WebSearchOptions, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var items []map[string]any
 	if err := common.Unmarshal(raw, &items); err != nil {
-		return nil, fmt.Errorf("invalid tools: %w", err)
+		return nil, nil, fmt.Errorf("invalid tools: %w", err)
 	}
 	tools := make([]dto.ToolCallRequest, 0, len(items))
+	var webSearchOptions *dto.WebSearchOptions
 	for _, item := range items {
 		toolType := common.Interface2String(item["type"])
 		switch toolType {
 		case "function":
 			tool, err := responsesFunctionToolToChatTool(item)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			tools = append(tools, tool)
+		case "web_search", "web_search_preview", "web_search_preview_2025_03_11":
+			// Chat Completions exposes web search as a top-level option rather
+			// than as an entry in tools. Keep the search settings while removing
+			// the Responses-only tool wrapper.
+			if webSearchOptions == nil {
+				webSearchOptions = responsesWebSearchToolToChatOptions(item)
+			} else {
+				mergeResponsesWebSearchToolOptions(webSearchOptions, item)
+			}
 		case "namespace":
 			// Chat Completions has no namespace tool type. A Responses
 			// namespace is a container for function tools, so flatten its
@@ -348,11 +359,11 @@ func responsesToolsToChatTools(raw json.RawMessage) ([]dto.ToolCallRequest, erro
 			// renamed function call.
 			nested, err := responsesNamespaceTools(item["tools"])
 			if err != nil {
-				return nil, fmt.Errorf("invalid Responses namespace tool %q: %w", common.Interface2String(item["name"]), err)
+				return nil, nil, fmt.Errorf("invalid Responses namespace tool %q: %w", common.Interface2String(item["name"]), err)
 			}
 			for _, nestedItem := range nested {
 				if nestedType := common.Interface2String(nestedItem["type"]); nestedType != "function" {
-					return nil, fmt.Errorf(
+					return nil, nil, fmt.Errorf(
 						"responses namespace tool %q contains unsupported tool type %q",
 						common.Interface2String(item["name"]),
 						nestedType,
@@ -360,7 +371,7 @@ func responsesToolsToChatTools(raw json.RawMessage) ([]dto.ToolCallRequest, erro
 				}
 				tool, err := responsesFunctionToolToChatTool(nestedItem)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				tools = append(tools, tool)
 			}
@@ -368,10 +379,30 @@ func responsesToolsToChatTools(raw json.RawMessage) ([]dto.ToolCallRequest, erro
 			// Built-in Responses tools have no generic Chat Completions
 			// equivalent. Failing explicitly is safer than silently removing
 			// the user's tool and changing the request's behavior.
-			return nil, fmt.Errorf("responses tool type %q cannot be converted to Chat Completions", toolType)
+			return nil, nil, fmt.Errorf("responses tool type %q cannot be converted to Chat Completions", toolType)
 		}
 	}
-	return tools, nil
+	return tools, webSearchOptions, nil
+}
+
+func responsesWebSearchToolToChatOptions(item map[string]any) *dto.WebSearchOptions {
+	options := &dto.WebSearchOptions{}
+	mergeResponsesWebSearchToolOptions(options, item)
+	return options
+}
+
+func mergeResponsesWebSearchToolOptions(options *dto.WebSearchOptions, item map[string]any) {
+	if options == nil {
+		return
+	}
+	if options.SearchContextSize == "" {
+		options.SearchContextSize = common.Interface2String(item["search_context_size"])
+	}
+	if len(options.UserLocation) == 0 {
+		if userLocation, exists := item["user_location"]; exists && userLocation != nil {
+			options.UserLocation, _ = common.Marshal(userLocation)
+		}
+	}
 }
 
 func responsesNamespaceTools(raw any) ([]map[string]any, error) {
@@ -410,6 +441,9 @@ func responsesToolChoiceToChat(raw json.RawMessage) any {
 	if err := common.Unmarshal(raw, &value); err != nil {
 		return nil
 	}
+	if choice, ok := value.(string); ok && strings.HasPrefix(strings.ToLower(strings.TrimSpace(choice)), "web_search") {
+		return nil
+	}
 	if choice, ok := value.(map[string]any); ok && common.Interface2String(choice["type"]) == "function" {
 		return map[string]any{
 			"type": "function",
@@ -417,6 +451,9 @@ func responsesToolChoiceToChat(raw json.RawMessage) any {
 				"name": common.Interface2String(choice["name"]),
 			},
 		}
+	}
+	if choice, ok := value.(map[string]any); ok && strings.HasPrefix(strings.ToLower(strings.TrimSpace(common.Interface2String(choice["type"]))), "web_search") {
+		return nil
 	}
 	return value
 }

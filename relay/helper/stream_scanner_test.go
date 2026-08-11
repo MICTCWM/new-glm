@@ -66,6 +66,27 @@ func (s *slowReader) Read(p []byte) (int, error) {
 	return s.r.Read(p)
 }
 
+type trackingReadCloser struct {
+	reader io.Reader
+	closer io.Closer
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (r *trackingReadCloser) Read(p []byte) (int, error) {
+	return r.reader.Read(p)
+}
+
+func (r *trackingReadCloser) Close() error {
+	r.once.Do(func() {
+		close(r.closed)
+	})
+	if r.closer != nil {
+		return r.closer.Close()
+	}
+	return nil
+}
+
 // ---------- Basic correctness ----------
 
 func TestStreamScannerHandler_NilInputs(t *testing.T) {
@@ -511,24 +532,29 @@ func TestStreamScannerHandler_StreamStatus_HandlerDone(t *testing.T) {
 func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 	// Not parallel: modifies global constant.StreamingTimeout
 	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 2
+	constant.StreamingTimeout = 1
 	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
 
 	pr, pw := io.Pipe()
+	bodyClosed := make(chan struct{})
 	go func() {
-		fmt.Fprint(pw, "data: {\"id\":1}\n")
-		time.Sleep(10 * time.Second)
-		pw.Close()
+		_, _ = fmt.Fprint(pw, "data: {\"id\":1}\n")
+		select {
+		case <-bodyClosed:
+		case <-time.After(10 * time.Second):
+		}
+		_ = pw.Close()
 	}()
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
-	resp := &http.Response{Body: pr}
+	resp := &http.Response{Body: &trackingReadCloser{reader: pr, closer: pr, closed: bodyClosed}}
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
 
 	done := make(chan struct{})
+	started := time.Now()
 	go func() {
 		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
 		close(done)
@@ -536,8 +562,15 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 
 	select {
 	case <-done:
+		assert.Less(t, time.Since(started), 4*time.Second, "timeout cleanup must not wait for the blocked scanner")
 	case <-time.After(15 * time.Second):
 		t.Fatal("timed out waiting for stream timeout")
+	}
+
+	select {
+	case <-bodyClosed:
+	case <-time.After(time.Second):
+		t.Fatal("response body was not closed during timeout cleanup")
 	}
 
 	require.NotNil(t, info.StreamStatus)
