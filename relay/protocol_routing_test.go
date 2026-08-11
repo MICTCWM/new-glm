@@ -44,9 +44,10 @@ func TestShouldRouteResponsesThroughChatUsesSelectedChannelProtocol(t *testing.T
 			expected: true,
 		},
 		{
-			name:    "Anthropic is not treated as OpenAI Chat",
-			mode:    relayconstant.RelayModeResponses,
-			channel: constant.ChannelTypeAnthropic,
+			name:     "Anthropic bridges Responses to Chat",
+			mode:     relayconstant.RelayModeResponses,
+			channel:  constant.ChannelTypeAnthropic,
+			expected: true,
 		},
 		{
 			name:    "Chat input does not use Responses bridge",
@@ -91,7 +92,7 @@ func TestNormalizeNativeChatResponseToResponses(t *testing.T) {
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 	}
 
-	usage, apiErr := normalizeAdaptorChatResponseToResponses(c, info, &zhipu.Adaptor{}, upstreamResp)
+	usage, apiErr := normalizeAdaptorChatResponseToResponses(c, info, &zhipu.Adaptor{}, upstreamResp, false, false)
 
 	require.Nil(t, apiErr)
 	require.NotNil(t, usage)

@@ -13,10 +13,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
-	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -95,59 +94,6 @@ func TestMaskEmergencyPlanErrorMasksSingleRequestFailure(t *testing.T) {
 	require.Equal(t, emergencyPlanFailedMessage, err.GetUserFriendlyMessage())
 }
 
-func TestDetachCancelledRequestContextForFallback(t *testing.T) {
-	oldRequestMaxDuration := common.RequestMaxDuration
-	common.RequestMaxDuration = 30
-	t.Cleanup(func() { common.RequestMaxDuration = oldRequestMaxDuration })
-
-	request := httptest.NewRequest("POST", "/v1/chat/completions", nil)
-	requestContext, cancelRequest := context.WithCancel(context.WithValue(context.Background(), "request-value", "preserved"))
-	cancelRequest()
-	request = request.WithContext(requestContext)
-	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
-	ginContext.Request = request
-
-	cancelFallback := detachCancelledRequestContext(ginContext)
-	require.NotNil(t, cancelFallback)
-	require.NoError(t, ginContext.Request.Context().Err())
-	require.Equal(t, "preserved", ginContext.Request.Context().Value("request-value"))
-
-	cancelFallback()
-	require.ErrorIs(t, ginContext.Request.Context().Err(), context.Canceled)
-}
-
-func TestDetachCancelledRequestContextLeavesLiveContextUntouched(t *testing.T) {
-	request := httptest.NewRequest("POST", "/v1/chat/completions", nil)
-	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
-	ginContext.Request = request
-	originalContext := ginContext.Request.Context()
-
-	require.Nil(t, detachCancelledRequestContext(ginContext))
-	require.Equal(t, originalContext, ginContext.Request.Context())
-}
-
-func TestDetachedFallbackContextAllowsResponseWrites(t *testing.T) {
-	request := httptest.NewRequest("POST", "/v1/chat/completions", nil)
-	requestContext, cancelRequest := context.WithCancel(context.Background())
-	cancelRequest()
-	request = request.WithContext(requestContext)
-	recorder := httptest.NewRecorder()
-	ginContext, _ := gin.CreateTestContext(recorder)
-	ginContext.Request = request
-
-	// Before detaching, the same write path used by streaming error responses
-	// must reject the cancelled request context.
-	require.ErrorIs(t, helper.FlushWriter(ginContext), context.Canceled)
-
-	cancelFallback := detachCancelledRequestContext(ginContext)
-	require.NotNil(t, cancelFallback)
-	t.Cleanup(cancelFallback)
-
-	// The fallback response can now be flushed instead of becoming a second
-	// "request context done: context canceled" failure.
-	require.NoError(t, helper.FlushWriter(ginContext))
-}
-
 func TestMarkContextCancelledResponseUsesSuccessStatusAndKeepsDetail(t *testing.T) {
 	ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 	err := types.NewErrorWithStatusCode(context.Canceled, types.ErrorCodeDoRequestFailed, 500)
@@ -158,4 +104,27 @@ func TestMarkContextCancelledResponseUsesSuccessStatusAndKeepsDetail(t *testing.
 	require.Equal(t, requestContextCancelledMessage, err.GetUserFriendlyMessage())
 	require.True(t, ginContext.GetBool("request_context_cancelled"))
 	require.Equal(t, "status_code=500, context canceled", ginContext.GetString("request_context_cancelled_detail"))
+}
+
+func TestRequestContextIsCancelledIncludesDeadlineExceeded(t *testing.T) {
+	cancelledContext, cancel := context.WithCancel(context.Background())
+	cancelledRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(cancelledContext)
+	cancelledGin, _ := gin.CreateTestContext(httptest.NewRecorder())
+	cancelledGin.Request = cancelledRequest
+	cancel()
+	require.True(t, requestContextIsCancelled(cancelledGin))
+
+	deadlineContext, deadlineCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer deadlineCancel()
+	deadlineRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(deadlineContext)
+	deadlineGin, _ := gin.CreateTestContext(httptest.NewRecorder())
+	deadlineGin.Request = deadlineRequest
+	require.True(t, requestContextIsCancelled(deadlineGin))
+}
+
+func TestShouldMaskQueuedRelayErrorOnlyMasksUpstreamFailures(t *testing.T) {
+	require.True(t, shouldMaskQueuedRelayError(types.NewError(context.DeadlineExceeded, types.ErrorCodeDoRequestFailed)))
+	require.True(t, shouldMaskQueuedRelayError(types.NewError(context.DeadlineExceeded, types.ErrorCodeBadResponseBody)))
+	require.False(t, shouldMaskQueuedRelayError(types.NewError(context.Canceled, types.ErrorCodeConvertRequestFailed)))
+	require.False(t, shouldMaskQueuedRelayError(types.NewError(context.Canceled, types.ErrorCodeInvalidRequest)))
 }

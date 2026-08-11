@@ -409,6 +409,12 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	if channel == nil {
 		return types.NewError(errors.New("channel is nil"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
+	// These values belong to the previously selected channel when a retry
+	// switches upstreams. Clear them before applying the new channel so a
+	// missing field cannot inherit an old protocol, region, plugin, or bot ID.
+	for _, key := range []string{"api_version", "region", "plugin", "bot_id", "channel_organization"} {
+		c.Set(key, "")
+	}
 	common.SetContextKey(c, constant.ContextKeySelectedChannel, channel)
 	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
@@ -438,6 +444,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 		common.SetContextKey(c, constant.ContextKeyChannelAffinityKeyIndex, index)
 	} else {
 		key, index, newAPIError = channel.GetNextEnabledKey()
+		common.SetContextKey(c, constant.ContextKeyChannelAffinityKeyIndex, 0)
 	}
 	if newAPIError != nil {
 		return newAPIError
@@ -448,6 +455,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	} else {
 		// 必须设置为 false，否则在重试到单个 key 的时候会导致日志显示错误
 		common.SetContextKey(c, constant.ContextKeyChannelIsMultiKey, false)
+		common.SetContextKey(c, constant.ContextKeyChannelMultiKeyIndex, 0)
 	}
 	// c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
 	common.SetContextKey(c, constant.ContextKeyChannelKey, key)

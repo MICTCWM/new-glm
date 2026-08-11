@@ -10,34 +10,40 @@ import (
 
 // RpmQueueItem represents a request waiting in the RPM queue.
 type RpmQueueItem struct {
-	RequestID    string
-	Username     string
-	UserID       int
-	Group        string
-	ModelName    string
-	PromptTokens int
-	EnqueueTime  time.Time
-	NotifyCh     chan struct{} // closed when the request should be retried
+	RequestID         string
+	ChannelID         int
+	CountsForOverload bool
+	Username          string
+	UserID            int
+	Group             string
+	ModelName         string
+	PromptTokens      int
+	EnqueueTime       time.Time
+	NotifyCh          chan struct{} // closed when the request should be retried
 }
 
 type RpmQueueItemMeta struct {
-	RequestID    string
-	Username     string
-	UserID       int
-	Group        string
-	ModelName    string
-	PromptTokens int
+	RequestID         string
+	ChannelID         int
+	CountsForOverload bool
+	Username          string
+	UserID            int
+	Group             string
+	ModelName         string
+	PromptTokens      int
 }
 
 type RpmQueueSnapshotItem struct {
-	RequestID    string `json:"request_id"`
-	Username     string `json:"username"`
-	UserID       int    `json:"user_id"`
-	Group        string `json:"group"`
-	ModelName    string `json:"model_name"`
-	PromptTokens int    `json:"prompt_tokens"`
-	EnqueueTime  int64  `json:"enqueue_time"`
-	WaitSeconds  int64  `json:"wait_seconds"`
+	RequestID         string `json:"request_id"`
+	ChannelID         int    `json:"channel_id"`
+	CountsForOverload bool   `json:"counts_for_overload"`
+	Username          string `json:"username"`
+	UserID            int    `json:"user_id"`
+	Group             string `json:"group"`
+	ModelName         string `json:"model_name"`
+	PromptTokens      int    `json:"prompt_tokens"`
+	EnqueueTime       int64  `json:"enqueue_time"`
+	WaitSeconds       int64  `json:"wait_seconds"`
 }
 
 // RpmQueueManager manages a FIFO queue of requests waiting for RPM capacity.
@@ -70,8 +76,15 @@ func (q *RpmQueueManager) Enqueue(meta ...RpmQueueItemMeta) *RpmQueueItem {
 		EnqueueTime: time.Now(),
 		NotifyCh:    make(chan struct{}),
 	}
-	if len(meta) > 0 {
+	if len(meta) == 0 {
+		// Keep the legacy zero-argument API usable by tests and callers that
+		// explicitly use the queue as a global overload signal. Relay requests
+		// pass metadata and opt in per channel instead.
+		item.CountsForOverload = true
+	} else {
 		item.RequestID = meta[0].RequestID
+		item.ChannelID = meta[0].ChannelID
+		item.CountsForOverload = meta[0].CountsForOverload
 		item.Username = meta[0].Username
 		item.UserID = meta[0].UserID
 		item.Group = meta[0].Group
@@ -126,17 +139,34 @@ func (q *RpmQueueManager) Snapshot() []RpmQueueSnapshotItem {
 	items := make([]RpmQueueSnapshotItem, 0, len(q.queue))
 	for _, item := range q.queue {
 		items = append(items, RpmQueueSnapshotItem{
-			RequestID:    item.RequestID,
-			Username:     item.Username,
-			UserID:       item.UserID,
-			Group:        item.Group,
-			ModelName:    item.ModelName,
-			PromptTokens: item.PromptTokens,
-			EnqueueTime:  item.EnqueueTime.Unix(),
-			WaitSeconds:  int64(now.Sub(item.EnqueueTime).Seconds()),
+			RequestID:         item.RequestID,
+			ChannelID:         item.ChannelID,
+			CountsForOverload: item.CountsForOverload,
+			Username:          item.Username,
+			UserID:            item.UserID,
+			Group:             item.Group,
+			ModelName:         item.ModelName,
+			PromptTokens:      item.PromptTokens,
+			EnqueueTime:       item.EnqueueTime.Unix(),
+			WaitSeconds:       int64(now.Sub(item.EnqueueTime).Seconds()),
 		})
 	}
 	return items
+}
+
+// GetOverloadQueueLength returns only queued requests whose selected channel
+// participates in the shared overload-protection budget.
+func (q *RpmQueueManager) GetOverloadQueueLength() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	length := 0
+	for _, item := range q.queue {
+		if item.CountsForOverload {
+			length++
+		}
+	}
+	return length
 }
 
 // GetQueueLength exported for use by controller

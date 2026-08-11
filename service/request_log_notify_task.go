@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"html"
 	"sort"
 	"strings"
 	"time"
@@ -38,11 +39,11 @@ const (
 )
 
 func requestLogNotifyGetBool(key string) bool {
-	return common.OptionMap[key] == "true"
+	return requestLogNotifyGetValue(key) == "true"
 }
 
 func requestLogNotifyGetInt(key string, def int) int {
-	v := common.OptionMap[key]
+	v := requestLogNotifyGetValue(key)
 	if v == "" {
 		return def
 	}
@@ -54,7 +55,7 @@ func requestLogNotifyGetInt(key string, def int) int {
 }
 
 func requestLogNotifyGetEmails() []string {
-	raw := strings.TrimSpace(common.OptionMap[OptRequestLogNotifyEmails])
+	raw := strings.TrimSpace(requestLogNotifyGetValue(OptRequestLogNotifyEmails))
 	if raw == "" {
 		return nil
 	}
@@ -69,29 +70,35 @@ func requestLogNotifyGetEmails() []string {
 	return out
 }
 
+func requestLogNotifyGetValue(key string) string {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	return common.OptionMap[key]
+}
+
 // requestLogWindowStats 是某一时段的统计结果
 type requestLogWindowStats struct {
 	Start time.Time
 	End   time.Time
 
-	TotalRequests      int64
-	RPMAvg             float64
-	TPMAvg             float64
-	MaxUseTime         float64
-	MinUseTime         float64
-	AvgUseTime         float64
-	AvgOutputSpeed     float64 // tokens/s
-	Users              []string
-	Models             []requestLogModelStat
-	ErrorCount         int64
-	ErrorKinds         int
-	ErrorBreakdown     []requestLogErrorStat
+	TotalRequests  int64
+	RPMAvg         float64
+	TPMAvg         float64
+	MaxUseTime     float64
+	MinUseTime     float64
+	AvgUseTime     float64
+	AvgOutputSpeed float64 // tokens/s
+	Users          []string
+	Models         []requestLogModelStat
+	ErrorCount     int64
+	ErrorKinds     int
+	ErrorBreakdown []requestLogErrorStat
 }
 
 type requestLogModelStat struct {
-	Model   string
-	Count   int64
-	Tokens  int64
+	Model  string
+	Count  int64
+	Tokens int64
 }
 
 type requestLogErrorStat struct {
@@ -105,23 +112,23 @@ func aggregateRequestLogs(start, end time.Time) (*requestLogWindowStats, error) 
 
 	// 基础指标：总数、总耗时、总 token、错误数
 	type baseAgg struct {
-		Total       int64
-		SumUseTime  float64
-		MaxUseTime  float64
-		MinUseTime  float64
-		PromptTok   int64
-		CompletTok  int64
-		ErrorCount  int64
+		Total      int64
+		SumUseTime float64
+		MaxUseTime float64
+		MinUseTime float64
+		PromptTok  int64
+		CompletTok int64
+		ErrorCount int64
 	}
 	var base baseAgg
 	err := model.DB.Model(&model.Log{}).
 		Where("created_at >= ? AND created_at < ?", start, end).
-		Select("COUNT(*) AS total, "+
-			"COALESCE(SUM(use_time),0) AS sum_use_time, "+
-			"COALESCE(MAX(use_time),0) AS max_use_time, "+
-			"COALESCE(MIN(use_time),0) AS min_use_time, "+
-			"COALESCE(SUM(prompt_tokens),0) AS prompt_tok, "+
-			"COALESCE(SUM(completion_tokens),0) AS complet_tok, "+
+		Select("COUNT(*) AS total, " +
+			"COALESCE(SUM(use_time),0) AS sum_use_time, " +
+			"COALESCE(MAX(use_time),0) AS max_use_time, " +
+			"COALESCE(MIN(use_time),0) AS min_use_time, " +
+			"COALESCE(SUM(prompt_tokens),0) AS prompt_tok, " +
+			"COALESCE(SUM(completion_tokens),0) AS complet_tok, " +
 			"COALESCE(SUM(CASE WHEN type = 'error' THEN 1 ELSE 0 END),0) AS error_count").
 		Scan(&base).Error
 	if err != nil {
@@ -215,7 +222,7 @@ func aggregateRequestLogs(start, end time.Time) (*requestLogWindowStats, error) 
 func (s *requestLogWindowStats) toHTML(title string) string {
 	var b strings.Builder
 	b.WriteString("<div style='font-family:Helvetica,Arial,sans-serif;color:#222;max-width:720px'>")
-	b.WriteString(fmt.Sprintf("<h2 style='margin:0 0 4px'>%s</h2>", title))
+	b.WriteString(fmt.Sprintf("<h2 style='margin:0 0 4px'>%s</h2>", html.EscapeString(title)))
 	b.WriteString(fmt.Sprintf("<p style='color:#666;margin:0 0 16px'>统计时段：%s ~ %s</p>",
 		s.Start.Format("2006-01-02 15:04:05"), s.End.Format("2006-01-02 15:04:05")))
 
@@ -240,7 +247,7 @@ func (s *requestLogWindowStats) toHTML(title string) string {
 		b.WriteString("<table style='border-collapse:collapse;width:100%;font-size:13px'>")
 		b.WriteString("<tr style='background:#fafafa'><th style='padding:6px 10px;border:1px solid #eee;text-align:left'>模型</th><th style='padding:6px 10px;border:1px solid #eee;text-align:right'>请求数</th><th style='padding:6px 10px;border:1px solid #eee;text-align:right'>Tokens</th></tr>")
 		for _, m := range s.Models {
-			b.WriteString(fmt.Sprintf("<tr><td style='padding:6px 10px;border:1px solid #eee'>%s</td><td style='padding:6px 10px;border:1px solid #eee;text-align:right'>%d</td><td style='padding:6px 10px;border:1px solid #eee;text-align:right'>%d</td></tr>", m.Model, m.Count, m.Tokens))
+			b.WriteString(fmt.Sprintf("<tr><td style='padding:6px 10px;border:1px solid #eee'>%s</td><td style='padding:6px 10px;border:1px solid #eee;text-align:right'>%d</td><td style='padding:6px 10px;border:1px solid #eee;text-align:right'>%d</td></tr>", html.EscapeString(m.Model), m.Count, m.Tokens))
 		}
 		b.WriteString("</table>")
 	}
@@ -250,7 +257,11 @@ func (s *requestLogWindowStats) toHTML(title string) string {
 	if len(s.Users) == 0 {
 		b.WriteString("<p style='color:#999'>无</p>")
 	} else {
-		b.WriteString(fmt.Sprintf("<p style='font-size:13px'>共 %d 位：%s</p>", len(s.Users), strings.Join(s.Users, "、")))
+		escapedUsers := make([]string, 0, len(s.Users))
+		for _, user := range s.Users {
+			escapedUsers = append(escapedUsers, html.EscapeString(user))
+		}
+		b.WriteString(fmt.Sprintf("<p style='font-size:13px'>共 %d 位：%s</p>", len(s.Users), strings.Join(escapedUsers, "、")))
 	}
 
 	// 错误
@@ -269,18 +280,21 @@ func (s *requestLogWindowStats) toHTML(title string) string {
 	return b.String()
 }
 
-func requestLogNotifySend(title string, stats *requestLogWindowStats) {
+func requestLogNotifySend(title string, stats *requestLogWindowStats) bool {
 	emails := requestLogNotifyGetEmails()
 	if len(emails) == 0 {
 		common.SysLog("RequestLogNotify: 未配置收件邮箱，跳过发送")
-		return
+		return false
 	}
 	content := stats.toHTML(title)
+	success := true
 	for _, email := range emails {
 		if err := common.SendEmail(title, email, content); err != nil {
+			success = false
 			common.SysError("RequestLogNotify: 发送邮件失败 -> " + email + ": " + err.Error())
 		}
 	}
+	return success
 }
 
 // StartRequestLogNotifyTask 启动请求日志通知后台任务
@@ -303,34 +317,30 @@ func StartRequestLogNotifyTask() {
 			if intervalHours < 1 {
 				intervalHours = 1
 			}
-			lastPeriodic := parseStoredTime(common.OptionMap[OptRequestLogNotifyLastPeriodicTime], now.Add(-time.Duration(intervalHours)*time.Hour))
+			lastPeriodic := parseStoredTime(requestLogNotifyGetValue(OptRequestLogNotifyLastPeriodicTime), now.Add(-time.Duration(intervalHours)*time.Hour))
 			if now.Sub(lastPeriodic) >= time.Duration(intervalHours)*time.Hour {
 				stats, err := aggregateRequestLogs(lastPeriodic, now)
 				if err != nil {
 					common.SysError("RequestLogNotify: 周期统计失败: " + err.Error())
-				} else {
-					title := fmt.Sprintf("[请求日志] 周期汇报（近 %d 小时）", intervalHours)
-					requestLogNotifySend(title, stats)
+				} else if requestLogNotifySend(fmt.Sprintf("[请求日志] 周期汇报（近 %d 小时）", intervalHours), stats) {
+					_ = model.UpdateOption(OptRequestLogNotifyLastPeriodicTime, now.Format(time.RFC3339))
 				}
-				_ = model.UpdateOption(OptRequestLogNotifyLastPeriodicTime, now.Format(time.RFC3339))
 			}
 
 			// 2) 天总结：到达配置 hour 且当日尚未发送时，补发昨天整段统计
 			if requestLogNotifyGetBool(OptRequestLogNotifyDailyEnabled) {
 				dailyHour := requestLogNotifyGetInt(OptRequestLogNotifyDailyHour, 9)
 				todayKey := now.Format("2006-01-02")
-				if now.Hour() >= dailyHour && common.OptionMap[OptRequestLogNotifyLastDailyDate] != todayKey {
+				if now.Hour() >= dailyHour && requestLogNotifyGetValue(OptRequestLogNotifyLastDailyDate) != todayKey {
 					yesterday := now.AddDate(0, 0, -1)
 					start := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, now.Location())
 					end := start.AddDate(0, 0, 1)
 					stats, err := aggregateRequestLogs(start, end)
 					if err != nil {
 						common.SysError("RequestLogNotify: 天总结统计失败: " + err.Error())
-					} else {
-						title := fmt.Sprintf("[请求日志] 天总结（%s）", start.Format("2006-01-02"))
-						requestLogNotifySend(title, stats)
+					} else if requestLogNotifySend(fmt.Sprintf("[请求日志] 天总结（%s）", start.Format("2006-01-02")), stats) {
+						_ = model.UpdateOption(OptRequestLogNotifyLastDailyDate, todayKey)
 					}
-					_ = model.UpdateOption(OptRequestLogNotifyLastDailyDate, todayKey)
 				}
 			}
 
@@ -340,18 +350,15 @@ func StartRequestLogNotifyTask() {
 				weeklyHour := requestLogNotifyGetInt(OptRequestLogNotifyWeeklyHour, 9)
 				weekKey := now.Format("2006-01-02")
 				if int(now.Weekday()) == weeklyDay && now.Hour() >= weeklyHour &&
-					common.OptionMap[OptRequestLogNotifyLastWeeklyDate] != weekKey {
+					requestLogNotifyGetValue(OptRequestLogNotifyLastWeeklyDate) != weekKey {
 					end := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 					start := end.AddDate(0, 0, -7)
 					stats, err := aggregateRequestLogs(start, end)
 					if err != nil {
 						common.SysError("RequestLogNotify: 周总结统计失败: " + err.Error())
-					} else {
-						title := fmt.Sprintf("[请求日志] 周总结（%s ~ %s）",
-							start.Format("2006-01-02"), end.Add(-time.Second).Format("2006-01-02"))
-						requestLogNotifySend(title, stats)
+					} else if requestLogNotifySend(fmt.Sprintf("[请求日志] 周总结（%s ~ %s）", start.Format("2006-01-02"), end.Add(-time.Second).Format("2006-01-02")), stats) {
+						_ = model.UpdateOption(OptRequestLogNotifyLastWeeklyDate, weekKey)
 					}
-					_ = model.UpdateOption(OptRequestLogNotifyLastWeeklyDate, weekKey)
 				}
 			}
 		}

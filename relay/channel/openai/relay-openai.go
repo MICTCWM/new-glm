@@ -58,24 +58,11 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 		return helper.ObjectData(c, lastStreamResponse)
 	}
 
-	// 自动兜底：当 reasoning_content 非空但 content 为空时，将 reasoning_content 转为 content
-	// 确保不支持 reasoning_content 字段的下游客户端能看到内容
-	hasReasoningConversion := false
-	if !thinkToContent {
-		for i := range lastStreamResponse.Choices {
-			reasoning := lastStreamResponse.Choices[i].Delta.GetReasoningContent()
-			content := lastStreamResponse.Choices[i].Delta.GetContentString()
-			if reasoning != "" && content == "" {
-				lastStreamResponse.Choices[i].Delta.SetContentString(reasoning)
-				lastStreamResponse.Choices[i].Delta.ReasoningContent = nil
-				lastStreamResponse.Choices[i].Delta.Reasoning = nil
-				hasReasoningConversion = true
-			}
-		}
-	}
-
-	// 如果没有 think 标签规范化、没有 reasoning 转换、且不强制格式，原样透传
-	if !thinkToContent && !hasThinkTags && !hasReasoningConversion && !forceFormat {
+	// When conversion is disabled, preserve reasoning as reasoning. Silently
+	// moving it into content leaks private model deliberation to clients that
+	// did not ask for it. A client that explicitly enables thinkToContent still
+	// uses the conversion path below.
+	if !thinkToContent && !hasThinkTags && !forceFormat {
 		return helper.StringData(c, data)
 	}
 
@@ -177,18 +164,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				pendingEmptyStreamItems = append(pendingEmptyStreamItems, lastStreamData)
 			} else {
 				for _, pendingData := range pendingEmptyStreamItems {
-				if err := HandleStreamFormat(c, info, pendingData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-					common.SysLog("error handling buffered stream format: " + err.Error())
+					if err := HandleStreamFormat(c, info, pendingData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+						common.SysLog("error handling buffered stream format: " + err.Error())
+						sr.Stop(err)
+						return
+					}
+				}
+				pendingEmptyStreamItems = nil
+				if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					common.SysLog("error handling stream format: " + err.Error())
 					sr.Stop(err)
 					return
 				}
-			}
-			pendingEmptyStreamItems = nil
-			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				common.SysLog("error handling stream format: " + err.Error())
-				sr.Stop(err)
-				return
-			}
 				if streamDataHasOutput(info.RelayMode, lastStreamData) {
 					streamOutputSent = true
 				}
@@ -371,25 +358,8 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	thinkTagsNormalized := false
-	reasoningConverted := false
 	if info.RelayFormat == types.RelayFormatOpenAI && !info.ChannelSetting.ThinkingToContent {
 		thinkTagsNormalized = normalizeTextResponseThinkTags(&simpleResponse)
-		// 自动兜底：当 reasoning_content 非空但 content 为空时，将 reasoning_content 转为 content
-		// 确保不支持 reasoning_content 字段的下游客户端能看到内容
-		for i := range simpleResponse.Choices {
-			message := &simpleResponse.Choices[i].Message
-			if !message.IsStringContent() {
-				continue
-			}
-			reasoning := message.GetReasoningContent()
-			content := message.StringContent()
-			if reasoning != "" && content == "" {
-				message.SetStringContent(reasoning)
-				message.ReasoningContent = nil
-				message.Reasoning = nil
-				reasoningConverted = true
-			}
-		}
 	}
 
 	usageModified := false
@@ -416,9 +386,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		if usageModified || thinkTagsNormalized || reasoningConverted {
+		if usageModified || thinkTagsNormalized {
 			var bodyMap map[string]interface{}
-			if !thinkTagsNormalized && !reasoningConverted && !forceFormat {
+			if !thinkTagsNormalized && !forceFormat {
 				err = common.Unmarshal(responseBody, &bodyMap)
 				if err != nil {
 					return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)

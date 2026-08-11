@@ -35,9 +35,11 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 
 	savedRelayMode := info.RelayMode
 	savedRequestURLPath := info.RequestURLPath
+	savedIsStream := info.IsStream
 	defer func() {
 		info.RelayMode = savedRelayMode
 		info.RequestURLPath = savedRequestURLPath
+		info.IsStream = savedIsStream
 	}()
 
 	info.RelayMode = relayconstant.RelayModeChatCompletions
@@ -88,6 +90,7 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 	var lastApiErr *types.NewAPIError
 	var httpResp *http.Response
 	statusCodeMappingStr := c.GetString("status_code_mapping")
+	clientStream := info.IsStream
 	for attempt := 0; attempt <= upstreamRetryTimes; attempt++ {
 		var reqBody io.Reader = bytes.NewBuffer(jsonData)
 		if attempt == 0 {
@@ -125,7 +128,11 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 			Closer: httpResp.Body,
 			Buf:    upstreamBuf,
 		}
-		info.IsStream = info.IsStream || isEventStream(httpResp)
+		upstreamStream := isEventStream(httpResp)
+		// Keep the downstream stream contract separate from the upstream
+		// Content-Type. Adapters need the latter while response conversion must
+		// honor what the client requested.
+		info.IsStream = clientStream || upstreamStream
 		if httpResp.StatusCode != http.StatusOK {
 			napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
@@ -141,8 +148,12 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 		var usage *dto.Usage
 		var napiErr *types.NewAPIError
 		if isOpenAICompatibleAPIType(info.ApiType) {
-			if info.IsStream {
+			if upstreamStream && clientStream {
 				usage, napiErr = openaichannel.ChatCompletionsToResponsesStreamHandler(c, info, httpResp)
+			} else if upstreamStream {
+				usage, napiErr = openaichannel.ChatCompletionsToResponsesBufferedStreamHandler(c, info, httpResp)
+			} else if clientStream {
+				usage, napiErr = openaichannel.ChatCompletionsToResponsesStreamFromJSONHandler(c, info, httpResp)
 			} else {
 				usage, napiErr = openaichannel.ChatCompletionsToResponsesHandler(c, info, httpResp)
 			}
@@ -150,11 +161,12 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 			// Native adaptors may return a provider-specific response even though
 			// their request protocol is Chat. Normalize that response through the
 			// adaptor first, then reuse the standard Chat -> Responses converter.
-			usage, napiErr = normalizeAdaptorChatResponseToResponses(c, info, adaptor, httpResp)
+			info.IsStream = upstreamStream
+			usage, napiErr = normalizeAdaptorChatResponseToResponses(c, info, adaptor, httpResp, upstreamStream, clientStream)
 		}
 		if napiErr != nil {
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
-			if info.IsStream || napiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens && attempt >= upstreamRetryTimes {
+			if (upstreamStream && clientStream) || napiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens && attempt >= upstreamRetryTimes {
 				return nil, napiErr
 			}
 			lastApiErr = napiErr
@@ -181,7 +193,7 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 // translate its provider response into the normal Chat Completions response
 // before the shared Chat -> Responses conversion runs. This keeps protocol
 // selection independent from the provider-specific API type.
-func normalizeAdaptorChatResponseToResponses(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, upstreamResp *http.Response) (*dto.Usage, *types.NewAPIError) {
+func normalizeAdaptorChatResponseToResponses(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, upstreamResp *http.Response, upstreamStream bool, clientStream bool) (*dto.Usage, *types.NewAPIError) {
 	originalWriter := c.Writer
 	bufferWriter := &chatResponseBufferWriter{ResponseWriter: originalWriter}
 	c.Writer = bufferWriter
@@ -204,8 +216,14 @@ func normalizeAdaptorChatResponseToResponses(c *gin.Context, info *relaycommon.R
 		Header:     bufferWriter.Header().Clone(),
 		Body:       io.NopCloser(bytes.NewReader(bufferWriter.buf.Bytes())),
 	}
-	if info.IsStream {
+	if upstreamStream && clientStream {
 		return openaichannel.ChatCompletionsToResponsesStreamHandler(c, info, normalizedResp)
+	}
+	if upstreamStream {
+		return openaichannel.ChatCompletionsToResponsesBufferedStreamHandler(c, info, normalizedResp)
+	}
+	if clientStream {
+		return openaichannel.ChatCompletionsToResponsesStreamFromJSONHandler(c, info, normalizedResp)
 	}
 	return openaichannel.ChatCompletionsToResponsesHandler(c, info, normalizedResp)
 }

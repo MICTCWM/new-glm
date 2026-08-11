@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
@@ -69,12 +70,13 @@ func TestSendRetryWaitNoticeByRelayFormat(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			ctx, _ := gin.CreateTestContext(recorder)
 			ctx.Request = httptest.NewRequest(http.MethodPost, tt.path, nil)
+			allowReassuranceForTest(t)
 			info := &relaycommon.RelayInfo{
 				IsStream:        true,
 				RelayFormat:     tt.format,
 				RelayMode:       tt.mode,
 				OriginModelName: "retry-model",
-				ChannelMeta:     &relaycommon.ChannelMeta{},
+				ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: 1},
 			}
 			info.SetEstimatePromptTokens(123)
 
@@ -88,6 +90,15 @@ func TestSendRetryWaitNoticeByRelayFormat(t *testing.T) {
 			}
 		})
 	}
+}
+
+func allowReassuranceForTest(t *testing.T) {
+	t.Helper()
+	previous := common.ReassuranceChannelIDsJSONString()
+	require.NoError(t, common.UpdateReassuranceChannelIDs("[1]"))
+	t.Cleanup(func() {
+		require.NoError(t, common.UpdateReassuranceChannelIDs(previous))
+	})
 }
 
 func TestSendRetryWaitNoticeNoopsForNonStream(t *testing.T) {
@@ -105,4 +116,27 @@ func TestSendRetryWaitNoticeNoopsForNonStream(t *testing.T) {
 	require.False(t, SendRetryWaitNotice(ctx, info))
 	require.Empty(t, recorder.Body.String())
 	require.False(t, recorder.Flushed)
+}
+
+func TestSendRetryWaitNoticeNoopsForDisallowedChannel(t *testing.T) {
+	previous := common.ReassuranceChannelIDsJSONString()
+	require.NoError(t, common.UpdateReassuranceChannelIDs("[]"))
+	t.Cleanup(func() {
+		require.NoError(t, common.UpdateReassuranceChannelIDs(previous))
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		IsStream:        true,
+		RelayFormat:     types.RelayFormatOpenAI,
+		RelayMode:       relayconstant.RelayModeChatCompletions,
+		OriginModelName: "retry-model",
+		ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: 1},
+	}
+
+	require.False(t, SendRetryWaitNotice(ctx, info))
+	require.Empty(t, recorder.Body.String())
+	require.False(t, info.RpmQueueThinkingNoticeSent)
 }

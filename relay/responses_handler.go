@@ -29,10 +29,15 @@ func shouldRouteResponsesThroughChat(info *relaycommon.RelayInfo) bool {
 	if info == nil || info.RelayMode != relayconstant.RelayModeResponses {
 		return false
 	}
-	if info.ChannelType == appconstant.ChannelTypeAnthropic {
+	return !service.ResponsesProtocolRequiredForChannel(info.ChannelSetting, info.ChannelType)
+}
+
+func isUnimplementedAdaptorError(err error) bool {
+	if err == nil {
 		return false
 	}
-	return !service.ResponsesProtocolRequiredForChannel(info.ChannelSetting, info.ChannelType)
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "not implemented") || strings.Contains(message, "is not implemented")
 }
 
 func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
@@ -146,6 +151,19 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	} else {
 		convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
 		if err != nil {
+			// A channel that is configured as Chat must already be handled by the
+			// bridge above. For legacy channel records that still say Responses,
+			// only fall back when the adaptor explicitly reports that its Responses
+			// converter is absent. Other conversion errors remain hard errors so a
+			// malformed request is never silently changed into another protocol.
+			if isUnimplementedAdaptorError(err) {
+				usage, bridgeErr := responsesViaChatCompletions(c, info, adaptor, request)
+				if bridgeErr != nil {
+					return bridgeErr
+				}
+				service.PostTextConsumeQuota(c, info, usage, nil)
+				return nil
+			}
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)

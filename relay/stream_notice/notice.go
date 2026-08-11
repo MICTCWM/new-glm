@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -27,6 +28,16 @@ func SendRetryMessage(c *gin.Context, info *relaycommon.RelayInfo, message strin
 
 func sendThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo, notice string, logLabel string) bool {
 	if info == nil || !info.IsStream {
+		return false
+	}
+	if c != nil && c.Request != nil && c.Request.Context().Err() != nil {
+		return false
+	}
+	channelID := common.GetContextKeyInt(c, appconstant.ContextKeyChannelId)
+	if channelID == 0 && info.ChannelMeta != nil {
+		channelID = info.ChannelMeta.ChannelId
+	}
+	if !common.IsReassuranceChannel(channelID) {
 		return false
 	}
 	if info.ChannelMeta == nil {

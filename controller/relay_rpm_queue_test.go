@@ -371,6 +371,7 @@ func TestSendRpmQueueThinkingNoticeByRelayFormat(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			ctx, _ := gin.CreateTestContext(recorder)
 			ctx.Request = httptest.NewRequest(http.MethodPost, tt.path, nil)
+			allowReassuranceForTest(t, ctx)
 			info := &relaycommon.RelayInfo{
 				IsStream:        true,
 				RelayFormat:     tt.format,
@@ -397,6 +398,7 @@ func TestSendEmergencyPlanThinkingNoticeUsesHardInferencePreambleAndReassurance(
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	allowReassuranceForTest(t, ctx)
 	info := &relaycommon.RelayInfo{
 		IsStream:        true,
 		RelayFormat:     types.RelayFormatOpenAI,
@@ -438,6 +440,7 @@ func TestWaitForRpmQueueSendsStreamNoticeAfterEnqueue(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	allowReassuranceForTest(t, ctx)
 	info := &relaycommon.RelayInfo{
 		RequestId:       "rpm-queue-notice-test",
 		IsStream:        true,
@@ -484,4 +487,14 @@ func TestWaitForRpmQueueSendsStreamNoticeAfterEnqueue(t *testing.T) {
 	require.NotEqual(t, -1, queueNoticeIndex)
 	require.NotEqual(t, -1, waitNoticeIndex)
 	require.Greater(t, waitNoticeIndex, queueNoticeIndex)
+}
+
+func allowReassuranceForTest(t *testing.T, ctx *gin.Context) {
+	t.Helper()
+	previous := common.ReassuranceChannelIDsJSONString()
+	require.NoError(t, common.UpdateReassuranceChannelIDs("[1]"))
+	common.SetContextKey(ctx, constant.ContextKeyChannelId, 1)
+	t.Cleanup(func() {
+		require.NoError(t, common.UpdateReassuranceChannelIDs(previous))
+	})
 }

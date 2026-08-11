@@ -68,6 +68,29 @@ func TestGlobalRpmTrackerCountsQueuedRequestsAsLoad(t *testing.T) {
 	}
 }
 
+func TestGlobalRpmTrackerIgnoresQueueItemsOutsideOverloadProtection(t *testing.T) {
+	oldLimit := common.OverloadProtectionRPM
+	common.OverloadProtectionRPM = 1
+	ResetGlobalRpmTracker()
+	for GetRpmQueue().GetQueueLength() > 0 {
+		GetRpmQueue().Dequeue()
+	}
+	t.Cleanup(func() {
+		common.OverloadProtectionRPM = oldLimit
+		ResetGlobalRpmTracker()
+		for GetRpmQueue().GetQueueLength() > 0 {
+			GetRpmQueue().Dequeue()
+		}
+	})
+
+	tracker := GetGlobalRpmTracker()
+	GetRpmQueue().Enqueue(RpmQueueItemMeta{ChannelID: 10, CountsForOverload: false})
+	require.False(t, tracker.IsOverloaded())
+
+	GetRpmQueue().Enqueue(RpmQueueItemMeta{ChannelID: 20, CountsForOverload: true})
+	require.True(t, tracker.IsOverloaded())
+}
+
 func TestGlobalRpmTrackerDisabledAtZero(t *testing.T) {
 	oldLimit := common.OverloadProtectionRPM
 	common.OverloadProtectionRPM = 0

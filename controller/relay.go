@@ -182,20 +182,55 @@ func retryCurrentChannelOnce(c *gin.Context, info *relaycommon.RelayInfo, relayF
 	}
 }
 
-const detachedFallbackContextTimeout = 5 * time.Minute
-
-const requestContextCancelledMessage = "请求已完成，但用户已取消上下文"
+const requestContextCancelledMessage = "请求因客户端取消而终止"
 
 func isContextCancelledAPIError(err *types.NewAPIError) bool {
 	return err != nil && errors.Is(err, context.Canceled)
 }
 
 func requestContextIsCancelled(c *gin.Context) bool {
-	return c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled)
+	if c == nil || c.Request == nil {
+		return false
+	}
+	ctxErr := c.Request.Context().Err()
+	return errors.Is(ctxErr, context.Canceled) || errors.Is(ctxErr, context.DeadlineExceeded)
+}
+
+func shouldMaskQueuedRelayError(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	switch err.GetErrorCode() {
+	case types.ErrorCodeDoRequestFailed,
+		types.ErrorCodeReadResponseBodyFailed,
+		types.ErrorCodeBadResponseStatusCode,
+		types.ErrorCodeBadResponse,
+		types.ErrorCodeBadResponseBody,
+		types.ErrorCodeEmptyResponse,
+		types.ErrorCodeAwsInvokeError,
+		types.ErrorCodeChannelAwsClientError,
+		types.ErrorCodeChannelResponseTimeExceeded,
+		types.ErrorCodeChannelZeroOutputTokens:
+		return true
+	default:
+		return false
+	}
+}
+
+func newRequestContextCancelledError() *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		context.Canceled,
+		types.ErrorCodeDoRequestFailed,
+		http.StatusInternalServerError,
+		types.ErrOptionWithSkipRetry(),
+	)
 }
 
 func shouldRefundRelayBilling(c *gin.Context) bool {
-	return c == nil || !c.GetBool("request_context_cancelled")
+	// BillingSession.Refund is idempotent and skips settled sessions. Do not
+	// suppress it merely because the client disconnected: a canceled request
+	// may still have an outstanding pre-consume that must be returned.
+	return true
 }
 
 // markContextCancelledResponse keeps the HTTP status successful while retaining
@@ -213,36 +248,6 @@ func markContextCancelledResponse(c *gin.Context, err *types.NewAPIError) {
 	}
 	err.StatusCode = http.StatusOK
 	err.SetMessage(requestContextCancelledMessage)
-}
-
-// detachCancelledRequestContext gives the fallback chain a live context when
-// the primary attempt ended because the request context was cancelled.
-// Without this, both the fallback HTTP request and stream writer immediately
-// fail with "request context done: context canceled". Values from the original
-// request context are retained, but cancellation is intentionally detached.
-//
-// The cancel function is owned by Relay's outer response defer so the detached
-// context remains usable while the final fallback response/error is written.
-func detachCancelledRequestContext(c *gin.Context) context.CancelFunc {
-	if c == nil || c.Request == nil {
-		return nil
-	}
-	originalContext := c.Request.Context()
-	if originalContext.Err() == nil {
-		return nil
-	}
-
-	timeout := detachedFallbackContextTimeout
-	if common.RequestMaxDuration > 0 {
-		configuredTimeout := time.Duration(common.RequestMaxDuration) * time.Second
-		if configuredTimeout < timeout {
-			timeout = configuredTimeout
-		}
-	}
-	detachedContext, cancel := context.WithTimeout(context.WithoutCancel(originalContext), timeout)
-	c.Request = c.Request.WithContext(detachedContext)
-	common.SysLog(fmt.Sprintf("主请求上下文已取消，兜底阶段切换到独立上下文，timeout=%s", timeout))
-	return cancel
 }
 
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
@@ -269,10 +274,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
 	var (
-		newAPIError           *types.NewAPIError
-		ws                    *websocket.Conn
-		relayInfo             *relaycommon.RelayInfo
-		fallbackContextCancel context.CancelFunc
+		newAPIError *types.NewAPIError
+		ws          *websocket.Conn
+		relayInfo   *relaycommon.RelayInfo
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -286,11 +290,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	defer func() {
-		// Keep the detached context alive until the final response/error has
-		// been written, then release its timer.
-		if fallbackContextCancel != nil {
-			defer fallbackContextCancel()
-		}
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
 			// 使用用户友好的错误消息返回给客户端
@@ -390,6 +389,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.SetEstimatePromptTokens(tokens)
 
 	// 视觉路由：检测到图片时自动路由到视觉模型描述图片
+	if requestContextIsCancelled(c) {
+		newAPIError = newRequestContextCancelledError()
+		return
+	}
 	if service.ShouldVisionRoute(relayFormat, relayInfo.OriginModelName, request) {
 		// 发送思考提示（流式请求才发送）
 		sendVisionRouteNotice(c, relayInfo)
@@ -447,7 +450,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	acquiredTrackers := make([]*service.RpmTracker, 0)
 	globalRpmAcquired := false
 	globalRpmCounted := false // whether the request was actually admitted and counted
-	wasQueued := false // track whether request ever entered the RPM queue
+	wasQueued := false        // track whether request ever entered the RPM queue
 	queueDeadline := time.Time{}
 	queueNoticeSent := false
 	runtimeRpmFull := false
@@ -494,6 +497,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	maxRetryTimes := 0
 
 	for ; retryParam.GetRetry() <= maxRetryTimes; retryParam.IncreaseRetry() {
+		if requestContextIsCancelled(c) {
+			requestContextCancelled = true
+			newAPIError = newRequestContextCancelledError()
+			requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
+			break
+		}
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		if !c.GetBool("daily_usage_limit_triggered") && model.HasAvailableFallbackChannels() && dailyUsageLimitExceeded(c) {
 			c.Set("daily_usage_limit_triggered", true)
@@ -521,7 +530,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					continue
 				}
 				wasQueued = true
-				newAPIError = newRpmQueueTimeoutError()
+				newAPIError = rpmQueueWaitFailure(c)
 				break
 			}
 			logger.LogError(c, channelErr.Error())
@@ -570,6 +579,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 		}
 		retryParam.InitialSelectionDone = true
+		if relayInfo.ChannelMeta == nil || relayInfo.ChannelMeta.ChannelId != channel.Id {
+			relayInfo.InitChannelMeta(c)
+		}
 
 		// GPT 专用渠道走原生模式：跳过重试和参数覆盖
 		if channelSetting := channel.GetSetting(); channelSetting.GptModeRequired && relayInfo.UserGptMode {
@@ -609,7 +621,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 						continue
 					}
 					wasQueued = true
-					newAPIError = newRpmQueueTimeoutError()
+					newAPIError = rpmQueueWaitFailure(c)
 					break
 				}
 
@@ -626,7 +638,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 						continue
 					}
 					wasQueued = true
-					newAPIError = newRpmQueueTimeoutError()
+					newAPIError = rpmQueueWaitFailure(c)
 					break
 				}
 				continue
@@ -634,14 +646,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			runtimeRpmFull = false
 			selectedChannel = channel
 			acquiredTrackers = append(acquiredTrackers, tracker)
-			// Count the request against the global overload RPM only now that it is
-			// actually admitted. A request parked in the queue is counted by the
-			// queue length instead, so this avoids double-counting the same request.
-			if !globalRpmCounted && shouldApplyRpmOverloadProtection(c, channel) {
-				globalRpmCounted = true
-				service.GetGlobalRpmTracker().TryAcquire()
-			}
-			}
+		}
+		// Unlimited-RPM channels are admitted here too. They still need to count
+		// toward overload protection when explicitly selected for that feature.
+		if channel.MaxRPM <= 0 {
+			selectedChannel = channel
+		}
+		// Count only after the request is admitted. Queue entries for selected
+		// overload channels are counted separately, so this is never double-counted.
+		if !globalRpmCounted && shouldApplyRpmOverloadProtection(c, channel) {
+			globalRpmCounted = true
+			service.GetGlobalRpmTracker().TryAcquire()
+		}
 
 		if c.GetBool("fallback_triggered") && !fallbackTransferTriggered(c) {
 			if channel.MaxRPM > 0 && len(acquiredTrackers) > 0 {
@@ -723,17 +739,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			return
 		}
+		if isContextCancelledAPIError(newAPIError) || requestContextIsCancelled(c) {
+			requestContextCancelled = true
+			requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
+			newAPIError = newRequestContextCancelledError()
+			relayInfo.LastError = newAPIError
+			break
+		}
 
 		if relayInfo.SpecialUsageAttempt > 0 {
 			service.RecordSpecialUsageFromRelay(c, relayInfo, 0, 0, 0, model.SpecialUsageStatusFailed, newAPIError.GetUserFriendlyMessage())
 		}
-		if requestContextIsCancelled(c) {
-			requestContextCancelled = true
-			requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
-			c.Set("request_context_cancelled", true)
-			c.Set("request_context_cancelled_detail", requestContextCancelDetail)
-		}
-
 		// 客户端已断开连接：保留第一条真正的上游错误，不用断开导致的错误覆盖
 		if c.Request != nil && c.Request.Context().Err() != nil && relayInfo.LastError != nil {
 			common.SysLog("客户端已断开连接，保留之前的错误不覆盖")
@@ -793,7 +809,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// Try every available fallback channel in order. For an oversized context,
 	// keep the existing special case and replace the fallback chain with one
 	// more request to the channel that is already selected.
-	canFallback := canRelayFallback(c, retryParam)
+	canFallback := !requestContextCancelled && !requestContextIsCancelled(c) && canRelayFallback(c, retryParam)
 	if canFallback && shouldReplaceFallbackWithRetry(relayInfo) {
 		common.SysLog(fmt.Sprintf("输入 token 超过兜底限制，跳过兜底并对当前渠道额外重试: tokens=%d, limit=%d",
 			relayInfo.GetEstimatePromptTokens(), fallbackInputTokenLimit))
@@ -816,14 +832,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		relayInfo.LastError = newAPIError
 	} else if canFallback {
 		common.SysLog(fmt.Sprintf("主请求失败后开始逐个尝试兜底渠道: retry=%d, available=%d", retryParam.GetRetry(), len(model.GetFallbackChannels())))
-		// A cancelled client/request context must not poison the fallback chain.
-		// Keep the detached context alive until the final response is written.
-		if fallbackContextCancel == nil {
-			fallbackContextCancel = detachCancelledRequestContext(c)
-		}
-
 		fallbackAttempt := 0
 		for model.HasAvailableFallbackChannelsExcludingUsed(retryParam.UsedChannelIds) {
+			if requestContextIsCancelled(c) {
+				requestContextCancelled = true
+				newAPIError = newRequestContextCancelledError()
+				requestContextCancelDetail = newAPIError.ErrorWithStatusCode()
+				break
+			}
 			// getChannel marks the selected channel as fallback_triggered. Clear
 			// the previous failed attempt so it can select the next one.
 			c.Set("fallback_triggered", false)
@@ -852,6 +868,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				selectedChannel = fallbackChannel
 				acquiredTrackers = append(acquiredTrackers, tracker)
 			}
+			if !globalRpmCounted && shouldApplyRpmOverloadProtection(c, fallbackChannel) {
+				globalRpmCounted = true
+				service.GetGlobalRpmTracker().TryAcquire()
+			}
 
 			addUsedChannel(c, fallbackChannel)
 			retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, fallbackChannel.Id)
@@ -872,9 +892,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				return
 			}
 
-			if isContextCancelledAPIError(fallbackErr) {
+			if isContextCancelledAPIError(fallbackErr) || requestContextIsCancelled(c) {
 				requestContextCancelled = true
 				requestContextCancelDetail = fallbackErr.ErrorWithStatusCode()
+				newAPIError = newRequestContextCancelledError()
+				relayInfo.LastError = newAPIError
+				break
 			}
 
 			// Keep fallback errors in the admin/channel logs only. They are never
@@ -907,7 +930,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		logger.LogInfo(c, retryLogStr)
 	}
 	if newAPIError != nil {
-		if c.GetBool("emergency_used") && !fallbackErrorReturned {
+		if c.GetBool("emergency_used") && !fallbackErrorReturned && !requestContextCancelled && !isContextCancelledAPIError(newAPIError) {
 			// 没有主渠道错误可返回时，单独屏蔽应急渠道错误；
 			// 兜底链全部失败时 fallbackErrorReturned=true，保留主渠道错误。
 			newAPIError = maskEmergencyPlanError(c, newAPIError)
@@ -938,7 +961,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Only return "hard inference failed" for requests that went through the queue
 		// AND exhausted all retries. Normal (non-queued) failures preserve their original error.
 		// 503 错误保留原始上游消息（经脱敏后透传），其他错误覆写为硬推理失败
-		if wasQueued && newAPIError.GetErrorCode() != types.ErrorCodeRpmQueueTimeout && newAPIError.StatusCode != http.StatusServiceUnavailable {
+		if wasQueued && shouldMaskQueuedRelayError(newAPIError) && !requestContextCancelled && !isContextCancelledAPIError(newAPIError) && newAPIError.GetErrorCode() != types.ErrorCodeRpmQueueTimeout && newAPIError.StatusCode != http.StatusServiceUnavailable {
 			// Request was queued, dequeued, tried all retries but all failed
 			// Return controlled message - NEVER expose raw upstream content
 			newAPIError = types.NewErrorWithStatusCode(
@@ -965,6 +988,14 @@ func sendEmergencyPlanThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo
 	return sendEmergencyPlanThinkingNoticeWithDelay(c, info, emergencyPlanThinkingDelay)
 }
 
+func relayChannelID(c *gin.Context, info *relaycommon.RelayInfo) int {
+	channelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+	if channelID == 0 && info != nil && info.ChannelMeta != nil {
+		channelID = info.ChannelMeta.ChannelId
+	}
+	return channelID
+}
+
 func sendEmergencyPlanThinkingNoticeWithDelay(c *gin.Context, info *relaycommon.RelayInfo, delay time.Duration) bool {
 	if info == nil || !info.IsStream || info.EmergencyPlanThinkingNoticeSent {
 		return false
@@ -973,7 +1004,7 @@ func sendEmergencyPlanThinkingNoticeWithDelay(c *gin.Context, info *relaycommon.
 	// A retry may have selected a different channel while RelayInfo still holds
 	// the previous channel metadata. Refresh it before encoding protocol-specific
 	// notice fields such as force_format and thinking_to_content.
-	currentChannelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+	currentChannelID := relayChannelID(c, info)
 	if info.ChannelMeta != nil && info.ChannelMeta.ChannelId != currentChannelID {
 		info.ChannelMeta = nil
 	}
@@ -992,7 +1023,7 @@ func sendEmergencyPlanThinkingNoticeWithDelay(c *gin.Context, info *relaycommon.
 
 	// 仅当当前渠道在「支持安抚性语言的渠道」列表中才下发紧急方案安抚性提示，
 	// 其余渠道保持静默，避免对所有渠道统一下发安抚内容。
-	if !common.IsReassuranceChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelId)) {
+	if !common.IsReassuranceChannel(relayChannelID(c, info)) {
 		info.EmergencyPlanThinkingNoticeSent = true
 		return true
 	}
@@ -1026,11 +1057,13 @@ func sendRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInfo) boo
 	if info == nil || !info.IsStream {
 		return false
 	}
+	if requestContextIsCancelled(c) {
+		return false
+	}
 	// 仅在系统设置「支持安抚性语言的渠道」列表中才推送排队安抚性语言与硬推理提示，
 	// 其余渠道保持静默，避免对所有渠道统一下发安抚内容。
-	if !common.IsReassuranceChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelId)) {
-		info.RpmQueueThinkingNoticeSent = true
-		return true
+	if !common.IsReassuranceChannel(relayChannelID(c, info)) {
+		return false
 	}
 	if info.ChannelMeta == nil {
 		info.InitChannelMeta(c)
@@ -1174,6 +1207,12 @@ func sendClaudeRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.RelayInf
 // 复用 RPM 排队提示机制，但使用视觉路由专用文案
 func sendVisionRouteNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	if info == nil || !info.IsStream {
+		return false
+	}
+	if requestContextIsCancelled(c) {
+		return false
+	}
+	if !common.IsReassuranceChannel(relayChannelID(c, info)) {
 		return false
 	}
 	if info.ChannelMeta == nil {
@@ -1363,21 +1402,39 @@ func newRpmQueueTimeoutError() *types.NewAPIError {
 	)
 }
 
+func rpmQueueWaitFailure(c *gin.Context) *types.NewAPIError {
+	if requestContextIsCancelled(c) {
+		return newRequestContextCancelledError()
+	}
+	return newRpmQueueTimeoutError()
+}
+
 func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDeadline *time.Time, queueNoticeSent *bool) bool {
 	logger.LogInfo(c, "All channels RPM full, entering queue...")
+	if requestContextIsCancelled(c) {
+		return false
+	}
 	if queueDeadline.IsZero() {
 		*queueDeadline = time.Now().Add(common.RpmQueueTimeout)
 	}
 	if !time.Now().Before(*queueDeadline) {
 		return false
 	}
+	selectedChannel, _ := common.GetContextKeyType[*model.Channel](c, constant.ContextKeySelectedChannel)
+	channelID := relayChannelID(c, relayInfo)
+	countsForOverload := selectedChannel != nil && shouldApplyRpmOverloadProtection(c, selectedChannel)
+	if relayInfo.ChannelMeta == nil || relayInfo.ChannelMeta.ChannelId != channelID {
+		relayInfo.InitChannelMeta(c)
+	}
 	queueItem := service.GetRpmQueue().Enqueue(service.RpmQueueItemMeta{
-		RequestID:    relayInfo.RequestId,
-		Username:     c.GetString("username"),
-		UserID:       relayInfo.UserId,
-		Group:        relayInfo.TokenGroup,
-		ModelName:    relayInfo.GetDisplayModelName(),
-		PromptTokens: relayInfo.GetEstimatePromptTokens(),
+		RequestID:         relayInfo.RequestId,
+		ChannelID:         channelID,
+		CountsForOverload: countsForOverload,
+		Username:          c.GetString("username"),
+		UserID:            relayInfo.UserId,
+		Group:             relayInfo.TokenGroup,
+		ModelName:         relayInfo.GetDisplayModelName(),
+		PromptTokens:      relayInfo.GetEstimatePromptTokens(),
 	})
 	if !*queueNoticeSent {
 		*queueNoticeSent = sendRpmQueueThinkingNotice(c, relayInfo)
@@ -1392,6 +1449,9 @@ func waitForRpmQueue(c *gin.Context, relayInfo *relaycommon.RelayInfo, queueDead
 		done = c.Request.Context().Done()
 	}
 	if waitRpmQueueTurn(c, queueItem, *queueDeadline, done) {
+		if requestContextIsCancelled(c) {
+			return false
+		}
 		logger.LogInfo(c, "Dequeued from RPM queue, retrying...")
 		relay.SendRetryWaitNotice(c, relayInfo)
 		return true

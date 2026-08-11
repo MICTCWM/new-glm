@@ -56,7 +56,7 @@ func GetGlobalRpmTracker() *GlobalRpmTracker {
 // queue and the admitted count can never reach the threshold, so overload
 // protection would silently never trigger.
 func (t *GlobalRpmTracker) effectiveLoad() int {
-	return len(t.timestamps) + GetRpmQueue().GetQueueLength()
+	return len(t.timestamps) + GetRpmQueue().GetOverloadQueueLength()
 }
 
 // IsOverloaded reports whether the next selected-channel request would exceed

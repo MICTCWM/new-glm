@@ -11,29 +11,57 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WaitBeforeRetry(c *gin.Context, info *relaycommon.RelayInfo, delay time.Duration, retryNumber int, label string) {
+func WaitBeforeRetry(c *gin.Context, info *relaycommon.RelayInfo, delay time.Duration, retryNumber int, label string) bool {
 	if delay <= 0 {
-		return
+		return true
+	}
+	if c != nil && c.Request != nil && c.Request.Context().Err() != nil {
+		return false
 	}
 	if label == "" {
 		label = "retry"
 	}
 	logger.LogInfo(c, fmt.Sprintf("%s #%d: waiting %v before next attempt", label, retryNumber, delay))
 	SendRetryWaitNotice(c, info)
-	time.Sleep(delay)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	if c == nil || c.Request == nil {
+		<-timer.C
+		return true
+	}
+	select {
+	case <-timer.C:
+		return true
+	case <-c.Request.Context().Done():
+		return false
+	}
 }
 
 // WaitBeforeMaxRetry 极限重试模式下，第6次起每次重试前发送 "retry X/total" 提示并等待
-func WaitBeforeMaxRetry(c *gin.Context, info *relaycommon.RelayInfo, retryNumber int, total int) {
+func WaitBeforeMaxRetry(c *gin.Context, info *relaycommon.RelayInfo, retryNumber int, total int) bool {
 	delay := common.MaxRetryDelay
 	if delay <= 0 {
-		return
+		return true
+	}
+	if c != nil && c.Request != nil && c.Request.Context().Err() != nil {
+		return false
 	}
 	msg := fmt.Sprintf("retry %d/%d", retryNumber, total)
 	logger.LogInfo(c, fmt.Sprintf("max retry #%d: waiting %v before next attempt (%s)", retryNumber, delay, msg))
 	// 发送固定格式提示到 thinking/reasoning_content 通道
 	streamnotice.SendRetryMessage(c, info, msg)
-	time.Sleep(delay)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	if c == nil || c.Request == nil {
+		<-timer.C
+		return true
+	}
+	select {
+	case <-timer.C:
+		return true
+	case <-c.Request.Context().Done():
+		return false
+	}
 }
 
 func SendRetryWaitNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
@@ -55,8 +83,7 @@ func ApplyRetryDelay(c *gin.Context, info *relaycommon.RelayInfo, attempt int, l
 		delay = common.RetryDelays[attempt]
 	}
 	if delay > 0 {
-		WaitBeforeRetry(c, info, delay, attempt+1, label)
-		return true
+		return WaitBeforeRetry(c, info, delay, attempt+1, label)
 	}
 	return false
 }

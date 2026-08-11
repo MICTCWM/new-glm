@@ -14,11 +14,11 @@ func TestShouldRefundRelayBillingKeepsRefundForUnmarkedCancelledRequest(t *testi
 	require.True(t, shouldRefundRelayBilling(c))
 }
 
-func TestShouldRefundRelayBillingSkipsMarkedCancelledRequest(t *testing.T) {
+func TestShouldRefundRelayBillingKeepsRefundForMarkedCancelledRequest(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Set("request_context_cancelled", true)
 
-	require.False(t, shouldRefundRelayBilling(c))
+	require.True(t, shouldRefundRelayBilling(c))
 }
 
 func TestShouldRefundRelayBillingKeepsRefundForRealFailure(t *testing.T) {
