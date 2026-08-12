@@ -1254,6 +1254,11 @@ func specialBucketWindow(sub *UserSubscription, plan *SubscriptionPlan, bucketTy
 	start := base + index*duration
 	end := start + duration
 	if sub.EndTime > 0 && end > sub.EndTime {
+		// 周限额只允许完整周窗口：若订阅时长不能整除出完整周（如 30 天订阅
+		// 余下不足一周的天数），这些天不提供周限额，回退到小时限额。
+		if bucketType == SubscriptionUsageBucketWeekly {
+			return 0, 0, ErrSpecialWeeklyPartialWindow
+		}
 		end = sub.EndTime
 	}
 	return start, end, nil
@@ -1265,6 +1270,10 @@ func getSpecialUsageBucketTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 	}
 	start, end, err := specialBucketWindow(sub, plan, bucketType, now)
 	if err != nil {
+		// 订阅末尾不足一个完整周窗口时，周限额不可用，返回 nil bucket 由调用方回退到小时限额
+		if bucketType == SubscriptionUsageBucketWeekly && errors.Is(err, ErrSpecialWeeklyPartialWindow) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var bucket SubscriptionUsageBucket
@@ -1292,6 +1301,10 @@ func getSpecialUsageBucketTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 func getCurrentSpecialUsageBucket(sub *UserSubscription, plan *SubscriptionPlan, bucketType string, now int64) (*SubscriptionUsageBucket, error) {
 	start, end, err := specialBucketWindow(sub, plan, bucketType, now)
 	if err != nil {
+		// 订阅末尾不足一个完整周窗口时，周限额不可用，返回 nil bucket 由调用方回退到小时限额
+		if bucketType == SubscriptionUsageBucketWeekly && errors.Is(err, ErrSpecialWeeklyPartialWindow) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	var bucket SubscriptionUsageBucket
@@ -1344,8 +1357,11 @@ func decorateSubscriptionWithSpecialUsage(sub *UserSubscription) {
 	}
 	if sub.HourlyLimitEnabled {
 		sub.EffectiveQuotaMode = SubscriptionUsageBucketHourly
-	} else {
+	} else if weekly != nil {
 		sub.EffectiveQuotaMode = SubscriptionUsageBucketWeekly
+	} else {
+		// 订阅末尾不足一个完整周窗口，周限额不可用，回退到小时限额
+		sub.EffectiveQuotaMode = SubscriptionUsageBucketHourly
 	}
 }
 
@@ -1446,7 +1462,9 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 					if err != nil {
 						return err
 					}
-					if sub.HourlyLimitEnabled {
+					if sub.HourlyLimitEnabled || weeklyBucket == nil {
+						// 用户选择小时限额，或订阅末尾不足一个完整周窗口（周限额不可用）时，
+						// 一律按小时限额校验
 						usedBefore = hourlyBucket.AmountUsed
 						effectiveLimit = plan.HourlyAmountLimit
 						if effectiveLimit > 0 && effectiveLimit-usedBefore < amount {
@@ -1758,18 +1776,20 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 				return err
 			}
 			hourly.AmountUsed += delta
-			weekly.AmountUsed += delta
 			if hourly.AmountUsed < 0 {
 				hourly.AmountUsed = 0
-			}
-			if weekly.AmountUsed < 0 {
-				weekly.AmountUsed = 0
 			}
 			if err := tx.Save(hourly).Error; err != nil {
 				return err
 			}
-			if err := tx.Save(weekly).Error; err != nil {
-				return err
+			if weekly != nil {
+				weekly.AmountUsed += delta
+				if weekly.AmountUsed < 0 {
+					weekly.AmountUsed = 0
+				}
+				if err := tx.Save(weekly).Error; err != nil {
+					return err
+				}
 			}
 		} else if sub.WeeklyAmountLimit > 0 {
 			newWeeklyUsed := sub.WeeklyAmountUsed + delta

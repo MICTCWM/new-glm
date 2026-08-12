@@ -151,7 +151,10 @@ func GetV1UsageQuota(c *gin.Context) {
 			used := sub.Subscription.AmountUsed
 			resetTime := sub.Subscription.NextResetTime
 			if sub.Subscription.SpecialQuotaEnabled {
-				if sub.Subscription.HourlyLimitEnabled {
+				// 以 EffectiveQuotaMode 为准：订阅末尾不足一个完整周窗口时，
+				// 周限额不可用，EffectiveQuotaMode 会被强制为 hourly，
+				// 此时应展示小时限额而非周限额。
+				if sub.Subscription.HourlyLimitEnabled || sub.Subscription.EffectiveQuotaMode == model.SubscriptionUsageBucketHourly {
 					limit = sub.Subscription.HourlyAmountLimit
 					used = sub.Subscription.HourlyAmountUsed
 					resetTime = sub.Subscription.HourlyPeriodEnd

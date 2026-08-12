@@ -520,7 +520,7 @@ const SubscriptionPlansCard = ({
                         )}
                         {specialQuotaEnabled && isActive && (
                           <div className='text-xs text-gray-500 mb-2'>
-                            {subscription?.hourly_limit_enabled !== false
+                            {subscription?.effective_quota_mode === 'hourly'
                               ? `${t('小时用量')}: ${renderQuota(hourlyUsed)}/${renderQuota(hourlyLimit)} · ${t('剩余')} ${renderQuota(Math.max(0, hourlyLimit - hourlyUsed))}${hourlyPeriodEnd > 0 ? ` · ${t('重置于')} ${new Date(hourlyPeriodEnd * 1000).toLocaleString()}` : ''}`
                               : `${t('特殊周用量')}: ${renderQuota(specialWeeklyUsed)}/${renderQuota(specialWeeklyLimit)} · ${t('剩余')} ${renderQuota(Math.max(0, specialWeeklyLimit - specialWeeklyUsed))}${specialWeeklyPeriodEnd > 0 ? ` · ${t('重置于')} ${new Date(specialWeeklyPeriodEnd * 1000).toLocaleString()}` : ''}`}
                           </div>

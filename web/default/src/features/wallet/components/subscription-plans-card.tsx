@@ -549,7 +549,7 @@ export function SubscriptionPlansCard({
                       )}
                       {specialQuotaEnabled && isActive && (
                         <div className='text-muted-foreground mt-2 space-y-1'>
-                          {subscription?.hourly_limit_enabled !== false ? (
+                          {subscription?.effective_quota_mode === 'hourly' ? (
                             <>
                               <div>
                                 {t('Hourly Usage')}: {formatQuota(hourlyUsed)}/
