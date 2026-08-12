@@ -150,8 +150,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var toolCount int
 	var usage = &dto.Usage{}
 	var streamItems []string // store stream items
-	var pendingEmptyStreamItems []string
-	var pendingUsageStreamData string
 	var lastStreamData string
 	var lastStreamDataSent bool
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
@@ -174,61 +172,25 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		lastStreamDataSent = false
 		streamItems = append(streamItems, data)
 
-		sendData := func(streamData string, markAsLast bool) bool {
-			if err := HandleStreamFormat(c, info, streamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				common.SysLog("error handling stream format: " + err.Error())
-				sr.Stop(err)
-				return false
-			}
-			if markAsLast {
-				lastStreamDataSent = true
-			}
-			return true
+		// OpenAI 格式且客户端未请求 usage（stream_options.include_usage=false）时，
+		// 丢弃仅含 usage 的 chunk，与 handleLastResponse 的 shouldSendLastResp 逻辑一致。
+		// Claude/Gemini 等格式仍需将 usage 交给格式转换器（计费依赖该数据）。
+		if info.RelayFormat == types.RelayFormatOpenAI &&
+			!info.ShouldIncludeUsage &&
+			streamDataIsUsageOnly(info.RelayMode, data) {
+			return
 		}
 
-		flushPendingEmpty := func() bool {
-			for _, pendingData := range pendingEmptyStreamItems {
-				if !sendData(pendingData, false) {
-					return false
-				}
-			}
-			pendingEmptyStreamItems = nil
-			return true
+		// 每个 chunk 到达后立即转发，不做内部缓存。
+		if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			common.SysLog("error handling stream format: " + err.Error())
+			sr.Stop(err)
+			return
 		}
-
-		// Zero-output retry requires delaying only metadata/empty chunks before
-		// the first real output. Once output arrives, flush that metadata and
-		// send the current chunk in the same callback instead of waiting for a
-		// later upstream token.
-		if !streamOutputSent {
-			if !streamDataHasOutput(info.RelayMode, data) {
-				pendingEmptyStreamItems = append(pendingEmptyStreamItems, data)
-				return
-			}
-			if !flushPendingEmpty() || !sendData(data, true) {
-				return
-			}
+		if streamDataHasOutput(info.RelayMode, data) {
 			streamOutputSent = true
-			return
 		}
-
-		// The final usage-only chunk must remain deferred so include_usage=false
-		// can suppress it. It is otherwise safe to forward every chunk as soon
-		// as it arrives, including finish_reason chunks.
-		if streamDataIsUsageOnly(info.RelayMode, data) {
-			if pendingUsageStreamData != "" && !sendData(pendingUsageStreamData, false) {
-				return
-			}
-			pendingUsageStreamData = data
-			return
-		}
-		if pendingUsageStreamData != "" {
-			if !sendData(pendingUsageStreamData, false) {
-				return
-			}
-			pendingUsageStreamData = ""
-		}
-		sendData(data, true)
+		lastStreamDataSent = true
 	})
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
@@ -296,23 +258,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
-		for _, pendingData := range pendingEmptyStreamItems {
-			if pendingData == lastStreamData && !shouldSendLastResp {
-				continue
-			}
-			if err := HandleStreamFormat(c, info, pendingData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
-			}
-			if pendingData == lastStreamData {
-				lastStreamDataSent = true
-			}
-		}
-		if pendingUsageStreamData != "" && shouldSendLastResp && !lastStreamDataSent {
-			if err := sendStreamData(c, info, pendingUsageStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
-			}
-			lastStreamDataSent = pendingUsageStreamData == lastStreamData
-		}
 		if shouldSendLastResp && !lastStreamDataSent {
 			// 强制把流式 chunk 的 model 字段覆盖为用户原始请求的 model ID
 			lastStreamData = relaycommon.OverrideStreamChunkModel(lastStreamData, info)

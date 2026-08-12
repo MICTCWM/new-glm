@@ -91,7 +91,7 @@ func TestOpenaiHandlerRetriesZeroOutputBeforeWriting(t *testing.T) {
 	}
 }
 
-func TestOaiStreamHandlerRetriesZeroOutputBeforeWriting(t *testing.T) {
+func TestOaiStreamHandlerRetriesZeroOutput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -129,8 +129,14 @@ func TestOaiStreamHandlerRetriesZeroOutputBeforeWriting(t *testing.T) {
 	if apiErr.GetErrorCode() != types.ErrorCodeChannelZeroOutputTokens {
 		t.Fatalf("error code = %s, want %s", apiErr.GetErrorCode(), types.ErrorCodeChannelZeroOutputTokens)
 	}
-	if recorder.Body.Len() != 0 {
-		t.Fatalf("response body was written: %q", recorder.Body.String())
+	// 缓存机制移除后，空 chunk（role）会立即转发，但 usage-only chunk 不会被转发，
+	// 也不应泄露任何正文内容。
+	written := recorder.Body.String()
+	if strings.Contains(written, `"usage"`) {
+		t.Fatalf("usage-only chunk should not be forwarded when include_usage=false: %q", written)
+	}
+	if strings.Contains(written, `"content"`) {
+		t.Fatalf("no content should be written for a zero-output stream: %q", written)
 	}
 }
 
