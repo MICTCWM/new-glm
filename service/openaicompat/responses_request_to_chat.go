@@ -43,6 +43,13 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 	if req.StreamOptions != nil {
 		out.StreamOptions = &dto.StreamOptions{IncludeUsage: req.StreamOptions.IncludeUsage}
 	}
+	// Streaming Requests clients usually omit stream_options, while OpenAI
+	// compatible upstreams only append a usage chunk when include_usage is
+	// requested explicitly. Without it token accounting and billing miss the
+	// stream usage, so inject the flag unless the caller set stream_options.
+	if lo.FromPtrOr(req.Stream, false) && out.StreamOptions == nil {
+		out.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
+	}
 	if req.Reasoning != nil {
 		out.ReasoningEffort = req.Reasoning.Effort
 	}
@@ -88,6 +95,96 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 	return out, nil
 }
 
+// responsesInputState folds the flat Responses input item list into Chat
+// messages. Responses models reasoning and tool calls as top-level items,
+// while Chat attaches them to the assistant message. A single turn may
+// interleave several reasoning/function_call items, so fragments are
+// accumulated in the state until the next message boundary decides where they
+// belong.
+type responsesInputState struct {
+	pendingReasoning   strings.Builder
+	pendingToolCalls   []dto.ToolCallRequest
+	lastAssistantIndex int // index of the last assistant message; -1 = none
+}
+
+func newResponsesInputState() *responsesInputState {
+	return &responsesInputState{lastAssistantIndex: -1}
+}
+
+func (s *responsesInputState) hasPendingReasoning() bool {
+	return strings.TrimSpace(s.pendingReasoning.String()) != ""
+}
+
+func (s *responsesInputState) takePendingReasoning() string {
+	reasoning := strings.TrimSpace(s.pendingReasoning.String())
+	s.pendingReasoning.Reset()
+	return reasoning
+}
+
+func (s *responsesInputState) appendReasoning(reasoning string) {
+	reasoning = strings.TrimSpace(reasoning)
+	if reasoning == "" {
+		return
+	}
+	if s.pendingReasoning.Len() > 0 {
+		s.pendingReasoning.WriteString("\n\n")
+	}
+	s.pendingReasoning.WriteString(reasoning)
+}
+
+// attachPendingReasoning moves pending reasoning into an assistant message,
+// appending to reasoning content that is already present.
+func (s *responsesInputState) attachPendingReasoning(message *dto.Message) {
+	reasoning := s.takePendingReasoning()
+	if reasoning == "" {
+		return
+	}
+	if existing := message.GetReasoningContent(); existing != "" {
+		message.ReasoningContent = lo.ToPtr(existing + "\n\n" + reasoning)
+	} else {
+		message.ReasoningContent = lo.ToPtr(reasoning)
+	}
+}
+
+// flushPendingToolCalls emits the accumulated function calls as one assistant
+// message, attaching any pending reasoning to it. Consecutive function_call
+// items belong to the same parallel tool-call batch in Chat, so they must not
+// be split into separate assistant messages.
+func (s *responsesInputState) flushPendingToolCalls(messages *[]dto.Message) {
+	if len(s.pendingToolCalls) == 0 {
+		return
+	}
+	message := dto.Message{Role: "assistant"}
+	message.SetToolCalls(s.pendingToolCalls)
+	s.pendingToolCalls = nil
+	s.attachPendingReasoning(&message)
+	*messages = append(*messages, message)
+	s.lastAssistantIndex = len(*messages) - 1
+}
+
+// backfillReasoningToLastAssistant attaches remaining pending reasoning to the
+// previous assistant message. Reasoning must not leak across a user turn, so
+// non-assistant boundaries call this before appending a message.
+func (s *responsesInputState) backfillReasoningToLastAssistant(messages []dto.Message) {
+	if !s.hasPendingReasoning() {
+		return
+	}
+	if s.lastAssistantIndex < 0 || s.lastAssistantIndex >= len(messages) {
+		return
+	}
+	message := &messages[s.lastAssistantIndex]
+	if message.Role != "assistant" {
+		return
+	}
+	s.attachPendingReasoning(message)
+}
+
+// finish emits whatever is still pending at the end of the input list.
+func (s *responsesInputState) finish(messages *[]dto.Message) {
+	s.flushPendingToolCalls(messages)
+	s.backfillReasoningToLastAssistant(*messages)
+}
+
 func responsesInputToChatMessages(raw json.RawMessage) ([]dto.Message, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
@@ -107,92 +204,193 @@ func responsesInputToChatMessages(raw json.RawMessage) ([]dto.Message, error) {
 	}
 
 	messages := make([]dto.Message, 0, len(items))
+	state := newResponsesInputState()
 	for _, item := range items {
 		if text, ok := item.(string); ok {
+			state.flushPendingToolCalls(&messages)
+			state.backfillReasoningToLastAssistant(messages)
 			messages = append(messages, dto.Message{Role: "user", Content: text})
+			state.lastAssistantIndex = -1
 			continue
 		}
 		itemMap, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		message, extra, err := responsesInputItemToChatMessage(itemMap)
-		if err != nil {
+		if err := state.appendItem(itemMap, &messages); err != nil {
 			return nil, err
 		}
-		if message != nil {
-			messages = append(messages, *message)
-		}
-		if extra != nil {
-			messages = append(messages, *extra)
-		}
 	}
+	state.finish(&messages)
+	backfillToolCallReasoningPlaceholders(messages)
 	return messages, nil
 }
 
-func responsesInputItemToChatMessage(item map[string]any) (*dto.Message, *dto.Message, error) {
-	typeName := strings.TrimSpace(common.Interface2String(item["type"]))
-	role := strings.TrimSpace(common.Interface2String(item["role"]))
-
-	switch typeName {
-	case "input_text", "output_text", "text", "input_image", "image_url", "input_audio", "audio", "input_file", "file":
-		content, err := responsesMessageContent([]any{item})
-		if err != nil {
-			return nil, nil, err
-		}
-		message := &dto.Message{Role: "user"}
-		setChatMessageContent(message, content)
-		return message, nil, nil
-	case "function_call":
-		callID := common.Interface2String(item["call_id"])
-		if callID == "" {
-			callID = common.Interface2String(item["id"])
-		}
-		name := common.Interface2String(item["name"])
-		arguments := responsesArgumentsString(item["arguments"])
-		message := &dto.Message{Role: "assistant"}
-		message.SetToolCalls([]dto.ToolCallRequest{{
-			ID:   callID,
-			Type: "function",
-			Function: dto.FunctionRequest{
-				Name:      name,
-				Arguments: arguments,
-			},
-		}})
-		return message, nil, nil
-	case "function_call_output":
-		message := &dto.Message{
-			Role:       "tool",
-			ToolCallId: common.Interface2String(item["call_id"]),
-		}
-		message.SetStringContent(responsesValueString(item["output"]))
-		return message, nil, nil
+// appendItem folds one Responses input item into the message list according to
+// its type. reasoning/function_call fragments are accumulated in the state;
+// everything else acts as a message boundary.
+func (s *responsesInputState) appendItem(item map[string]any, messages *[]dto.Message) error {
+	switch strings.TrimSpace(common.Interface2String(item["type"])) {
 	case "reasoning":
-		message := &dto.Message{Role: "assistant"}
-		reasoning := responsesOutputContentText(item["summary"])
-		if reasoning == "" {
-			reasoning = responsesOutputContentText(item["content"])
-		}
-		if reasoning != "" {
-			message.ReasoningContent = &reasoning
-		}
-		return message, nil, nil
+		s.appendReasoning(responsesReasoningItemText(item))
+		return nil
+	case "function_call":
+		s.pendingToolCalls = append(s.pendingToolCalls, responsesFunctionCallToChatToolCall(item))
+		return nil
+	case "function_call_output":
+		return s.appendFunctionCallOutput(item, messages)
+	case "input_text", "output_text", "text", "input_image", "image_url", "input_audio", "audio", "input_file", "file":
+		return s.appendContentItem(item, messages)
+	default:
+		// "message" type and any item carrying a role are mapped by role.
+		return s.appendRoleMessage(item, strings.TrimSpace(common.Interface2String(item["role"])), messages)
 	}
+}
 
+func (s *responsesInputState) appendFunctionCallOutput(item map[string]any, messages *[]dto.Message) error {
+	s.flushPendingToolCalls(messages)
+	message := &dto.Message{
+		Role:       "tool",
+		ToolCallId: common.Interface2String(item["call_id"]),
+	}
+	message.SetStringContent(responsesValueString(item["output"]))
+	*messages = append(*messages, *message)
+	return nil
+}
+
+func (s *responsesInputState) appendContentItem(item map[string]any, messages *[]dto.Message) error {
+	s.flushPendingToolCalls(messages)
+
+	role := "user"
+	if itemRole := strings.TrimSpace(common.Interface2String(item["role"])); itemRole != "" {
+		role = responsesRoleToChatRole(itemRole)
+	}
+	message := &dto.Message{Role: role}
+	content, err := responsesMessageContent([]any{item})
+	if err != nil {
+		return err
+	}
+	setChatMessageContent(message, content)
+	if role == "assistant" {
+		// Reasoning that precedes this assistant content belongs to it.
+		s.attachPendingReasoning(message)
+	} else {
+		// Non-assistant content is a turn boundary; leftover reasoning goes
+		// back to the previous assistant message.
+		s.backfillReasoningToLastAssistant(*messages)
+	}
+	*messages = append(*messages, *message)
+	if role == "assistant" {
+		s.lastAssistantIndex = len(*messages) - 1
+	} else {
+		s.lastAssistantIndex = -1
+	}
+	return nil
+}
+
+func (s *responsesInputState) appendRoleMessage(item map[string]any, role string, messages *[]dto.Message) error {
 	if role == "" {
 		role = "user"
 	}
-	message := &dto.Message{Role: role}
+	chatRole := responsesRoleToChatRole(role)
+
+	s.flushPendingToolCalls(messages)
+
+	message := &dto.Message{Role: chatRole}
 	content, err := responsesMessageContent(item["content"])
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	setChatMessageContent(message, content)
-
 	if toolCalls := responsesMessageToolCalls(item["tool_calls"]); len(toolCalls) > 0 {
 		message.SetToolCalls(toolCalls)
 	}
-	return message, nil, nil
+
+	if chatRole == "assistant" {
+		// Assistant messages may carry reasoning inline (round-tripped from a
+		// previous Chat response); fold it in front of any pending reasoning.
+		if reasoning := responsesMessageReasoningText(item); reasoning != "" {
+			s.appendReasoning(reasoning)
+		}
+		s.attachPendingReasoning(message)
+		*messages = append(*messages, *message)
+		s.lastAssistantIndex = len(*messages) - 1
+		return nil
+	}
+
+	// Turn boundary: reasoning must not leak into the next assistant message.
+	s.backfillReasoningToLastAssistant(*messages)
+	*messages = append(*messages, *message)
+	if chatRole != "tool" {
+		s.lastAssistantIndex = -1
+	}
+	return nil
+}
+
+func responsesReasoningItemText(item map[string]any) string {
+	reasoning := responsesOutputContentText(item["summary"])
+	if reasoning == "" {
+		reasoning = responsesOutputContentText(item["content"])
+	}
+	return reasoning
+}
+
+func responsesMessageReasoningText(item map[string]any) string {
+	for _, key := range []string{"reasoning", "reasoning_content"} {
+		if text, ok := item[key].(string); ok {
+			if trimmed := strings.TrimSpace(text); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
+func responsesFunctionCallToChatToolCall(item map[string]any) dto.ToolCallRequest {
+	callID := common.Interface2String(item["call_id"])
+	if callID == "" {
+		callID = common.Interface2String(item["id"])
+	}
+	return dto.ToolCallRequest{
+		ID:   callID,
+		Type: "function",
+		Function: dto.FunctionRequest{
+			Name:      common.Interface2String(item["name"]),
+			Arguments: responsesArgumentsString(item["arguments"]),
+		},
+	}
+}
+
+func responsesRoleToChatRole(role string) string {
+	switch role {
+	case "system", "developer":
+		return "system"
+	case "assistant":
+		return "assistant"
+	case "tool":
+		return "tool"
+	default:
+		return "user"
+	}
+}
+
+// backfillToolCallReasoningPlaceholders ensures every assistant message that
+// carries tool calls also has a non-empty reasoning_content. Thinking models
+// (kimi, DeepSeek) reject assistant tool-call messages without
+// reasoning_content, so a placeholder is injected when no real reasoning text
+// could be recovered from the Responses input.
+func backfillToolCallReasoningPlaceholders(messages []dto.Message) {
+	for i := range messages {
+		message := &messages[i]
+		if message.Role != "assistant" || len(message.ParseToolCalls()) == 0 {
+			continue
+		}
+		if strings.TrimSpace(message.GetReasoningContent()) != "" {
+			continue
+		}
+		placeholder := "tool call"
+		message.ReasoningContent = &placeholder
+	}
 }
 
 func responsesMessageContent(raw any) (any, error) {

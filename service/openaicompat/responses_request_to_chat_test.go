@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -160,6 +161,151 @@ func TestResponsesRequestToChatRejectsUnsupportedNestedNamespaceTool(t *testing.
 
 	_, err := ResponsesRequestToChatCompletionsRequest(req)
 	require.EqualError(t, err, `responses namespace tool "crm" contains unsupported tool type "mcp"`)
+}
+
+func TestResponsesRequestToChatAttachesReasoningToToolCallTurn(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: []byte(`[
+			{"role":"user","content":"find it"},
+			{"type":"reasoning","summary":[{"type":"summary_text","text":"searching..."}]},
+			{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"q\":\"x\"}"},
+			{"type":"function_call_output","call_id":"call_1","output":"ok"}
+		]`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 3)
+
+	// reasoning 与 function_call 必须合并到同一条 assistant 消息,
+	// 而不是拆成两条独立的 assistant 消息。
+	assistant := got.Messages[1]
+	require.Equal(t, "assistant", assistant.Role)
+	require.Equal(t, "searching...", assistant.GetReasoningContent())
+	calls := assistant.ParseToolCalls()
+	require.Len(t, calls, 1)
+	require.Equal(t, "call_1", calls[0].ID)
+	require.Equal(t, "lookup", calls[0].Function.Name)
+
+	toolMsg := got.Messages[2]
+	require.Equal(t, "tool", toolMsg.Role)
+	require.Equal(t, "call_1", toolMsg.ToolCallId)
+	require.Equal(t, "ok", toolMsg.StringContent())
+}
+
+func TestResponsesRequestToChatAccumulatesParallelToolCalls(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: []byte(`[
+			{"role":"user","content":"both"},
+			{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"},
+			{"type":"function_call","call_id":"call_2","name":"search","arguments":"{}"},
+			{"type":"function_call_output","call_id":"call_1","output":"a"},
+			{"type":"function_call_output","call_id":"call_2","output":"b"}
+		]`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 4)
+
+	// 连续的 function_call 必须合并为同一条 assistant 消息(并行工具调用),
+	// 且该消息必须携带 reasoning_content 占位,thinking 模型才接受。
+	assistant := got.Messages[1]
+	calls := assistant.ParseToolCalls()
+	require.Len(t, calls, 2)
+	require.Equal(t, "call_1", calls[0].ID)
+	require.Equal(t, "call_2", calls[1].ID)
+	require.Equal(t, "tool call", assistant.GetReasoningContent())
+
+	require.Equal(t, "tool", got.Messages[2].Role)
+	require.Equal(t, "tool", got.Messages[3].Role)
+}
+
+func TestResponsesRequestToChatDoesNotLeakReasoningAcrossUserTurn(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: []byte(`[
+			{"role":"user","content":"q1"},
+			{"role":"assistant","content":"a1"},
+			{"type":"reasoning","summary":[{"type":"summary_text","text":"thinking for turn two"}]},
+			{"role":"user","content":"q2"},
+			{"role":"assistant","content":"a2"}
+		]`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 4)
+
+	// reasoning 必须回溯附挂到 turn1 的 assistant,不能泄漏到 a2。
+	require.Equal(t, "a1", got.Messages[1].StringContent())
+	require.Equal(t, "thinking for turn two", got.Messages[1].GetReasoningContent())
+	require.Empty(t, got.Messages[3].GetReasoningContent())
+}
+
+func TestResponsesRequestToChatBackfillsTrailingReasoning(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: []byte(`[
+			{"role":"user","content":"q"},
+			{"role":"assistant","content":"a"},
+			{"type":"reasoning","summary":[{"type":"summary_text","text":"trailing think"}]}
+		]`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 2)
+	require.Equal(t, "trailing think", got.Messages[1].GetReasoningContent())
+}
+
+func TestResponsesRequestToChatInjectsReasoningPlaceholderForToolCalls(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model: "gpt-test",
+		Input: []byte(`[
+			{"role":"user","content":"go"},
+			{"role":"assistant","content":null,"tool_calls":[
+				{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}
+			]}
+		]`),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Len(t, got.Messages, 2)
+
+	assistant := got.Messages[1]
+	require.Len(t, assistant.ParseToolCalls(), 1)
+	require.Equal(t, "tool call", assistant.GetReasoningContent())
+}
+
+func TestResponsesRequestToChatInjectsStreamIncludeUsage(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model:  "gpt-test",
+		Input:  []byte(`"hello"`),
+		Stream: lo.ToPtr(true),
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.NotNil(t, got.StreamOptions)
+	require.True(t, got.StreamOptions.IncludeUsage)
+}
+
+func TestResponsesRequestToChatPreservesExplicitStreamOptions(t *testing.T) {
+	req := &dto.OpenAIResponsesRequest{
+		Model:         "gpt-test",
+		Input:         []byte(`"hello"`),
+		Stream:        lo.ToPtr(true),
+		StreamOptions: &dto.StreamOptions{IncludeUsage: false},
+	}
+
+	got, err := ResponsesRequestToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.NotNil(t, got.StreamOptions)
+	require.False(t, got.StreamOptions.IncludeUsage)
 }
 
 func mustMarshal(t *testing.T, value any) []byte {
