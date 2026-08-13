@@ -55,6 +55,11 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=min
+          # 阿里云 ACR 不接受 buildx 生成的 OCI attestation 清单
+          # (application/vnd.oci.empty.v1+json),必须显式禁用 provenance/SBOM,
+          # 否则 push 阶段报 denied: unknown manifest class
+          provenance: false
+          sbom: false
           tags: |
             ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ secrets.ALIYUN_REGISTRY_HOST }}/${{ secrets.ALIYUN_REGISTRY_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
