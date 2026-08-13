@@ -174,7 +174,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		resp, err := adaptor.DoRequest(c, info, reqBody)
 		if err != nil {
 			lastApiErr = types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -183,7 +183,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		}
 		if resp == nil {
 			lastApiErr = types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -203,7 +203,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 			napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			lastApiErr = napiErr
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -221,7 +221,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			if napiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
 				lastApiErr = napiErr
-				if attempt >= upstreamRetryTimes {
+				if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 					return nil, lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
@@ -229,7 +229,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				continue
 			}
 			lastApiErr = napiErr
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1

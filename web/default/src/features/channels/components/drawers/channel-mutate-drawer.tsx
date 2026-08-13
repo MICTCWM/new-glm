@@ -451,6 +451,7 @@ export function ChannelMutateDrawer({
   const emergencyPlanEnabled = form.watch('emergency_plan_enabled')
   const fallbackModelEnabled = form.watch('fallback_model_enabled')
   const gptModeRequired = form.watch('gpt_mode_required')
+  const disableAutoRetry = form.watch('disable_auto_retry')
   const specialBilling = form.watch('special_billing')
   const watchedSpecialBillingPrices = form.watch('special_billing_prices')
   const specialBillingPrices = useMemo(
@@ -4117,6 +4118,58 @@ export function ChannelMutateDrawer({
                   </div>
                 </CollapsibleContent>
               </Collapsible>
+
+              {/* ── Automatic Retry ── */}
+              <div className='flex flex-col gap-4 border-b px-4 py-4'>
+                <FormField
+                  control={form.control}
+                  name='disable_auto_retry'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between gap-4'>
+                      <div className='flex items-start gap-2'>
+                        <RefreshCw className='text-muted-foreground mt-0.5 size-4' />
+                        <div className='flex flex-col gap-1'>
+                          <FormLabel>{t('Disable Automatic Retry')}</FormLabel>
+                          <FormDescription>
+                            {t(
+                              'By default, this channel retries upstream errors automatically. Enable this to send the first upstream error back without retrying.'
+                            )}
+                          </FormDescription>
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name='auto_retry_skip_error_codes'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Do Not Retry Error Codes')}</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          rows={4}
+                          disabled={disableAutoRetry}
+                          placeholder={'429\nchannel:zero_output_tokens'}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Enter one HTTP status code or internal error code per line. Leave empty to retry all errors. This list is ignored when automatic retry is disabled.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <div className='flex flex-col gap-4 border-b px-4 py-4'>
                 <FormField

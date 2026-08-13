@@ -64,7 +64,7 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			reqReader, cErr = adaptor.ConvertAudioRequest(c, info, *request)
 			if cErr != nil {
 				lastApiErr = types.NewError(cErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-				if attempt >= upstreamRetryTimes {
+				if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
@@ -83,7 +83,7 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		resp, err := adaptor.DoRequest(c, info, reqReader)
 		if err != nil {
 			lastApiErr = types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -109,7 +109,7 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 				service.ResetStatusCode(napiErr, statusCodeMappingStr)
 				lastApiErr = napiErr
-				if attempt >= upstreamRetryTimes {
+				if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
@@ -129,7 +129,7 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		if napiErr != nil {
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			lastApiErr = napiErr
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1

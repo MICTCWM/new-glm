@@ -65,6 +65,8 @@ export const channelFormSchema = z.object({
   special_user_enabled: z.boolean().optional(),
   special_user_ids: z.array(z.number()).optional(),
   gpt_mode_required: z.boolean().optional(),
+  disable_auto_retry: z.boolean().optional(),
+  auto_retry_skip_error_codes: z.string().optional(),
   emergency_plan_enabled: z.boolean().optional(),
   fallback_model_enabled: z.boolean().optional(),
   fallback_model: z.string().optional(),
@@ -156,6 +158,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   special_user_enabled: false,
   special_user_ids: [],
   gpt_mode_required: false,
+  disable_auto_retry: false,
+  auto_retry_skip_error_codes: '',
   emergency_plan_enabled: false,
   fallback_model_enabled: false,
   fallback_model: '',
@@ -210,6 +214,8 @@ export function transformChannelToFormDefaults(
     special_user_enabled: false,
     special_user_ids: [] as number[],
     gpt_mode_required: false,
+    disable_auto_retry: false,
+    auto_retry_skip_error_codes: '',
     emergency_plan_enabled: false,
     fallback_model_enabled: false,
     fallback_model: '',
@@ -241,6 +247,12 @@ export function transformChannelToFormDefaults(
               .filter((id: number) => Number.isInteger(id) && id > 0)
           : [],
         gpt_mode_required: parsed.gpt_mode_required === true,
+        disable_auto_retry: parsed.disable_auto_retry === true,
+        auto_retry_skip_error_codes: Array.isArray(
+          parsed.auto_retry_skip_error_codes
+        )
+          ? parsed.auto_retry_skip_error_codes.join('\n')
+          : '',
         emergency_plan_enabled: parsed.emergency_plan_enabled === true,
         fallback_model_enabled: parsed.fallback_model_enabled === true,
         fallback_model: parsed.fallback_model || '',
@@ -477,6 +489,15 @@ function buildSettingJSON(formData: ChannelFormValues): string {
           )
         : [],
     gpt_mode_required: formData.gpt_mode_required === true,
+    disable_auto_retry: formData.disable_auto_retry === true,
+    auto_retry_skip_error_codes: Array.from(
+      new Set(
+        (formData.auto_retry_skip_error_codes || '')
+          .split(/\r?\n/)
+          .map((code) => code.trim())
+          .filter(Boolean)
+      )
+    ),
     emergency_plan_enabled: formData.emergency_plan_enabled === true,
     fallback_model_enabled: formData.fallback_model_enabled === true,
     fallback_model: formData.fallback_model || '',

@@ -103,6 +103,8 @@ export interface ChannelSettings {
   special_user_enabled?: boolean
   special_user_ids?: number[]
   gpt_mode_required?: boolean
+  disable_auto_retry?: boolean
+  auto_retry_skip_error_codes?: string[]
   emergency_plan_enabled?: boolean
 fallback_model_enabled?: boolean
 	fallback_model?: string

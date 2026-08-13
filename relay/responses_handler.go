@@ -229,7 +229,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		resp, err := adaptor.DoRequest(c, info, reqBody)
 		if err != nil {
 			lastApiErr = types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -263,7 +263,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 				service.ResetStatusCode(napiErr, statusCodeMappingStr)
 				lastApiErr = napiErr
-				if attempt >= upstreamRetryTimes {
+				if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
@@ -284,7 +284,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			if napiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
 				lastApiErr = napiErr
-				if attempt >= upstreamRetryTimes {
+				if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
@@ -298,7 +298,7 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 				continue
 			}
 			lastApiErr = napiErr
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1

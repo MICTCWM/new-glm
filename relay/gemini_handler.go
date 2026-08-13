@@ -225,7 +225,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		if err != nil {
 			logger.LogError(c, "Do gemini request failed: "+err.Error())
 			lastApiErr = types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -259,7 +259,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 				service.ResetStatusCode(napiErr, statusCodeMappingStr)
 				lastApiErr = napiErr
-				if attempt >= upstreamRetryTimes {
+				if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
@@ -285,7 +285,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 			if openaiErr.GetErrorCode() == types.ErrorCodeChannelZeroOutputTokens {
 				lastApiErr = openaiErr
-				if attempt >= upstreamRetryTimes {
+				if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
@@ -299,7 +299,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				continue
 			}
 			lastApiErr = openaiErr
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -432,7 +432,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 		if err != nil {
 			logger.LogError(c, "Do gemini request failed: "+err.Error())
 			lastApiErr = types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -458,7 +458,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 				service.ResetStatusCode(napiErr, statusCodeMappingStr)
 				lastApiErr = napiErr
-				if attempt >= upstreamRetryTimes {
+				if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 					return lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
@@ -477,7 +477,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 		if openaiErr != nil {
 			service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 			lastApiErr = openaiErr
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1

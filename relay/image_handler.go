@@ -113,7 +113,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		resp, err := adaptor.DoRequest(c, info, reqBody)
 		if err != nil {
 			lastApiErr = types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
@@ -142,7 +142,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 					napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 					service.ResetStatusCode(napiErr, statusCodeMappingStr)
 					lastApiErr = napiErr
-					if attempt >= upstreamRetryTimes {
+					if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 						return lastApiErr
 					}
 					info.UpstreamRetryCount = attempt + 1
@@ -163,7 +163,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		if napiErr != nil {
 			service.ResetStatusCode(napiErr, statusCodeMappingStr)
 			lastApiErr = napiErr
-			if attempt >= upstreamRetryTimes {
+			if !canRetryUpstream(info, lastApiErr, attempt, upstreamRetryTimes) {
 				return lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1

@@ -27,17 +27,19 @@ type ChannelSettings struct {
 	SpecialUserEnabled           bool                             `json:"special_user_enabled,omitempty"`
 	SpecialUserIds               []int                            `json:"special_user_ids,omitempty"`
 	GptModeRequired              bool                             `json:"gpt_mode_required,omitempty"`
+	DisableAutoRetry             bool                             `json:"disable_auto_retry,omitempty"`          // 是否关闭该渠道的自动重试
+	AutoRetrySkipErrorCodes      []string                         `json:"auto_retry_skip_error_codes,omitempty"` // 命中这些 HTTP 状态码或内部错误码时不重试
 	EmergencyPlanEnabled         bool                             `json:"emergency_plan_enabled,omitempty"`
-FallbackModelEnabled         bool                             `json:"fallback_model_enabled,omitempty"`          // 是否启用兜底模式
-		FallbackModel                string                           `json:"fallback_model,omitempty"`                  // 兜底模型名（上游实际请求的模型名）
-		FallbackModelReasoningEffort string                           `json:"fallback_model_reasoning_effort,omitempty"` // 兜底模型思考等级
-		FallbackPriority             int                              `json:"fallback_priority,omitempty"`               // 兜底渠道优先级，数值越大越优先
-		SupportFallback              bool                             `json:"support_fallback,omitempty"`                // 是否支持错误转移（该渠道失败时是否触发转移到兜底渠道）
-		ProbeEnabled                 bool                             `json:"probe_enabled,omitempty"`                   // 是否启用渠道探针
-		SpecialBilling               bool                             `json:"special_billing,omitempty"`
-		SpecialBillingPrices         map[string][]SpecialBillingPrice `json:"special_billing_prices,omitempty"`
-		FixedModelReasoningEnabled   bool                             `json:"fixed_model_reasoning_enabled,omitempty"`    // 是否启用模型固定思考等级
-		FixedModelReasoningEfforts   map[string]string                `json:"fixed_model_reasoning_efforts,omitempty"`   // 模型→思考等级映射
+	FallbackModelEnabled         bool                             `json:"fallback_model_enabled,omitempty"`          // 是否启用兜底模式
+	FallbackModel                string                           `json:"fallback_model,omitempty"`                  // 兜底模型名（上游实际请求的模型名）
+	FallbackModelReasoningEffort string                           `json:"fallback_model_reasoning_effort,omitempty"` // 兜底模型思考等级
+	FallbackPriority             int                              `json:"fallback_priority,omitempty"`               // 兜底渠道优先级，数值越大越优先
+	SupportFallback              bool                             `json:"support_fallback,omitempty"`                // 是否支持错误转移（该渠道失败时是否触发转移到兜底渠道）
+	ProbeEnabled                 bool                             `json:"probe_enabled,omitempty"`                   // 是否启用渠道探针
+	SpecialBilling               bool                             `json:"special_billing,omitempty"`
+	SpecialBillingPrices         map[string][]SpecialBillingPrice `json:"special_billing_prices,omitempty"`
+	FixedModelReasoningEnabled   bool                             `json:"fixed_model_reasoning_enabled,omitempty"` // 是否启用模型固定思考等级
+	FixedModelReasoningEfforts   map[string]string                `json:"fixed_model_reasoning_efforts,omitempty"` // 模型→思考等级映射
 }
 
 func (s ChannelSettings) ResolveSpecialBillingPrice(model string, inputTokens int) (float64, bool) {
