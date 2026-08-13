@@ -347,6 +347,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	// 模型不支持图片校验：请求的模型在"不支持图片"列表中，且请求中包含图片时，
+	// 直接拒绝请求，不转发给上游。
+	if operation_setting.IsModelNoImage(relayInfo.OriginModelName) && service.RequestContainsImage(relayFormat, request) {
+		logger.LogInfo(c, fmt.Sprintf("model %s does not support image input, request rejected", relayInfo.OriginModelName))
+		newAPIError = types.NewOpenAIError(
+			fmt.Errorf("model %s does not support image input", relayInfo.OriginModelName),
+			types.ErrorCodeInvalidRequest,
+			http.StatusBadRequest,
+		)
+		return
+	}
+
 	// 初始化 BillingSource：GPT 专有分组使用 GPT 钱包扣费
 	// 此处提前设置，确保即使后续路径绕过 PreConsumeBilling（如免费模型），
 	// PostConsumeQuota 也能正确识别资金来源扣减 GPT 额度
@@ -448,6 +460,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var retryDelays []int
 	var selectedChannel *model.Channel // track selected channel for RPM management
 	acquiredTrackers := make([]*service.RpmTracker, 0)
+	acquiredConcurrency := make([]*service.ConcurrencyTracker, 0)
 	globalRpmAcquired := false
 	globalRpmCounted := false // whether the request was actually admitted and counted
 	wasQueued := false        // track whether request ever entered the RPM queue
@@ -461,14 +474,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	requestContextCancelDetail := ""
 
 	defer func() {
-		// Release the RPM slot and wake one queued request when a request completes.
+		// Release the RPM/concurrency slots and wake one queued request when a request completes.
 		for _, tracker := range acquiredTrackers {
 			tracker.Decrement()
+		}
+		for _, concurrencyTracker := range acquiredConcurrency {
+			concurrencyTracker.Release()
 		}
 		if globalRpmCounted {
 			service.GetGlobalRpmTracker().Decrement()
 		}
-		if selectedChannel != nil || len(acquiredTrackers) > 0 {
+		if selectedChannel != nil || len(acquiredTrackers) > 0 || len(acquiredConcurrency) > 0 {
 			service.GetRpmQueue().NotifyRpmRelease()
 		}
 	}()
@@ -589,15 +605,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			maxRetryTimes = 0 // 确保不重试
 		}
 
-		// Try to increment RPM counter for the selected channel
-		if channel.MaxRPM > 0 {
-			tracker := service.GetRpmTracker(channel.Id, channel.MaxRPM)
-			if !tracker.TryIncrement() {
-				// 兜底渠道 RPM 满：清除 fallback_triggered 标志，避免兜底永久失效，
+		// Try to acquire rate-limit slots (RPM + concurrency) for the selected channel
+		if channel.MaxRPM > 0 || channel.MaxConcurrency > 0 {
+			tracker, concurrencyTracker, slotsAcquired := acquireChannelSlots(channel)
+			if !slotsAcquired {
+				// 兜底渠道限速满（RPM 或并发）：清除 fallback_triggered 标志，避免兜底永久失效，
 				// 将该渠道加入 UsedChannelIds 后 break，让循环外兜底检查选择其他兜底渠道。
 				// 不进入 RPM 队列等待（兜底渠道不应阻塞正常请求的 RPM 队列）。
 				if c.GetBool("fallback_triggered") {
-					common.SysLog(fmt.Sprintf("兜底渠道 RPM 已满: fallback_channel_id=%d, 清除标志, 尝试其他兜底渠道", channel.Id))
+					common.SysLog(fmt.Sprintf("兜底渠道限速已满（RPM 或并发）: fallback_channel_id=%d, 清除标志, 尝试其他兜底渠道", channel.Id))
 					c.Set("fallback_triggered", false)
 					c.Set("fallback_used", false)
 					retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
@@ -609,7 +625,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				// channel splits the same prompt-cache session under load.
 				if service.IsChannelAffinityHit(c) {
 					setRelayFallbackSource(c, channel)
-					common.SysLog(fmt.Sprintf("亲和渠道 RPM 已满，保持渠道并进入队列: channel_id=%d", channel.Id))
+					common.SysLog(fmt.Sprintf("亲和渠道限速已满（RPM 或并发），保持渠道并进入队列: channel_id=%d", channel.Id))
 					runtimeRpmFull = true
 					retryParam.InitialSelectionDone = false
 					if waitForRpmQueue(c, relayInfo, &queueDeadline, &queueNoticeSent) {
@@ -625,7 +641,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					break
 				}
 
-				// RPM just filled up, skip this channel and retry another
+				// Rate limit (RPM or concurrency) just filled up, skip this channel and retry another
 				retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, channel.Id)
 				runtimeRpmFull = true
 				if retryParam.GetRetry() >= maxRetryTimes {
@@ -645,11 +661,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			runtimeRpmFull = false
 			selectedChannel = channel
-			acquiredTrackers = append(acquiredTrackers, tracker)
+			if tracker != nil {
+				acquiredTrackers = append(acquiredTrackers, tracker)
+			}
+			if concurrencyTracker != nil {
+				acquiredConcurrency = append(acquiredConcurrency, concurrencyTracker)
+			}
 		}
-		// Unlimited-RPM channels are admitted here too. They still need to count
+		// Unlimited channels are admitted here too. They still need to count
 		// toward overload protection when explicitly selected for that feature.
-		if channel.MaxRPM <= 0 {
+		if channel.MaxRPM <= 0 && channel.MaxConcurrency <= 0 {
 			selectedChannel = channel
 		}
 		// Count only after the request is admitted. Queue entries for selected
@@ -660,10 +681,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		if c.GetBool("fallback_triggered") && !fallbackTransferTriggered(c) {
-			if channel.MaxRPM > 0 && len(acquiredTrackers) > 0 {
-				tracker := acquiredTrackers[len(acquiredTrackers)-1]
-				tracker.Decrement()
-				acquiredTrackers = acquiredTrackers[:len(acquiredTrackers)-1]
+			if (channel.MaxRPM > 0 || channel.MaxConcurrency > 0) &&
+				(len(acquiredTrackers) > 0 || len(acquiredConcurrency) > 0) {
+				if len(acquiredTrackers) > 0 {
+					tracker := acquiredTrackers[len(acquiredTrackers)-1]
+					tracker.Decrement()
+					acquiredTrackers = acquiredTrackers[:len(acquiredTrackers)-1]
+				}
+				if len(acquiredConcurrency) > 0 {
+					concurrencyTracker := acquiredConcurrency[len(acquiredConcurrency)-1]
+					concurrencyTracker.Release()
+					acquiredConcurrency = acquiredConcurrency[:len(acquiredConcurrency)-1]
+				}
 				selectedChannel = nil
 			}
 			c.Set("fallback_triggered", false)
@@ -858,15 +887,20 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				continue
 			}
 
-			if fallbackChannel.MaxRPM > 0 {
-				tracker := service.GetRpmTracker(fallbackChannel.Id, fallbackChannel.MaxRPM)
-				if !tracker.TryIncrement() {
-					common.SysLog(fmt.Sprintf("兜底渠道 RPM 已满，跳过并尝试下一个: fallback_channel_id=%d", fallbackChannel.Id))
+			if fallbackChannel.MaxRPM > 0 || fallbackChannel.MaxConcurrency > 0 {
+				tracker, concurrencyTracker, slotsAcquired := acquireChannelSlots(fallbackChannel)
+				if !slotsAcquired {
+					common.SysLog(fmt.Sprintf("兜底渠道限速已满（RPM 或并发），跳过并尝试下一个: fallback_channel_id=%d", fallbackChannel.Id))
 					retryParam.UsedChannelIds = append(retryParam.UsedChannelIds, fallbackChannel.Id)
 					continue
 				}
 				selectedChannel = fallbackChannel
-				acquiredTrackers = append(acquiredTrackers, tracker)
+				if tracker != nil {
+					acquiredTrackers = append(acquiredTrackers, tracker)
+				}
+				if concurrencyTracker != nil {
+					acquiredConcurrency = append(acquiredConcurrency, concurrencyTracker)
+				}
 			}
 			if !globalRpmCounted && shouldApplyRpmOverloadProtection(c, fallbackChannel) {
 				globalRpmCounted = true
@@ -1392,6 +1426,29 @@ func sendResponsesRpmQueueThinkingNotice(c *gin.Context, info *relaycommon.Relay
 	}
 	info.RpmQueueThinkingNoticeSent = true
 	return flushRpmQueueThinkingNotice(c)
+}
+
+// acquireChannelSlots acquires the RPM and concurrency slots for a channel.
+// Both limits are checked together: when either is at capacity the request
+// must not use the channel. On partial failure the already-acquired slot is
+// released before returning false, so the caller never leaks a slot.
+func acquireChannelSlots(channel *model.Channel) (rpmTracker *service.RpmTracker, concurrencyTracker *service.ConcurrencyTracker, ok bool) {
+	if channel.MaxRPM > 0 {
+		rpmTracker = service.GetRpmTracker(channel.Id, channel.MaxRPM)
+		if !rpmTracker.TryIncrement() {
+			return nil, nil, false
+		}
+	}
+	if channel.MaxConcurrency > 0 {
+		concurrencyTracker = service.GetConcurrencyTracker(channel.Id, channel.MaxConcurrency)
+		if !concurrencyTracker.TryAcquire() {
+			if rpmTracker != nil {
+				rpmTracker.Decrement()
+			}
+			return nil, nil, false
+		}
+	}
+	return rpmTracker, concurrencyTracker, true
 }
 
 func newRpmQueueTimeoutError() *types.NewAPIError {

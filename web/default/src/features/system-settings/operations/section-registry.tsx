@@ -48,6 +48,7 @@ const OPERATIONS_SECTIONS = [
           DemoSiteEnabled: settings.DemoSiteEnabled,
           SelfUseModeEnabled: settings.SelfUseModeEnabled,
           RegionBlockEnabled: settings.RegionBlockEnabled,
+          ModelNoImageModels: settings.ModelNoImageModels ?? '',
         }}
       />
     ),

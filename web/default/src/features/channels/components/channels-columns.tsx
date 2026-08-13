@@ -445,27 +445,27 @@ function BalanceCell({ channel }: { channel: Channel }) {
 }
 
 /**
- * Animated RPM progress bar with spring physics for smooth growth/shrink.
+ * Animated rate bar (value + progress) with spring physics for smooth
+ * growth/shrink. Used for both RPM and concurrency usage.
  *
  * Wrapped in `React.memo` so that when the channels table polls for fresh
- * data, only the rows whose `currentRpm` / `maxRpm` actually changed will
- * re-render.  Without memo, every poll causes ALL bars to re-render and
- * their springs to re-evaluate — producing a visible "bounce" on bars that
- * haven't changed.
+ * data, only the bars whose values actually changed will re-render.  Without
+ * memo, every poll causes ALL bars to re-render and their springs to
+ * re-evaluate — producing a visible "bounce" on bars that haven't changed.
  *
  * Springs are initialised to the incoming prop values (not 0) so that
  * mount / remount doesn't animate from 0 → actual value.
  */
-const AnimatedRpmBar = memo(function AnimatedRpmBar({
-  currentRpm,
-  maxRpm,
+const AnimatedRateBar = memo(function AnimatedRateBar({
+  current,
+  max,
 }: {
-  currentRpm: number
-  maxRpm: number
+  current: number
+  max: number
 }) {
-  // Spring-animate the numeric RPM value — initialise to currentRpm so
-  // there's no 0 → value animation on mount.
-  const rpmSpring = useSpring(currentRpm, {
+  // Spring-animate the numeric value — initialise to current so there's no
+  // 0 → value animation on mount.
+  const valueSpring = useSpring(current, {
     stiffness: 220,
     damping: 36,
     mass: 0.7,
@@ -473,7 +473,7 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
 
   // Spring-animate the bar width percentage — initialise to the correct
   // percentage so the bar doesn't grow from 0 on mount.
-  const initialPct = maxRpm > 0 ? Math.min(currentRpm / maxRpm, 1) * 100 : 0
+  const initialPct = max > 0 ? Math.min(current / max, 1) * 100 : 0
   const widthSpring = useSpring(initialPct, {
     stiffness: 260,
     damping: 34,
@@ -484,38 +484,40 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
   const ratioSpring = useTransform(widthSpring, [0, 100], [0, 1])
 
   // State subscriptions for rendering animated values
-  const [displayRpm, setDisplayRpm] = useState(currentRpm)
+  const [displayValue, setDisplayValue] = useState(current)
   const [animatedRatio, setAnimatedRatio] = useState(initialPct / 100)
 
   // Refs to guard against redundant .set() calls when the value hasn't
   // actually changed — prevents triggering spring animations on every
   // re-render even when props are identical.
-  const lastRpmRef = useRef(currentRpm)
+  const lastValueRef = useRef(current)
   const lastPctRef = useRef(initialPct)
 
   // Drive springs from incoming props — only when value truly changed
   useEffect(() => {
-    if (lastRpmRef.current !== currentRpm) {
-      lastRpmRef.current = currentRpm
-      rpmSpring.set(currentRpm)
+    if (lastValueRef.current !== current) {
+      lastValueRef.current = current
+      valueSpring.set(current)
     }
-  }, [currentRpm, rpmSpring])
+  }, [current, valueSpring])
 
   useEffect(() => {
-    if (maxRpm <= 0) return
-    const targetPct = Math.min(currentRpm / maxRpm, 1) * 100
+    if (max <= 0) return
+    const targetPct = Math.min(current / max, 1) * 100
     if (lastPctRef.current !== targetPct) {
       lastPctRef.current = targetPct
       widthSpring.set(targetPct)
     }
-  }, [currentRpm, maxRpm, widthSpring])
+  }, [current, max, widthSpring])
 
   // Subscribe to animated values for renders — these subscriptions are
   // stable because the spring instances don't change across re-renders.
   useEffect(() => {
-    const unsubRpm = rpmSpring.on('change', (v) => setDisplayRpm(Math.round(v)))
-    return unsubRpm
-  }, [rpmSpring])
+    const unsubValue = valueSpring.on('change', (v) =>
+      setDisplayValue(Math.round(v))
+    )
+    return unsubValue
+  }, [valueSpring])
 
   useEffect(() => {
     const unsub = ratioSpring.on('change', (v) => setAnimatedRatio(v))
@@ -525,7 +527,7 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
   // Derive bar width as a motion value string (acceptable as style prop)
   const barWidthStyle = useTransform(widthSpring, (v) => `${Math.round(v)}%`)
 
-  if (maxRpm <= 0) {
+  if (max <= 0) {
     return (
       <div className='flex w-[90px] items-center gap-1.5'>
         <span className='text-muted-foreground text-xs tabular-nums'>-</span>
@@ -538,7 +540,7 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
   const isHigh = ratio >= 0.9
 
   return (
-    <div className='flex w-[90px] flex-col gap-0.5'>
+    <div className='flex flex-col gap-0.5'>
       <span className='font-mono text-xs tabular-nums'>
         <motion.span
           className={cn(
@@ -549,9 +551,9 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
                 : 'text-foreground'
           )}
         >
-          {displayRpm}
+          {displayValue}
         </motion.span>
-        <span className='text-muted-foreground'>/{maxRpm}</span>
+        <span className='text-muted-foreground'>/{max}</span>
       </span>
       <div className='bg-muted h-1.5 w-full overflow-hidden rounded-full'>
         <motion.div
@@ -562,6 +564,35 @@ const AnimatedRpmBar = memo(function AnimatedRpmBar({
           style={{ width: barWidthStyle }}
         />
       </div>
+    </div>
+  )
+})
+
+/**
+ * RPM usage cell: the RPM progress bar sits on top, and the concurrency
+ * progress bar below it. The concurrency bar is only rendered when the
+ * channel has a concurrency limit configured (maxConcurrency > 0).
+ *
+ * `React.memo` keeps the wrapper cheap: the memoized `AnimatedRateBar`
+ * children only re-render when their own props actually change.
+ */
+const AnimatedRpmBar = memo(function AnimatedRpmBar({
+  currentRpm,
+  maxRpm,
+  currentConcurrency,
+  maxConcurrency,
+}: {
+  currentRpm: number
+  maxRpm: number
+  currentConcurrency: number
+  maxConcurrency: number
+}) {
+  return (
+    <div className='flex w-[90px] flex-col gap-1.5'>
+      <AnimatedRateBar current={currentRpm} max={maxRpm} />
+      {maxConcurrency > 0 && (
+        <AnimatedRateBar current={currentConcurrency} max={maxConcurrency} />
+      )}
     </div>
   )
 })
@@ -763,6 +794,8 @@ export function useChannelsColumns(): ColumnDef<Channel>[] {
           <AnimatedRpmBar
             currentRpm={row.original.current_rpm ?? 0}
             maxRpm={row.original.max_rpm ?? 0}
+            currentConcurrency={row.original.current_concurrency ?? 0}
+            maxConcurrency={row.original.max_concurrency ?? 0}
           />
         ),
         size: 110,

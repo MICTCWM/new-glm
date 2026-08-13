@@ -247,7 +247,7 @@ func getChannel(group string, model string, retry int, usedChannelIds []int, sta
 			anyCallCountLimited = true
 			continue
 		}
-		if candidateChannel.MaxRPM > 0 {
+		if candidateChannel.MaxRPM > 0 || candidateChannel.MaxConcurrency > 0 {
 			anyRpmLimited = true
 			if CheckChannelRpmFullFunc != nil && CheckChannelRpmFullFunc(candidateChannel.Id) {
 				continue

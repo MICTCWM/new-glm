@@ -488,10 +488,10 @@ func getSatisfiedChannel(group string, model string, retry int, usedChannelIds [
 				anyCallCountLimited = true
 				continue
 			}
-			if channel.MaxRPM > 0 {
+			if channel.MaxRPM > 0 || channel.MaxConcurrency > 0 {
 				anyRpmLimited = true
 				if CheckChannelRpmFullFunc != nil && CheckChannelRpmFullFunc(channelId) {
-					continue // skip RPM-full channels
+					continue // skip rate-limit-full (RPM or concurrency) channels
 				}
 			}
 			rpmAvailableChannels = append(rpmAvailableChannels, channelId)

@@ -24,6 +24,54 @@ import (
 // visionRouteTimeout 视觉路由调用 Kimi 的超时时间
 const visionRouteTimeout = 30 * time.Second
 
+// RequestContainsImage 检查请求中是否包含图片
+// 用于 relay 阶段判断"模型不支持图片"场景
+func RequestContainsImage(relayFormat types.RelayFormat, request dto.Request) bool {
+	if request == nil {
+		return false
+	}
+	switch relayFormat {
+	case types.RelayFormatOpenAI:
+		openaiReq, ok := request.(*dto.GeneralOpenAIRequest)
+		if !ok || openaiReq == nil {
+			return false
+		}
+		return openaiRequestHasImage(openaiReq)
+	case types.RelayFormatClaude:
+		claudeReq, ok := request.(*dto.ClaudeRequest)
+		if !ok || claudeReq == nil {
+			return false
+		}
+		return claudeRequestHasImage(claudeReq)
+	case types.RelayFormatOpenAIResponses:
+		respReq, ok := request.(*dto.OpenAIResponsesRequest)
+		if !ok || respReq == nil {
+			return false
+		}
+		inputs := respReq.ParseInput()
+		for _, input := range inputs {
+			if input.Type == "input_image" {
+				return true
+			}
+		}
+		return false
+	case types.RelayFormatGemini:
+		geminiReq, ok := request.(*dto.GeminiChatRequest)
+		if !ok || geminiReq == nil {
+			return false
+		}
+		for _, content := range geminiReq.Contents {
+			for _, part := range content.Parts {
+				if part.InlineData != nil || part.FileData != nil {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return false
+}
+
 // ShouldVisionRoute 检测是否需要视觉路由
 // 条件：模型为 glm-5.2 + 协议为 OpenAI 或 Anthropic + 请求含图片
 func ShouldVisionRoute(relayFormat types.RelayFormat, modelName string, request dto.Request) bool {

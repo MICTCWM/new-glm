@@ -73,6 +73,8 @@ export const channelSchema = z.object({
   settings: z.string().default('{}'), // other_settings JSON
   max_rpm: z.number().default(0), // max requests per minute, 0=unlimited
   current_rpm: z.number().default(0), // current RPM usage (from server)
+  max_concurrency: z.number().default(0), // max concurrent requests, 0=unlimited
+  current_concurrency: z.number().default(0), // current in-flight requests (from server)
   max_call_count: z.number().default(0), // max successful requests, 0=unlimited
   used_call_count: z.number().default(0), // successful requests used
 })

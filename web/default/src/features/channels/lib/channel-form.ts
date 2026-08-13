@@ -105,6 +105,8 @@ export const channelFormSchema = z.object({
   upstream_model_update_ignored_models: z.string().optional(),
   // RPM limit
   max_rpm: z.number().min(0).optional(),
+  // Concurrency limit
+  max_concurrency: z.number().min(0).optional(),
   // Channel successful request quota config
   max_call_count: z.number().min(0).optional(),
   reset_hours: z.array(z.number().min(0).max(23)).optional(),
@@ -180,6 +182,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
   max_rpm: 0,
+  max_concurrency: 0,
   max_call_count: 0,
   reset_hours: [],
   reset_minute: 0,
@@ -359,6 +362,7 @@ export function transformChannelToFormDefaults(
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     max_rpm: channel.max_rpm ?? 0,
+    max_concurrency: channel.max_concurrency ?? 0,
   }
 }
 
@@ -637,6 +641,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
     max_rpm: formData.max_rpm ?? 0,
+    max_concurrency: formData.max_concurrency ?? 0,
   }
 
   // Clean up empty strings to null for optional fields
@@ -686,6 +691,7 @@ export function transformFormDataToUpdatePayload(
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
     max_rpm: formData.max_rpm ?? 0,
+    max_concurrency: formData.max_concurrency ?? 0,
   }
 
   // Only include key if it was changed (not empty)

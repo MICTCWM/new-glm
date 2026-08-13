@@ -61,12 +61,15 @@ type Channel struct {
 
 	MaxRPM int `json:"max_rpm" gorm:"default:0"` // 每分钟最大请求数，0=不限制
 
+	MaxConcurrency int `json:"max_concurrency" gorm:"default:0"` // 最大并发请求数，0=不限制
+
 	MaxCallCount  int64 `json:"max_call_count" gorm:"bigint;default:0"`  // 最大调用次数，0=不限制
 	UsedCallCount int64 `json:"used_call_count" gorm:"bigint;default:0"` // 已调用次数，成功调用+1
 
 	// cache info
-	Keys       []string `json:"-" gorm:"-"`
-	CurrentRPM int      `json:"current_rpm" gorm:"-"` // 当前RPM占用数（仅运行时，不持久化）
+	Keys               []string `json:"-" gorm:"-"`
+	CurrentRPM         int      `json:"current_rpm" gorm:"-"`         // 当前RPM占用数（仅运行时，不持久化）
+	CurrentConcurrency int      `json:"current_concurrency" gorm:"-"` // 当前并发占用数（仅运行时，不持久化）
 }
 
 type ChannelInfo struct {

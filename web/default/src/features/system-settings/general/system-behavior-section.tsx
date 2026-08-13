@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { ChannelMultiSelect } from '@/features/vendors/components/channel-multi-select'
 import { SettingsSection } from '../components/settings-section'
 import { useResetForm } from '../hooks/use-reset-form'
@@ -52,6 +53,7 @@ const behaviorSchema = z.object({
   DemoSiteEnabled: z.boolean(),
   SelfUseModeEnabled: z.boolean(),
   RegionBlockEnabled: z.boolean(),
+  ModelNoImageModels: z.string(),
 })
 
 type BehaviorFormValues = z.infer<typeof behaviorSchema>
@@ -471,6 +473,30 @@ export function SystemBehaviorSection({
                     onCheckedChange={field.onChange}
                   />
                 </FormControl>
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='ModelNoImageModels'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Models Not Supporting Images')}</FormLabel>
+                <FormControl>
+                  <Textarea
+                    rows={6}
+                    placeholder={t('one model per line')}
+                    {...field}
+                    onChange={(event) => field.onChange(event.target.value)}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'By default all models support images. Requests containing images sent to a model listed here are rejected. Enter one model name per line.'
+                  )}
+                </FormDescription>
+                <FormMessage />
               </FormItem>
             )}
           />

@@ -42,6 +42,7 @@ const defaultOperationsSettings: OperationsSettings = {
   DemoSiteEnabled: false,
   SelfUseModeEnabled: false,
   RegionBlockEnabled: false,
+  ModelNoImageModels: '',
   ChannelDisableThreshold: '',
   QuotaRemindThreshold: '',
   AutomaticDisableChannelEnabled: false,

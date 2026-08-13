@@ -168,17 +168,23 @@ func GetRpmTracker(channelId int, maxRPM int) *RpmTracker {
 	return tracker
 }
 
-// init registers the RPM check hook for the channel cache.
+// init registers the RPM check hook for the channel cache. A channel is
+// considered full (unselectable) when either its RPM or its concurrency
+// tracker has reached capacity.
 func init() {
 	model.CheckChannelRpmFullFunc = func(channelId int) bool {
-		// Get tracker without modifying its maxRPM
+		// RPM check
 		rpmTrackerMu.RLock()
-		tracker, exists := rpmTrackers[channelId]
+		rpmTracker, rpmExists := rpmTrackers[channelId]
 		rpmTrackerMu.RUnlock()
-		if !exists {
-			return false
+		if rpmExists && rpmTracker.IsFull() {
+			return true
 		}
-		return tracker.IsFull()
+		// Concurrency check
+		concurrencyTrackerMu.RLock()
+		concurrencyTracker, concurrencyExists := concurrencyTrackers[channelId]
+		concurrencyTrackerMu.RUnlock()
+		return concurrencyExists && concurrencyTracker.IsFull()
 	}
 }
 

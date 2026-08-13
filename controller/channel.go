@@ -70,6 +70,10 @@ func clearChannelInfo(channel *model.Channel) {
 	if channel.MaxRPM > 0 {
 		channel.CurrentRPM = service.GetCurrentRpmForChannel(channel.Id)
 	}
+	// Populate current concurrency usage from runtime tracker
+	if channel.MaxConcurrency > 0 {
+		channel.CurrentConcurrency = service.GetCurrentConcurrencyForChannel(channel.Id)
+	}
 }
 
 func GetAllChannels(c *gin.Context) {
