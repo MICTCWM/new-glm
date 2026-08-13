@@ -20,11 +20,17 @@ func NormalizeFallbackReasoningEffort(effort string) string {
 	}
 }
 
+// GetFallbackReasoningEffort resolves the effective reasoning effort override
+// in priority order: model mapping target > channel fixed model level > fallback
+// channel level. Each source overrides the client's own reasoning setting.
 func (info *RelayInfo) GetFallbackReasoningEffort() string {
 	if info == nil {
 		return ""
 	}
 	if effort := NormalizeFallbackReasoningEffort(info.MappedReasoningEffort); effort != "" {
+		return effort
+	}
+	if effort := NormalizeFallbackReasoningEffort(info.FixedModelReasoningEffort); effort != "" {
 		return effort
 	}
 	return NormalizeFallbackReasoningEffort(info.FallbackReasoningEffort)

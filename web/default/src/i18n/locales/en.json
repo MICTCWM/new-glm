@@ -1784,6 +1784,8 @@
     "Fixed price": "Fixed price",
     "Fixed price (USD)": "Fixed price (USD)",
     "Fixed request price": "Fixed request price",
+    "Fixed Model Reasoning Effort": "Fixed Model Reasoning Effort",
+    "Override the user's reasoning effort with the configured level when the requested model is in the list.": "Override the user's reasoning effort with the configured level when the requested model is in the list.",
     "Floating": "Floating",
     "FluentRead extension not detected. Please ensure it is installed and active.": "FluentRead extension not detected. Please ensure it is installed and active.",
     "Flush interval (minutes)": "Flush interval (minutes)",

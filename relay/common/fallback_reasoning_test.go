@@ -36,6 +36,47 @@ func TestApplyFallbackReasoningPrefersModelMappingEffort(t *testing.T) {
 	}
 }
 
+func TestApplyFallbackReasoningPrefersFixedModelEffortOverFallback(t *testing.T) {
+	info := &RelayInfo{
+		FallbackReasoningEffort:   "low",
+		FixedModelReasoningEffort: "max",
+		ChannelMeta:               &ChannelMeta{ChannelType: constant.ChannelTypeOpenAI},
+	}
+	request := &dto.GeneralOpenAIRequest{}
+
+	info.ApplyFallbackReasoningToOpenAIRequest(request)
+
+	if request.ReasoningEffort != "max" {
+		t.Fatalf("ReasoningEffort = %q, want max", request.ReasoningEffort)
+	}
+}
+
+func TestApplyFallbackReasoningPrefersModelMappingOverFixedModel(t *testing.T) {
+	info := &RelayInfo{
+		MappedReasoningEffort:     "medium",
+		FixedModelReasoningEffort: "max",
+		ChannelMeta:               &ChannelMeta{ChannelType: constant.ChannelTypeOpenAI},
+	}
+	request := &dto.GeneralOpenAIRequest{}
+
+	info.ApplyFallbackReasoningToOpenAIRequest(request)
+
+	if request.ReasoningEffort != "medium" {
+		t.Fatalf("ReasoningEffort = %q, want medium", request.ReasoningEffort)
+	}
+}
+
+func TestGetFallbackReasoningEffortIgnoresInvalidFixedModelValue(t *testing.T) {
+	info := &RelayInfo{
+		FallbackReasoningEffort:   "high",
+		FixedModelReasoningEffort: " turbo ",
+	}
+
+	if got := info.GetFallbackReasoningEffort(); got != "high" {
+		t.Fatalf("GetFallbackReasoningEffort() = %q, want high", got)
+	}
+}
+
 func TestApplyFallbackReasoningToDeepSeekRequestUsesThinkingObject(t *testing.T) {
 	info := &RelayInfo{
 		FallbackReasoningEffort: "max",

@@ -102,12 +102,14 @@ export interface ChannelSettings {
   special_user_ids?: number[]
   gpt_mode_required?: boolean
   emergency_plan_enabled?: boolean
-  fallback_model_enabled?: boolean
-  fallback_model?: string
-  fallback_model_reasoning_effort?: string
-  fallback_priority?: number
-  support_fallback?: boolean
-  probe_enabled?: boolean
+fallback_model_enabled?: boolean
+	fallback_model?: string
+	fallback_model_reasoning_effort?: string
+	fallback_priority?: number
+	support_fallback?: boolean
+	probe_enabled?: boolean
+	fixed_model_reasoning_enabled?: boolean
+	fixed_model_reasoning_efforts?: Record<string, string>
 }
 
 export interface ChannelOtherSettings {

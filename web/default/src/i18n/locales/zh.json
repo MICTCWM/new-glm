@@ -1822,6 +1822,8 @@
     "Fixed price": "固定价格",
     "Fixed price (USD)": "固定价格 (USD)",
     "Fixed request price": "固定按次价格",
+    "Fixed Model Reasoning Effort": "模型固定思考等级",
+    "Override the user's reasoning effort with the configured level when the requested model is in the list.": "开启后，当用户请求的模型在此列表中时，用配置的思考等级覆盖用户的思考等级。",
     "Floating": "浮动",
     "FluentRead extension not detected. Please ensure it is installed and active.": "未检测到 FluentRead 扩展。请确保已安装并激活。",
     "Flush interval (minutes)": "刷库间隔（分钟）",

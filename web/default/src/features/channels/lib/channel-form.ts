@@ -72,6 +72,8 @@ export const channelFormSchema = z.object({
   fallback_priority: z.number().int().min(0).optional(),
   support_fallback: z.boolean().optional(),
   probe_enabled: z.boolean().optional(),
+  fixed_model_reasoning_enabled: z.boolean().optional(),
+  fixed_model_reasoning_efforts: z.record(z.string(), z.string()).optional(),
   special_billing: z.boolean().optional(),
   special_billing_prices: z
     .record(
@@ -159,6 +161,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   fallback_priority: 0,
   support_fallback: false,
   probe_enabled: false,
+  fixed_model_reasoning_enabled: false,
+  fixed_model_reasoning_efforts: {},
   // Type-specific settings
   is_enterprise_account: false,
   vertex_key_type: 'json',
@@ -210,6 +214,8 @@ export function transformChannelToFormDefaults(
     fallback_priority: 0,
     support_fallback: false,
     probe_enabled: false,
+    fixed_model_reasoning_enabled: false,
+    fixed_model_reasoning_efforts: {},
     special_billing: false,
     special_billing_prices: {},
   }
@@ -244,6 +250,13 @@ export function transformChannelToFormDefaults(
             : 0,
         support_fallback: parsed.support_fallback === true,
         probe_enabled: parsed.probe_enabled === true,
+        fixed_model_reasoning_enabled:
+          parsed.fixed_model_reasoning_enabled === true,
+        fixed_model_reasoning_efforts:
+          parsed.fixed_model_reasoning_efforts &&
+          typeof parsed.fixed_model_reasoning_efforts === 'object'
+            ? parsed.fixed_model_reasoning_efforts
+            : {},
         special_billing: parsed.special_billing === true,
         special_billing_prices:
           parsed.special_billing_prices &&
@@ -470,6 +483,13 @@ function buildSettingJSON(formData: ChannelFormValues): string {
     special_billing: formData.special_billing === true,
     special_billing_prices: formData.special_billing_prices || {},
     probe_enabled: formData.probe_enabled === true,
+    fixed_model_reasoning_enabled:
+      formData.fixed_model_reasoning_enabled === true,
+    fixed_model_reasoning_efforts: Object.fromEntries(
+      Object.entries(formData.fixed_model_reasoning_efforts || {}).filter(
+        ([model]) => model.trim()
+      )
+    ),
   }
   return JSON.stringify(settingObj)
 }

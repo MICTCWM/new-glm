@@ -52,6 +52,7 @@ import {
   SlidersHorizontal,
   ShieldAlert,
   LifeBuoy,
+  Brain,
   Users,
   Wand2,
   X,
@@ -262,10 +263,11 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.system_prompt_override ||
     values.claude_beta_query ||
     values.emergency_plan_enabled ||
-    values.fallback_model_enabled ||
-    values.support_fallback ||
-    values.probe_enabled ||
-    values.upstream_model_update_check_enabled ||
+values.fallback_model_enabled ||
+	    values.support_fallback ||
+	    values.probe_enabled ||
+	    values.fixed_model_reasoning_enabled ||
+	    values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
     values.upstream_model_update_ignored_models?.trim()
   )
@@ -458,6 +460,16 @@ export function ChannelMutateDrawer({
   const [specialBillingDraft, setSpecialBillingDraft] = useState<
     SpecialBillingTier[]
   >([])
+  const fixedModelReasoningEnabled = form.watch(
+    'fixed_model_reasoning_enabled'
+  )
+  const watchedFixedModelReasoningEfforts = form.watch(
+    'fixed_model_reasoning_efforts'
+  )
+  const fixedModelReasoningEfforts = useMemo(
+    () => watchedFixedModelReasoningEfforts ?? {},
+    [watchedFixedModelReasoningEfforts]
+  )
   useEffect(() => {
     if (!specialBillingModel) return
     const configured = specialBillingPrices[specialBillingModel]
@@ -581,6 +593,61 @@ export function ChannelMutateDrawer({
     () => getFallbackReasoningOptions(currentType, fallbackModel || ''),
     [currentType, fallbackModel]
   )
+  // 模型固定思考等级选项：low/medium/high/xhigh/max
+  const fixedReasoningOptions = useMemo(
+    () => [
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+      { value: 'xhigh', label: 'X High' },
+      { value: 'max', label: 'Max' },
+    ],
+    []
+  )
+  const fixedReasoningRows = useMemo(
+    () =>
+      Object.entries(fixedModelReasoningEfforts).map(
+        ([model, effort], index) => ({ id: `${index}-${model}`, model, effort })
+      ),
+    [fixedModelReasoningEfforts]
+  )
+  const updateFixedReasoningRow = useCallback(
+    (index: number, patch: { model?: string; effort?: string | null }) => {
+      const entries = Object.entries(fixedModelReasoningEfforts)
+      const [oldModel, oldEffort] = entries[index] ?? ['', '']
+      const next = { ...fixedModelReasoningEfforts }
+      delete next[oldModel]
+      const model = (patch.model ?? oldModel).trim()
+      const effort = patch.effort ?? oldEffort
+      if (model) {
+        next[model] = effort
+      }
+      form.setValue('fixed_model_reasoning_efforts', next, {
+        shouldDirty: true,
+      })
+    },
+    [fixedModelReasoningEfforts, form]
+  )
+  const removeFixedReasoningRow = useCallback(
+    (index: number) => {
+      const entries = Object.entries(fixedModelReasoningEfforts)
+      const [model] = entries[index] ?? []
+      if (!model) return
+      const next = { ...fixedModelReasoningEfforts }
+      delete next[model]
+      form.setValue('fixed_model_reasoning_efforts', next, {
+        shouldDirty: true,
+      })
+    },
+    [fixedModelReasoningEfforts, form]
+  )
+  const addFixedReasoningRow = useCallback(() => {
+    form.setValue(
+      'fixed_model_reasoning_efforts',
+      { ...fixedModelReasoningEfforts, '': 'low' },
+      { shouldDirty: true }
+    )
+  }, [fixedModelReasoningEfforts, form])
   const upstreamModelUpdateCheckEnabled = form.watch(
     'upstream_model_update_check_enabled'
   )
@@ -4301,6 +4368,103 @@ export function ChannelMutateDrawer({
                         </FormItem>
                       )}
                     />
+                  </div>
+                )}
+              </div>
+
+              {/* ── Fixed Model Reasoning Effort ── */}
+              <div className='flex flex-col gap-4 border-b px-4 py-4'>
+                <FormField
+                  control={form.control}
+                  name='fixed_model_reasoning_enabled'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between gap-4'>
+                      <div className='flex items-start gap-2'>
+                        <Brain className='text-muted-foreground mt-0.5 size-4' />
+                        <div className='flex flex-col gap-1'>
+                          <FormLabel>
+                            {t('Fixed Model Reasoning Effort')}
+                          </FormLabel>
+                          <FormDescription>
+                            {t(
+                              "Override the user's reasoning effort with the configured level when the requested model is in the list."
+                            )}
+                          </FormDescription>
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                {fixedModelReasoningEnabled && (
+                  <div className='flex flex-col gap-2'>
+                    {fixedReasoningRows.map((row, index) => (
+                      <div
+                        key={row.id}
+                        className='grid items-center gap-2 sm:grid-cols-[minmax(0,1fr)_9rem_2.5rem]'
+                      >
+                        <Input
+                          value={row.model}
+                          onChange={(event) =>
+                            updateFixedReasoningRow(index, {
+                              model: event.target.value,
+                            })
+                          }
+                          placeholder={t('e.g. gpt-4o')}
+                          list='fixed-reasoning-model-options'
+                        />
+                        <Select
+                          value={row.effort}
+                          onValueChange={(value) =>
+                            updateFixedReasoningRow(index, { effort: value })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              {fixedReasoningOptions.map((option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
+                                  {t(option.label)}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          type='button'
+                          onClick={() => removeFixedReasoningRow(index)}
+                        >
+                          <Trash2 className='size-4' />
+                        </Button>
+                      </div>
+                    ))}
+                    <datalist id='fixed-reasoning-model-options'>
+                      {currentModelsArray.map((model) => (
+                        <option key={model} value={model} />
+                      ))}
+                    </datalist>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      type='button'
+                      className='self-start'
+                      onClick={addFixedReasoningRow}
+                    >
+                      <Plus className='mr-1.5 size-4' />
+                      {t('Add model')}
+                    </Button>
                   </div>
                 )}
               </div>

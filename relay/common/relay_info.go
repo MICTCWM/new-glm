@@ -125,6 +125,7 @@ type RelayInfo struct {
 	ReasoningEffort         string
 	FallbackReasoningEffort string `json:"-"` // 兜底渠道专用思考等级，覆盖用户原请求设置
 	MappedReasoningEffort   string `json:"-"` // 模型映射目标模型专用思考等级，覆盖用户原请求设置
+	FixedModelReasoningEffort string `json:"-"` // 渠道模型固定思考等级，覆盖用户原请求设置
 	UserSetting             dto.UserSetting
 	UserEmail               string
 	UserQuota               int
@@ -274,6 +275,15 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	channelSetting, ok := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
 	if ok {
 		channelMeta.ChannelSetting = channelSetting
+	}
+
+	// 渠道模型固定思考等级：匹配用户请求的原始模型名，命中时覆盖其思考等级。
+	// 与模型映射/兜底渠道的思考等级分开存储，优先级见 GetFallbackReasoningEffort。
+	info.FixedModelReasoningEffort = ""
+	if ok && channelSetting.FixedModelReasoningEnabled && info.OriginModelName != "" {
+		if effort, exists := channelSetting.FixedModelReasoningEfforts[info.OriginModelName]; exists {
+			info.FixedModelReasoningEffort = effort
+		}
 	}
 
 	channelOtherSettings, ok := common.GetContextKeyType[dto.ChannelOtherSettings](c, constant.ContextKeyChannelOtherSetting)
