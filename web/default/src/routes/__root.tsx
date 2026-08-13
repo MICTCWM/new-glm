@@ -34,6 +34,7 @@ import { NotFoundError } from '@/features/errors/not-found-error'
 import { getSetupStatus } from '@/features/setup/api'
 import { saveAffiliateCode } from '@/features/auth/lib/storage'
 import { getStatus } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 function RootComponent() {
   // Load system configuration (logo, system name, etc.) from backend
@@ -107,6 +108,11 @@ export const Route = createRootRouteWithContext<{
     const needsSetupCheck =
       !setupStatusChecked && !pathname.startsWith('/setup')
 
+    // 管理员专属登录入口大小写归一化：/not-in-service-area/ADMIN、/Admin 等统一重定向到小写 /not-in-service-area/admin
+    if (pathname.toLowerCase() === '/not-in-service-area/admin' && pathname !== '/not-in-service-area/admin') {
+      throw redirect({ to: '/not-in-service-area/admin' })
+    }
+
     // 用户信息已通过 auth-store 从 localStorage 恢复
     // 如果 auth.user 存在，说明用户已登录（有缓存的用户数据）
     // 如果 auth.user 为 null，说明用户未登录，直接让 _authenticated 路由处理重定向
@@ -134,6 +140,7 @@ export const Route = createRootRouteWithContext<{
     // 地区检测：中国 IP 跳转"不在服务区"页面
     // 排除 not-in-service-area 页面自身，避免死循环
     // 排除 setup 页面，否则无法完成初始化
+    // 已登录管理员不受区域限制（便于站长在受限地区管理站点）
     const isRegionBlockedPath = pathname.startsWith('/not-in-service-area')
     const isSetupPath = pathname.startsWith('/setup')
     if (!regionCheckDone && !isRegionBlockedPath && !isSetupPath) {
@@ -145,7 +152,9 @@ export const Route = createRootRouteWithContext<{
       }
       regionCheckDone = true
     }
-    if (regionCheckBlocked && !isRegionBlockedPath) {
+    const { auth } = useAuthStore.getState()
+    const isLoggedInAdmin = !!auth.user && auth.user.role >= 10
+    if (regionCheckBlocked && !isRegionBlockedPath && !isLoggedInAdmin) {
       throw redirect({ to: '/not-in-service-area' })
     }
   },

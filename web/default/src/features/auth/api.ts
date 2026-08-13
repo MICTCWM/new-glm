@@ -47,6 +47,18 @@ export async function login(payload: LoginPayload) {
   return res.data
 }
 
+// Admin-only login (bypasses region restriction, only admin/superadmin allowed)
+export async function loginAdmin(payload: LoginPayload) {
+  const res = await api.post<LoginResponse>(
+    `/api/user/login/admin`,
+    {
+      username: payload.username,
+      password: payload.password,
+    }
+  )
+  return res.data
+}
+
 // Two-factor authentication login
 export async function login2fa(payload: TwoFAPayload) {
   const res = await api.post<Login2FAResponse>('/api/user/login/2fa', payload)

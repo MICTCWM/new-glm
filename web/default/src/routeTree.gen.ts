@@ -23,7 +23,6 @@ import { Route as OauthProviderRouteImport } from './routes/oauth/$provider'
 import { Route as ConsoleTopupRouteImport } from './routes/console/topup'
 import { Route as ConsoleLogRouteImport } from './routes/console/log'
 import { Route as AuthenticatedChat2linkRouteImport } from './routes/_authenticated/chat2link'
-import { Route as errorsNotInServiceAreaRouteImport } from './routes/(errors)/not-in-service-area'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
@@ -52,6 +51,7 @@ import { Route as AuthenticatedKeysIndexRouteImport } from './routes/_authentica
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedChannelsIndexRouteImport } from './routes/_authenticated/channels/index'
 import { Route as AuthenticatedBalancesIndexRouteImport } from './routes/_authenticated/balances/index'
+import { Route as errorsNotInServiceAreaIndexRouteImport } from './routes/(errors)/not-in-service-area/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedTicketsTicketIdRouteImport } from './routes/_authenticated/tickets/$ticketId'
 import { Route as AuthenticatedSystemSettingsSpecialUsageRouteImport } from './routes/_authenticated/system-settings/special-usage'
@@ -59,6 +59,7 @@ import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authen
 import { Route as AuthenticatedErrorsErrorRouteImport } from './routes/_authenticated/errors/$error'
 import { Route as AuthenticatedDashboardSectionRouteImport } from './routes/_authenticated/dashboard/$section'
 import { Route as AuthenticatedChatChatIdRouteImport } from './routes/_authenticated/chat/$chatId'
+import { Route as errorsNotInServiceAreaAdminRouteImport } from './routes/(errors)/not-in-service-area/admin'
 import { Route as authUserResetRouteImport } from './routes/(auth)/user/reset'
 import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
 import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './routes/_authenticated/system-settings/security/index'
@@ -145,11 +146,6 @@ const AuthenticatedChat2linkRoute = AuthenticatedChat2linkRouteImport.update({
   id: '/chat2link',
   path: '/chat2link',
   getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const errorsNotInServiceAreaRoute = errorsNotInServiceAreaRouteImport.update({
-  id: '/(errors)/not-in-service-area',
-  path: '/not-in-service-area',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const errors503Route = errors503RouteImport.update({
   id: '/(errors)/503',
@@ -305,6 +301,12 @@ const AuthenticatedBalancesIndexRoute =
     path: '/balances/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const errorsNotInServiceAreaIndexRoute =
+  errorsNotInServiceAreaIndexRouteImport.update({
+    id: '/(errors)/not-in-service-area/',
+    path: '/not-in-service-area/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedUsageLogsSectionRoute =
   AuthenticatedUsageLogsSectionRouteImport.update({
     id: '/usage-logs/$section',
@@ -346,6 +348,12 @@ const AuthenticatedChatChatIdRoute = AuthenticatedChatChatIdRouteImport.update({
   path: '/chat/$chatId',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const errorsNotInServiceAreaAdminRoute =
+  errorsNotInServiceAreaAdminRouteImport.update({
+    id: '/(errors)/not-in-service-area/admin',
+    path: '/not-in-service-area/admin',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const authUserResetRoute = authUserResetRouteImport.update({
   id: '/user/reset',
   path: '/user/reset',
@@ -470,7 +478,6 @@ export interface FileRoutesByFullPath {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
-  '/not-in-service-area': typeof errorsNotInServiceAreaRoute
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -481,6 +488,7 @@ export interface FileRoutesByFullPath {
   '/setup/': typeof SetupIndexRoute
   '/vendors/': typeof VendorsIndexRoute
   '/user/reset': typeof authUserResetRoute
+  '/not-in-service-area/admin': typeof errorsNotInServiceAreaAdminRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -488,6 +496,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/special-usage': typeof AuthenticatedSystemSettingsSpecialUsageRoute
   '/tickets/$ticketId': typeof AuthenticatedTicketsTicketIdRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/not-in-service-area/': typeof errorsNotInServiceAreaIndexRoute
   '/balances/': typeof AuthenticatedBalancesIndexRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
@@ -537,7 +546,6 @@ export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
   '/503': typeof errors503Route
-  '/not-in-service-area': typeof errorsNotInServiceAreaRoute
   '/chat2link': typeof AuthenticatedChat2linkRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -548,6 +556,7 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupIndexRoute
   '/vendors': typeof VendorsIndexRoute
   '/user/reset': typeof authUserResetRoute
+  '/not-in-service-area/admin': typeof errorsNotInServiceAreaAdminRoute
   '/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -555,6 +564,7 @@ export interface FileRoutesByTo {
   '/system-settings/special-usage': typeof AuthenticatedSystemSettingsSpecialUsageRoute
   '/tickets/$ticketId': typeof AuthenticatedTicketsTicketIdRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/not-in-service-area': typeof errorsNotInServiceAreaIndexRoute
   '/balances': typeof AuthenticatedBalancesIndexRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
@@ -608,7 +618,6 @@ export interface FileRoutesById {
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
-  '/(errors)/not-in-service-area': typeof errorsNotInServiceAreaRoute
   '/_authenticated/chat2link': typeof AuthenticatedChat2linkRoute
   '/console/log': typeof ConsoleLogRoute
   '/console/topup': typeof ConsoleTopupRoute
@@ -619,6 +628,7 @@ export interface FileRoutesById {
   '/setup/': typeof SetupIndexRoute
   '/vendors/': typeof VendorsIndexRoute
   '/(auth)/user/reset': typeof authUserResetRoute
+  '/(errors)/not-in-service-area/admin': typeof errorsNotInServiceAreaAdminRoute
   '/_authenticated/chat/$chatId': typeof AuthenticatedChatChatIdRoute
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
@@ -626,6 +636,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/special-usage': typeof AuthenticatedSystemSettingsSpecialUsageRoute
   '/_authenticated/tickets/$ticketId': typeof AuthenticatedTicketsTicketIdRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
+  '/(errors)/not-in-service-area/': typeof errorsNotInServiceAreaIndexRoute
   '/_authenticated/balances/': typeof AuthenticatedBalancesIndexRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
@@ -678,7 +689,6 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
-    | '/not-in-service-area'
     | '/chat2link'
     | '/console/log'
     | '/console/topup'
@@ -689,6 +699,7 @@ export interface FileRouteTypes {
     | '/setup/'
     | '/vendors/'
     | '/user/reset'
+    | '/not-in-service-area/admin'
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
@@ -696,6 +707,7 @@ export interface FileRouteTypes {
     | '/system-settings/special-usage'
     | '/tickets/$ticketId'
     | '/usage-logs/$section'
+    | '/not-in-service-area/'
     | '/balances/'
     | '/channels/'
     | '/dashboard/'
@@ -745,7 +757,6 @@ export interface FileRouteTypes {
     | '/404'
     | '/500'
     | '/503'
-    | '/not-in-service-area'
     | '/chat2link'
     | '/console/log'
     | '/console/topup'
@@ -756,6 +767,7 @@ export interface FileRouteTypes {
     | '/setup'
     | '/vendors'
     | '/user/reset'
+    | '/not-in-service-area/admin'
     | '/chat/$chatId'
     | '/dashboard/$section'
     | '/errors/$error'
@@ -763,6 +775,7 @@ export interface FileRouteTypes {
     | '/system-settings/special-usage'
     | '/tickets/$ticketId'
     | '/usage-logs/$section'
+    | '/not-in-service-area'
     | '/balances'
     | '/channels'
     | '/dashboard'
@@ -815,7 +828,6 @@ export interface FileRouteTypes {
     | '/(errors)/404'
     | '/(errors)/500'
     | '/(errors)/503'
-    | '/(errors)/not-in-service-area'
     | '/_authenticated/chat2link'
     | '/console/log'
     | '/console/topup'
@@ -826,6 +838,7 @@ export interface FileRouteTypes {
     | '/setup/'
     | '/vendors/'
     | '/(auth)/user/reset'
+    | '/(errors)/not-in-service-area/admin'
     | '/_authenticated/chat/$chatId'
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
@@ -833,6 +846,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/special-usage'
     | '/_authenticated/tickets/$ticketId'
     | '/_authenticated/usage-logs/$section'
+    | '/(errors)/not-in-service-area/'
     | '/_authenticated/balances/'
     | '/_authenticated/channels/'
     | '/_authenticated/dashboard/'
@@ -879,7 +893,6 @@ export interface RootRouteChildren {
   errors404Route: typeof errors404Route
   errors500Route: typeof errors500Route
   errors503Route: typeof errors503Route
-  errorsNotInServiceAreaRoute: typeof errorsNotInServiceAreaRoute
   ConsoleLogRoute: typeof ConsoleLogRoute
   ConsoleTopupRoute: typeof ConsoleTopupRoute
   OauthProviderRoute: typeof OauthProviderRoute
@@ -888,6 +901,8 @@ export interface RootRouteChildren {
   RankingsIndexRoute: typeof RankingsIndexRoute
   SetupIndexRoute: typeof SetupIndexRoute
   VendorsIndexRoute: typeof VendorsIndexRoute
+  errorsNotInServiceAreaAdminRoute: typeof errorsNotInServiceAreaAdminRoute
+  errorsNotInServiceAreaIndexRoute: typeof errorsNotInServiceAreaIndexRoute
   PricingModelIdIndexRoute: typeof PricingModelIdIndexRoute
 }
 
@@ -990,13 +1005,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/chat2link'
       preLoaderRoute: typeof AuthenticatedChat2linkRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/(errors)/not-in-service-area': {
-      id: '/(errors)/not-in-service-area'
-      path: '/not-in-service-area'
-      fullPath: '/not-in-service-area'
-      preLoaderRoute: typeof errorsNotInServiceAreaRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/(errors)/503': {
       id: '/(errors)/503'
@@ -1194,6 +1202,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedBalancesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/(errors)/not-in-service-area/': {
+      id: '/(errors)/not-in-service-area/'
+      path: '/not-in-service-area'
+      fullPath: '/not-in-service-area/'
+      preLoaderRoute: typeof errorsNotInServiceAreaIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/usage-logs/$section': {
       id: '/_authenticated/usage-logs/$section'
       path: '/usage-logs/$section'
@@ -1242,6 +1257,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/chat/$chatId'
       preLoaderRoute: typeof AuthenticatedChatChatIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/(errors)/not-in-service-area/admin': {
+      id: '/(errors)/not-in-service-area/admin'
+      path: '/not-in-service-area/admin'
+      fullPath: '/not-in-service-area/admin'
+      preLoaderRoute: typeof errorsNotInServiceAreaAdminRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/(auth)/user/reset': {
       id: '/(auth)/user/reset'
@@ -1532,7 +1554,6 @@ const rootRouteChildren: RootRouteChildren = {
   errors404Route: errors404Route,
   errors500Route: errors500Route,
   errors503Route: errors503Route,
-  errorsNotInServiceAreaRoute: errorsNotInServiceAreaRoute,
   ConsoleLogRoute: ConsoleLogRoute,
   ConsoleTopupRoute: ConsoleTopupRoute,
   OauthProviderRoute: OauthProviderRoute,
@@ -1541,6 +1562,8 @@ const rootRouteChildren: RootRouteChildren = {
   RankingsIndexRoute: RankingsIndexRoute,
   SetupIndexRoute: SetupIndexRoute,
   VendorsIndexRoute: VendorsIndexRoute,
+  errorsNotInServiceAreaAdminRoute: errorsNotInServiceAreaAdminRoute,
+  errorsNotInServiceAreaIndexRoute: errorsNotInServiceAreaIndexRoute,
   PricingModelIdIndexRoute: PricingModelIdIndexRoute,
 }
 export const routeTree = rootRouteImport

@@ -127,6 +127,92 @@ func Login(c *gin.Context) {
 	setupLogin(&user, c)
 }
 
+func AdminLogin(c *gin.Context) {
+	if !common.PasswordLoginEnabled {
+		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
+		return
+	}
+	var loginRequest LoginRequest
+	err := json.NewDecoder(c.Request.Body).Decode(&loginRequest)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	username := loginRequest.Username
+	password := loginRequest.Password
+	if username == "" || password == "" {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	protection, protectionErr := model.GetLoginProtection(username)
+	if protectionErr != nil {
+		common.SysLog(fmt.Sprintf("AdminLogin protection database error for user %s: %v", username, protectionErr))
+		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+		return
+	}
+	if respondLoginProtectionError(c, protection) {
+		return
+	}
+	user := model.User{
+		Username: username,
+		Password: password,
+	}
+	err = user.ValidateAndFill()
+	if err != nil {
+		switch {
+		case errors.Is(err, model.ErrDatabase):
+			common.SysLog(fmt.Sprintf("AdminLogin database error for user %s: %v", username, err))
+			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+		case errors.Is(err, model.ErrUserEmptyCredentials):
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		case errors.Is(err, model.ErrInvalidCredentials):
+			failure, recordErr := model.RecordLoginFailure(username, password)
+			if recordErr != nil {
+				common.SysLog(fmt.Sprintf("AdminLogin protection database error for user %s: %v", username, recordErr))
+				common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+				return
+			}
+			if respondLoginProtectionError(c, failure) {
+				return
+			}
+			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
+		default:
+			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
+		}
+		return
+	}
+
+	// 仅管理员/超管可登录
+	if user.Role < common.RoleAdminUser {
+		common.ApiErrorI18n(c, i18n.MsgUserAdminOnlyLogin)
+		return
+	}
+
+	// 检查是否启用2FA
+	if model.IsTwoFAEnabled(user.Id) {
+		// 设置pending session，等待2FA验证
+		session := sessions.Default(c)
+		session.Set("pending_username", user.Username)
+		session.Set("pending_user_id", user.Id)
+		err := session.Save()
+		if err != nil {
+			common.ApiErrorI18n(c, i18n.MsgUserSessionSaveFailed)
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": i18n.T(c, i18n.MsgUserRequire2FA),
+			"success": true,
+			"data": map[string]interface{}{
+				"require_2fa": true,
+			},
+		})
+		return
+	}
+
+	setupLogin(&user, c)
+}
+
 // setup session & cookies and then return user info
 func setupLogin(user *model.User, c *gin.Context) {
 	model.UpdateUserLastLoginAt(user.Id)
