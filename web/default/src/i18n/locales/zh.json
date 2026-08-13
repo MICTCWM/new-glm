@@ -4674,6 +4674,7 @@
     "weekday_6": "周六",
     "Weekly": "每周",
     "Weekly Amount Limit": "周限额",
+    "Weekly limit is unavailable because less than one week remains. Hourly limit is applied.": "剩余时间不足一周，周限额不可用，已按小时限额执行。",
     "Weekly Remaining": "本周剩余",
     "Weekly token usage by model across the past few weeks": "最近几周内各模型的每周 Token 用量",
     "Weekly token usage by model across the past year": "过去一年内按模型分布的每周 Token 使用量",

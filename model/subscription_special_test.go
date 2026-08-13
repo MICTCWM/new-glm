@@ -65,6 +65,64 @@ func TestSpecialWeeklyLimitPartialWindow(t *testing.T) {
 	require.Len(t, weeklyBuckets, 0, "no weekly bucket should exist for a partial window")
 }
 
+func TestSpecialWeeklyLimitRemainingTimeLessThanWeek(t *testing.T) {
+	truncateTables(t)
+
+	user := &User{Id: 903, Username: "weekly-5d-left-test", Status: common.UserStatusEnabled}
+	require.NoError(t, DB.Create(user).Error)
+
+	plan := &SubscriptionPlan{
+		Id:                       903,
+		Title:                    "Special plan",
+		DurationUnit:             SubscriptionDurationDay,
+		DurationValue:            30,
+		Enabled:                  true,
+		SpecialQuotaEnabled:      true,
+		HourlyResetHours:         5,
+		HourlyAmountLimit:        100,
+		SpecialWeeklyResetWeeks:  1,
+		SpecialWeeklyAmountLimit: 1000,
+	}
+	require.NoError(t, DB.Create(plan).Error)
+
+	start := time.Now().Unix() - 25*24*3600 // 25 days ago
+	subscription := &UserSubscription{
+		UserId:             user.Id,
+		PlanId:             plan.Id,
+		AmountTotal:        plan.TotalAmount,
+		StartTime:          start,
+		EndTime:            start + 30*24*3600, // 30 days from start = 5 days from now
+		Status:             "active",
+		Source:             "test",
+		HourlyLimitEnabled: false, // user chose weekly mode
+		CreatedAt:          start,
+		UpdatedAt:          start,
+	}
+	require.NoError(t, DB.Create(subscription).Error)
+
+	// Now is with 5 days remaining of the 30-day subscription.
+	// Remaining time (5 days) < 7 days (one full week window).
+	// Even though the current weekly window (21-28) is fully within the subscription,
+	// the weekly limit should NOT be available because remaining time < 1 week.
+	// Hourly limit should be used instead.
+
+	// Try to consume 60 quota — should succeed via hourly limit (100 > 60)
+	first, err := PreConsumeUserSubscription("5d-left-1", user.Id, "test", "", 0, 60)
+	require.NoError(t, err)
+	require.Equal(t, int64(60), first.AmountUsedAfter)
+	// Effective limit should be hourly limit (100), not weekly limit (1000)
+	require.Equal(t, int64(100), first.AmountTotal)
+
+	// Try to consume 50 more — would exceed hourly limit (60+50=110 > 100)
+	_, err = PreConsumeUserSubscription("5d-left-2", user.Id, "test", "", 0, 50)
+	require.Error(t, err, "should exceed hourly limit (100) when remaining time < 1 week")
+
+	// Verify no weekly bucket was created
+	var weeklyBuckets []SubscriptionUsageBucket
+	require.NoError(t, DB.Where("user_subscription_id = ? AND bucket_type = ?", subscription.Id, SubscriptionUsageBucketWeekly).Find(&weeklyBuckets).Error)
+	require.Len(t, weeklyBuckets, 0, "no weekly bucket should exist when remaining time < 1 week")
+}
+
 func TestSpecialSubscriptionUsageSurvivesModeSwitch(t *testing.T) {
 	truncateTables(t)
 

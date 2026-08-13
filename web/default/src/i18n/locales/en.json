@@ -4493,6 +4493,7 @@
     "Weekday": "Weekday",
     "Weekly": "Weekly",
     "Weekly Amount Limit": "Weekly Amount Limit",
+    "Weekly limit is unavailable because less than one week remains. Hourly limit is applied.": "Weekly limit is unavailable because less than one week remains. Hourly limit is applied.",
     "Weekly Remaining": "Weekly Remaining",
     "Weekly token usage by model across the past few weeks": "Weekly token usage by model across the past few weeks",
     "Weekly token usage by model across the past year": "Weekly token usage by model across the past year",

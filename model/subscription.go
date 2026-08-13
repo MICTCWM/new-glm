@@ -1253,9 +1253,15 @@ func specialBucketWindow(sub *UserSubscription, plan *SubscriptionPlan, bucketTy
 	index := (now - base) / duration
 	start := base + index*duration
 	end := start + duration
+	if sub.EndTime > 0 && bucketType == SubscriptionUsageBucketWeekly && sub.EndTime-now < duration {
+		// 订阅剩余时间不足一个完整周窗口（如 30 天订阅只剩 5 天）时，
+		// 周限额不可用，回退到小时限额。即使当前周窗口恰好完整
+		// （窗口终点未越过订阅结束时间），也一律不提供周限额。
+		return 0, 0, ErrSpecialWeeklyPartialWindow
+	}
 	if sub.EndTime > 0 && end > sub.EndTime {
-		// 周限额只允许完整周窗口：若订阅时长不能整除出完整周（如 30 天订阅
-		// 余下不足一周的天数），这些天不提供周限额，回退到小时限额。
+		// 周限额只允许完整周窗口：当前窗口若越过订阅结束时间（如 30 天订阅
+		// 末尾不足一周的天数），这些天不提供周限额，回退到小时限额。
 		if bucketType == SubscriptionUsageBucketWeekly {
 			return 0, 0, ErrSpecialWeeklyPartialWindow
 		}

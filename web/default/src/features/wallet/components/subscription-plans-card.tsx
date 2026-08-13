@@ -446,6 +446,12 @@ export function SubscriptionPlansCard({
                     (Number(subscription?.hourly_amount_limit || 0) > 0 &&
                       Number(subscription?.special_weekly_amount_limit || 0) >
                         0)
+                  // 订阅剩余时间不足一周时，后端强制按小时限额执行
+                  // （effective_quota_mode 被强制为 hourly），周限额不可用。
+                  const weeklyLimitUnavailable =
+                    specialQuotaEnabled &&
+                    subscription?.hourly_limit_enabled === false &&
+                    subscription?.effective_quota_mode === 'hourly'
                   const hourlyLimit = Number(
                     subscription?.hourly_amount_limit || 0
                   )
@@ -525,11 +531,13 @@ export function SubscriptionPlansCard({
                           <span>{t('Hourly Limit')}</span>
                           <Switch
                             checked={
-                              subscription?.hourly_limit_enabled !== false
+                              subscription?.hourly_limit_enabled !== false ||
+                              weeklyLimitUnavailable
                             }
                             disabled={
                               !isActive ||
                               !specialQuotaEnabled ||
+                              weeklyLimitUnavailable ||
                               hourlyTogglePending === subscription?.id
                             }
                             onCheckedChange={(checked) =>
@@ -538,6 +546,13 @@ export function SubscriptionPlansCard({
                             }
                           />
                         </div>
+                      )}
+                      {weeklyLimitUnavailable && (
+                        <p className='text-muted-foreground mt-1 text-xs'>
+                          {t(
+                            'Weekly limit is unavailable because less than one week remains. Hourly limit is applied.'
+                          )}
+                        </p>
                       )}
                       {isActive && (subscription?.next_reset_time ?? 0) > 0 && (
                         <div className='text-muted-foreground mt-1'>
