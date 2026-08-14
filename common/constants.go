@@ -216,6 +216,10 @@ var RequestMaxDuration int // unit is second, 0 means no limit
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int
 
+// RelayCaptureMaxBytes limits diagnostic request/response capture. A value of
+// zero disables body capture while keeping relay streaming unaffected.
+var RelayCaptureMaxBytes = 4 << 20
+
 var GeminiSafetySetting string
 
 // https://docs.cohere.com/docs/safety-modes Type; NONE/CONTEXTUAL/STRICT

@@ -2,9 +2,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -160,8 +160,7 @@ func FetchCustomOAuthDiscovery(c *gin.Context) {
 	}
 	targetURL = strings.TrimSpace(targetURL)
 
-	parsedURL, err := url.Parse(targetURL)
-	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+	if err := common.ValidatePublicURL(targetURL, []string{"80", "443"}); err != nil {
 		common.ApiErrorMsg(c, "Discovery URL 无效，仅支持 http/https")
 		return
 	}
@@ -176,7 +175,13 @@ func FetchCustomOAuthDiscovery(c *gin.Context) {
 	}
 	httpReq.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := common.NewSSRFProtectedHTTPClient(20 * time.Second)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("too many redirects")
+		}
+		return common.ValidatePublicURL(req.URL.String(), []string{"80", "443"})
+	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		common.ApiErrorMsg(c, "获取 Discovery 配置失败: "+err.Error())
@@ -195,7 +200,7 @@ func FetchCustomOAuthDiscovery(c *gin.Context) {
 	}
 
 	var discovery map[string]any
-	if err = common.DecodeJson(resp.Body, &discovery); err != nil {
+	if err = common.DecodeJson(io.LimitReader(resp.Body, 1<<20), &discovery); err != nil {
 		common.ApiErrorMsg(c, "解析 Discovery 配置失败: "+err.Error())
 		return
 	}

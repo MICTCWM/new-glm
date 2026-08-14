@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -25,6 +26,11 @@ func shouldRetryUpstream(info *relaycommon.RelayInfo, err *types.NewAPIError) bo
 	}
 	if err == nil {
 		return true
+	}
+	if types.IsSkipRetryError(err) ||
+		operation_setting.IsAlwaysSkipRetryCode(err.GetErrorCode()) ||
+		operation_setting.IsAlwaysSkipRetryStatusCode(err.StatusCode) {
+		return false
 	}
 
 	errorCode := strings.ToLower(strings.TrimSpace(string(err.GetErrorCode())))

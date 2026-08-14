@@ -1437,6 +1437,13 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	if err != nil {
 		return usage, err
 	}
+	if info.StreamStatus != nil && !info.StreamStatus.IsSuccessfulEnd() {
+		reason, endErr := info.StreamStatus.End()
+		if endErr == nil {
+			endErr = fmt.Errorf("gemini stream ended abnormally: %s", reason)
+		}
+		return nil, types.NewOpenAIError(endErr, types.ErrorCodeBadResponse, http.StatusBadGateway)
+	}
 
 	if relaycommon.ShouldRetryZeroOutputUsageAfterStream(info, usage) {
 		return nil, relaycommon.NewZeroOutputRetryError(info, usage)
@@ -1647,6 +1654,9 @@ func FetchGeminiModels(baseURL, apiKey, proxyURL string) ([]string, error) {
 	client, err := service.GetHttpClientWithProxy(proxyURL)
 	if err != nil {
 		return nil, fmt.Errorf("创建HTTP客户端失败: %v", err)
+	}
+	if proxyURL == "" {
+		client = common.NewSSRFProtectedHTTPClient(30 * time.Second)
 	}
 
 	allModels := make([]string, 0)

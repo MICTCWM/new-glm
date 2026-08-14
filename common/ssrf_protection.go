@@ -1,11 +1,14 @@
 package common
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // SSRFProtection SSRF防护配置
@@ -33,20 +36,20 @@ var DefaultSSRFProtection = &SSRFProtection{
 // 参考 IANA IPv4 Special-Purpose Address Registry
 // https://www.iana.org/assignments/iana-ipv4-special-registry/
 var privateIPv4Nets = []net.IPNet{
-	{IP: net.IPv4(0, 0, 0, 0), Mask: net.CIDRMask(8, 32)},       // 0.0.0.0/8 ("This network" / 未指定)
-	{IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},      // 10.0.0.0/8 (私有)
-	{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)},   // 100.64.0.0/10 (运营商级 NAT / CGNAT)
-	{IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},     // 127.0.0.0/8 (回环)
-	{IP: net.IPv4(169, 254, 0, 0), Mask: net.CIDRMask(16, 32)},  // 169.254.0.0/16 (链路本地)
-	{IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},   // 172.16.0.0/12 (私有)
-	{IP: net.IPv4(192, 0, 0, 0), Mask: net.CIDRMask(24, 32)},    // 192.0.0.0/24 (IETF 协议分配)
-	{IP: net.IPv4(192, 0, 2, 0), Mask: net.CIDRMask(24, 32)},    // 192.0.2.0/24 (TEST-NET-1)
-	{IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)},  // 192.168.0.0/16 (私有)
-	{IP: net.IPv4(198, 18, 0, 0), Mask: net.CIDRMask(15, 32)},   // 198.18.0.0/15 (基准测试)
-	{IP: net.IPv4(198, 51, 100, 0), Mask: net.CIDRMask(24, 32)}, // 198.51.100.0/24 (TEST-NET-2)
-	{IP: net.IPv4(203, 0, 113, 0), Mask: net.CIDRMask(24, 32)},  // 203.0.113.0/24 (TEST-NET-3)
-	{IP: net.IPv4(224, 0, 0, 0), Mask: net.CIDRMask(4, 32)},     // 224.0.0.0/4 (组播)
-	{IP: net.IPv4(240, 0, 0, 0), Mask: net.CIDRMask(4, 32)},     // 240.0.0.0/4 (保留)
+	{IP: net.IPv4(0, 0, 0, 0), Mask: net.CIDRMask(8, 32)},          // 0.0.0.0/8 ("This network" / 未指定)
+	{IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},         // 10.0.0.0/8 (私有)
+	{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)},      // 100.64.0.0/10 (运营商级 NAT / CGNAT)
+	{IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},        // 127.0.0.0/8 (回环)
+	{IP: net.IPv4(169, 254, 0, 0), Mask: net.CIDRMask(16, 32)},     // 169.254.0.0/16 (链路本地)
+	{IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},      // 172.16.0.0/12 (私有)
+	{IP: net.IPv4(192, 0, 0, 0), Mask: net.CIDRMask(24, 32)},       // 192.0.0.0/24 (IETF 协议分配)
+	{IP: net.IPv4(192, 0, 2, 0), Mask: net.CIDRMask(24, 32)},       // 192.0.2.0/24 (TEST-NET-1)
+	{IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)},     // 192.168.0.0/16 (私有)
+	{IP: net.IPv4(198, 18, 0, 0), Mask: net.CIDRMask(15, 32)},      // 198.18.0.0/15 (基准测试)
+	{IP: net.IPv4(198, 51, 100, 0), Mask: net.CIDRMask(24, 32)},    // 198.51.100.0/24 (TEST-NET-2)
+	{IP: net.IPv4(203, 0, 113, 0), Mask: net.CIDRMask(24, 32)},     // 203.0.113.0/24 (TEST-NET-3)
+	{IP: net.IPv4(224, 0, 0, 0), Mask: net.CIDRMask(4, 32)},        // 224.0.0.0/4 (组播)
+	{IP: net.IPv4(240, 0, 0, 0), Mask: net.CIDRMask(4, 32)},        // 240.0.0.0/4 (保留)
 	{IP: net.IPv4(255, 255, 255, 255), Mask: net.CIDRMask(32, 32)}, // 255.255.255.255/32 (受限广播)
 }
 
@@ -260,12 +263,32 @@ func (p *SSRFProtection) ValidateURL(urlStr string) error {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("unsupported protocol: %s (only http/https allowed)", u.Scheme)
 	}
+	if u.User != nil {
+		return fmt.Errorf("URL userinfo is not allowed")
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("URL host is required")
+	}
 
-	// 解析主机和端口
-	host, portStr, err := net.SplitHostPort(u.Host)
-	if err != nil {
-		// 没有端口，使用默认端口
-		host = u.Hostname()
+	// 解析主机和端口。显式端口即使不是数字也必须拒绝，不能把
+	// "example.com:bad" 当成省略端口的 URL。
+	host := u.Hostname()
+	portStr := u.Port()
+	if portStr == "" {
+		if strings.HasPrefix(u.Host, "[") {
+			closeBracket := strings.LastIndex(u.Host, "]")
+			if closeBracket >= 0 && len(u.Host) > closeBracket+1 {
+				suffix := u.Host[closeBracket+1:]
+				if !strings.HasPrefix(suffix, ":") {
+					return fmt.Errorf("invalid host: %s", u.Host)
+				}
+				return fmt.Errorf("invalid port: %s", strings.TrimPrefix(suffix, ":"))
+			}
+		} else if strings.Count(u.Host, ":") == 1 {
+			return fmt.Errorf("invalid port in host: %s", u.Host)
+		} else if strings.Count(u.Host, ":") > 1 {
+			return fmt.Errorf("IPv6 addresses must be enclosed in brackets")
+		}
 		if u.Scheme == "https" {
 			portStr = "443"
 		} else {
@@ -329,6 +352,58 @@ func (p *SSRFProtection) ValidateURL(urlStr string) error {
 	return nil
 }
 
+// NewSSRFProtectedHTTPClient validates DNS results at connection time to
+// reduce the DNS-rebinding gap between URL validation and dialing.
+func NewSSRFProtectedHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{}
+	transport := &http.Transport{
+		Proxy:             nil,
+		ForceAttemptHTTP2: true,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, fmt.Errorf("invalid outbound address: %w", err)
+			}
+			ips := net.ParseIP(host)
+			if ips != nil {
+				if isPrivateIP(ips) {
+					return nil, fmt.Errorf("private IP address not allowed: %s", ips)
+				}
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ips.String(), port))
+			}
+			resolvedAddrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("DNS resolution failed for %s: %w", host, err)
+			}
+			resolved := make([]net.IP, 0, len(resolvedAddrs))
+			for _, addr := range resolvedAddrs {
+				resolved = append(resolved, addr.IP)
+			}
+			for _, ip := range resolved {
+				if isPrivateIP(ip) {
+					return nil, fmt.Errorf("private IP address not allowed: %s", ip)
+				}
+			}
+			for _, ip := range resolved {
+				if ip != nil {
+					return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				}
+			}
+			return nil, fmt.Errorf("no usable IP address for %s", host)
+		},
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return ValidatePublicURL(req.URL.String(), []string{"80", "443", "8080", "8443"})
+		},
+	}
+}
+
 // ValidateURLWithFetchSetting 使用FetchSetting配置验证URL
 func ValidateURLWithFetchSetting(urlStr string, enableSSRFProtection, allowPrivateIp bool, domainFilterMode bool, ipFilterMode bool, domainList, ipList, allowedPorts []string, applyIPFilterForDomain bool) error {
 	// 如果SSRF防护被禁用，直接返回成功
@@ -352,4 +427,11 @@ func ValidateURLWithFetchSetting(urlStr string, enableSSRFProtection, allowPriva
 		ApplyIPFilterForDomain: applyIPFilterForDomain,
 	}
 	return protection.ValidateURL(urlStr)
+}
+
+// ValidatePublicURL applies the built-in outbound-fetch policy to privileged
+// URL fetches. It deliberately does not inherit the user-configurable private
+// IP exception used by media/webhook features.
+func ValidatePublicURL(urlStr string, allowedPorts []string) error {
+	return ValidateURLWithFetchSetting(urlStr, true, false, false, false, nil, nil, allowedPorts, true)
 }

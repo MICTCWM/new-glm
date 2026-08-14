@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -169,6 +168,7 @@ func retryCurrentChannelOnce(c *gin.Context, info *relaycommon.RelayInfo, relayF
 
 	info.UpstreamRetryCount = 0
 	info.ActualApiCallCount = 0
+	resetRelayAttemptStreamState(info)
 	info.SpecialUsageAttempt++
 	switch relayFormat {
 	case types.RelayFormatOpenAIRealtime:
@@ -180,6 +180,20 @@ func retryCurrentChannelOnce(c *gin.Context, info *relaycommon.RelayInfo, relayF
 	default:
 		return relayHandler(c, info)
 	}
+}
+
+func resetRelayAttemptStreamState(info *relaycommon.RelayInfo) {
+	if info == nil || !info.IsStream {
+		return
+	}
+	// StreamStatus belongs to one upstream channel attempt. Keep the request
+	// level output count, which is used to prevent a second SSE response.
+	info.StreamStatus = relaycommon.NewStreamStatus()
+	info.ReceivedResponseCount = 0
+}
+
+func relayAttemptAlreadyWroteStream(info *relaycommon.RelayInfo) bool {
+	return info != nil && info.IsStream && info.SendResponseCount > 0
 }
 
 const requestContextCancelledMessage = "请求因客户端取消而终止"
@@ -441,14 +455,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	// 数据点1：捕获用户原始请求体（GetBodyStorage 内部有缓存，循环内重复调用安全）
 	if bodyStorage, bodyErr := common.GetBodyStorage(c); bodyErr == nil {
-		if rawBytes, e := bodyStorage.Bytes(); e == nil {
+		if rawBytes, e := common.ReadBodyPrefix(bodyStorage, common.RelayCaptureMaxBytes); e == nil {
 			relayInfo.UserRequestBody = rawBytes
 		}
 	}
 
 	// 数据点4：包装 c.Writer 以捕获下游响应体（排除 Realtime WebSocket 场景，避免 Hijack 失效）
 	if relayFormat != types.RelayFormatOpenAIRealtime {
-		downstreamBuf := &bytes.Buffer{}
+		downstreamBuf := common.NewLimitedCaptureBuffer(common.RelayCaptureMaxBytes)
 		origWriter := c.Writer
 		c.Writer = &common.CapturingResponseWriter{ResponseWriter: origWriter, Buf: downstreamBuf}
 		defer func() {
@@ -747,6 +761,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// channel attempt. Internal adaptor retries retain the same attempt
 		// until their final usage/error callback is available.
 		relayInfo.SpecialUsageAttempt++
+		resetRelayAttemptStreamState(relayInfo)
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
 			newAPIError = relay.WssHelper(c, relayInfo)
@@ -824,7 +839,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// cache-affinity rules may explicitly require the request to stay on
 		// the selected upstream so a transient failure does not split the
 		// same prompt-cache session across channels.
-		if !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
+		if relayAttemptAlreadyWroteStream(relayInfo) || !shouldRetry(c, newAPIError, maxRetryTimes-retryParam.GetRetry()) {
 			if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 				c.Set("channel_affinity_failure", true)
 			}
@@ -838,7 +853,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// Try every available fallback channel in order. For an oversized context,
 	// keep the existing special case and replace the fallback chain with one
 	// more request to the channel that is already selected.
-	canFallback := !requestContextCancelled && !requestContextIsCancelled(c) && canRelayFallback(c, retryParam)
+	canFallback := !requestContextCancelled && !requestContextIsCancelled(c) &&
+		!relayAttemptAlreadyWroteStream(relayInfo) && canRelayFallback(c, retryParam)
 	if canFallback && shouldReplaceFallbackWithRetry(relayInfo) {
 		common.SysLog(fmt.Sprintf("输入 token 超过兜底限制，跳过兜底并对当前渠道额外重试: tokens=%d, limit=%d",
 			relayInfo.GetEstimatePromptTokens(), fallbackInputTokenLimit))
@@ -2321,7 +2337,9 @@ func RelayTask(c *gin.Context) {
 
 		if delay := getRetryDelay(retryParam.GetRetry() + 1); delay > 0 {
 			retryDelays = append(retryDelays, int(delay.Seconds()))
-			relay.WaitBeforeRetry(c, relayInfo, delay, retryParam.GetRetry()+1, "Task relay retry")
+			if !relay.WaitBeforeRetry(c, relayInfo, delay, retryParam.GetRetry()+1, "Task relay retry") {
+				break
+			}
 		}
 	}
 

@@ -36,6 +36,10 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
+	passThroughBeforeRequest, err := common.DeepCopy(request)
+	if err != nil {
+		return types.NewError(fmt.Errorf("failed to copy pass-through request: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
 
 	if request.WebSearchOptions != nil {
 		c.Set("chat_completion_web_search_context_size", request.WebSearchOptions.SearchContextSize)
@@ -136,14 +140,17 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		passThroughStorage = storage
-		if common.DebugEnabled {
-			if debugBytes, bErr := storage.Bytes(); bErr == nil {
-				println("requestBody: ", string(debugBytes))
-			}
-		}
 		requestBody = common.ReaderOnly(storage)
 		if body, bodyErr := storage.Bytes(); bodyErr == nil {
-			mappedBody, mappingErr := helper.ApplyModelMappingToRawJSON(body, info, false)
+			// Pass-through still needs to carry channel/system/force prompt
+			// mutations. Keep the original bytes only when no mutation is needed.
+			applySystemPromptIfNeeded(c, info, request)
+			ApplyForceSystemPromptToMessages(request, info.OriginModelName)
+			patched, patchRequestErr := patchChangedJSONFields(body, passThroughBeforeRequest, request)
+			if patchRequestErr != nil {
+				return types.NewError(patchRequestErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			mappedBody, mappingErr := helper.ApplyModelMappingToRawJSON(patched, info, false)
 			if mappingErr != nil {
 				return types.NewError(mappingErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 			}
@@ -155,13 +162,13 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 				jsonData = patched
 				requestBody = bytes.NewBuffer(jsonData)
 				passThroughStorage = nil
-				info.UpstreamRequestBody = jsonData
+				info.UpstreamRequestBody = common.LimitCaptureBytes(jsonData, common.RelayCaptureMaxBytes)
 			}
 		}
 		// 捕获转换后请求体（数据点2，透传模式下等于用户原始请求）
 		if len(info.UpstreamRequestBody) == 0 {
 			if b, e := storage.Bytes(); e == nil {
-				info.UpstreamRequestBody = b
+				info.UpstreamRequestBody = common.LimitCaptureBytes(b, common.RelayCaptureMaxBytes)
 			}
 		}
 	} else {
@@ -256,7 +263,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 
 		requestBody = bytes.NewBuffer(jsonData)
 		// 捕获转换后请求体（数据点2）
-		info.UpstreamRequestBody = jsonData
+		info.UpstreamRequestBody = common.LimitCaptureBytes(jsonData, common.RelayCaptureMaxBytes)
 	}
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
@@ -269,7 +276,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
-	var upstreamBuf *bytes.Buffer
+	var upstreamBuf *common.LimitedCaptureBuffer
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
@@ -298,8 +305,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+			if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+				return lastApiErr
 			}
 			continue
 		}
@@ -312,13 +319,18 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			}
 			httpResp = resp.(*http.Response)
 			// 包装 Body 以捕获上游返回的原始响应体（数据点3）
-			upstreamBuf = &bytes.Buffer{}
+			upstreamBuf = common.NewLimitedCaptureBuffer(common.RelayCaptureMaxBytes)
 			httpResp.Body = &common.CapturingReadCloser{
 				Reader: httpResp.Body,
 				Closer: httpResp.Body,
 				Buf:    upstreamBuf,
 			}
-			info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+			upstreamStream := strings.HasPrefix(strings.ToLower(httpResp.Header.Get("Content-Type")), "text/event-stream")
+			if !info.IsStream && upstreamStream {
+				// A non-stream client must be buffered and normalized, never switched
+				// into an SSE response merely because a provider ignored stream=false.
+				info.IsStream = false
+			}
 			if httpResp.StatusCode != http.StatusOK {
 				newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 				service.ResetStatusCode(newApiErr, statusCodeMappingStr)
@@ -332,8 +344,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
 				}
-				if delay > 0 {
-					WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+				if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+					return lastApiErr
 				}
 				continue
 			}
@@ -352,8 +364,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
 				}
-				if delay > 0 {
-					WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry")
+				if !WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry") {
+					return lastApiErr
 				}
 				continue
 			}
@@ -370,8 +382,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+			if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+				return lastApiErr
 			}
 			continue
 		}

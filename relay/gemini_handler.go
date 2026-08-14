@@ -64,6 +64,10 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to GeminiChatRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
+	passThroughBeforeRequest, err := common.DeepCopy(request)
+	if err != nil {
+		return types.NewError(fmt.Errorf("failed to copy pass-through request: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+	}
 
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
@@ -172,7 +176,17 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		requestBody = common.ReaderOnly(storage)
 		// 捕获转换后请求体（数据点2，透传模式下等于用户原始请求）
 		if b, e := storage.Bytes(); e == nil {
-			info.UpstreamRequestBody = b
+			patchedRequest, patchRequestErr := patchChangedJSONFields(b, passThroughBeforeRequest, request)
+			if patchRequestErr != nil {
+				return types.NewError(patchRequestErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			if !bytes.Equal(patchedRequest, b) {
+				requestBody = bytes.NewReader(patchedRequest)
+				passThroughStorage = nil
+				info.UpstreamRequestBody = common.LimitCaptureBytes(patchedRequest, common.RelayCaptureMaxBytes)
+			} else {
+				info.UpstreamRequestBody = common.LimitCaptureBytes(b, common.RelayCaptureMaxBytes)
+			}
 		}
 	} else {
 		convertedRequest, err := adaptor.ConvertGeminiRequest(c, info, request)
@@ -195,7 +209,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		logger.LogDebug(c, "Gemini request body: "+string(jsonData))
 		requestBody = bytes.NewReader(jsonData)
 		// 捕获转换后请求体（数据点2）
-		info.UpstreamRequestBody = jsonData
+		info.UpstreamRequestBody = common.LimitCaptureBytes(jsonData, common.RelayCaptureMaxBytes)
 	}
 
 	upstreamRetryTimes := common.UpstreamRetryTimes
@@ -204,7 +218,7 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 	var httpResp *http.Response
 	var lastApiErr *types.NewAPIError
-	var upstreamBuf *bytes.Buffer
+	var upstreamBuf *common.LimitedCaptureBuffer
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
@@ -233,8 +247,8 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+			if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+				return lastApiErr
 			}
 			continue
 		}
@@ -248,13 +262,12 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			}
 			httpResp = resp.(*http.Response)
 			// 包装 Body 以捕获上游返回的原始响应体（数据点3）
-			upstreamBuf = &bytes.Buffer{}
+			upstreamBuf = common.NewLimitedCaptureBuffer(common.RelayCaptureMaxBytes)
 			httpResp.Body = &common.CapturingReadCloser{
 				Reader: httpResp.Body,
 				Closer: httpResp.Body,
 				Buf:    upstreamBuf,
 			}
-			info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 			if httpResp.StatusCode != http.StatusOK {
 				napiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 				service.ResetStatusCode(napiErr, statusCodeMappingStr)
@@ -267,8 +280,8 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
 				}
-				if delay > 0 {
-					WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+				if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+					return lastApiErr
 				}
 				continue
 			}
@@ -293,8 +306,8 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
 				}
-				if delay > 0 {
-					WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry")
+				if !WaitBeforeRetry(c, info, delay, attempt+1, "Zero output retry") {
+					return lastApiErr
 				}
 				continue
 			}
@@ -440,8 +453,8 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+			if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+				return lastApiErr
 			}
 			continue
 		}
@@ -466,8 +479,8 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
 				}
-				if delay > 0 {
-					WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+				if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+					return lastApiErr
 				}
 				continue
 			}

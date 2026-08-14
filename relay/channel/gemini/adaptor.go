@@ -161,6 +161,15 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	}
 
 	action := "generateContent"
+	if info.RelayMode == constant.RelayModeGemini {
+		if idx := strings.LastIndex(info.RequestURLPath, ":"); idx >= 0 {
+			requestedAction := strings.TrimSpace(strings.Split(info.RequestURLPath[idx+1:], "?")[0])
+			switch requestedAction {
+			case "countTokens", "embedContent", "batchEmbedContents":
+				action = requestedAction
+			}
+		}
+	}
 	if info.IsStream {
 		action = "streamGenerateContent?alt=sse"
 		if info.RelayMode == constant.RelayModeGemini {
@@ -248,6 +257,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	if info.RelayMode == constant.RelayModeGemini {
+		if strings.Contains(info.RequestURLPath, ":countTokens") {
+			return NativeGeminiCountTokensHandler(c, resp, info)
+		}
 		if strings.Contains(info.RequestURLPath, ":embedContent") ||
 			strings.Contains(info.RequestURLPath, ":batchEmbedContents") {
 			return NativeGeminiEmbeddingHandler(c, resp, info)

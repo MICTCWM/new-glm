@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,7 @@ const (
 	InitialScannerBufferSize    = 64 << 10 // 64KB (64*1024)
 	DefaultMaxScannerBufferSize = 64 << 20 // 64MB (64*1024*1024) default SSE buffer size
 	DefaultPingInterval         = 10 * time.Second
+	maxPendingSSEData           = 64 << 20
 )
 
 func getScannerBufferSize() int {
@@ -112,7 +114,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 		// 等待所有 goroutine 退出，最多等待5秒
 		done := make(chan struct{})
-		gopool.Go(func() {
+					gopool.Go(func() {
 			wg.Wait()
 			close(done)
 		})
@@ -156,10 +158,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				case <-pingTicker.C:
 					// 使用超时机制防止写操作阻塞
 					done := make(chan error, 1)
-					gopool.Go(func() {
+		gopool.Go(func() {
 						writeMutex.Lock()
-						defer writeMutex.Unlock()
-						done <- PingData(c)
+						err := PingData(c)
+						writeMutex.Unlock()
+						done <- err
 					})
 
 					select {
@@ -167,6 +170,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 						if err != nil {
 							logger.LogError(c, "ping data error: "+err.Error())
 							info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPingFail, err)
+							shutdown()
 							return
 						}
 						if common.DebugEnabled {
@@ -175,6 +179,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 					case <-time.After(10 * time.Second):
 						logger.LogError(c, "ping data send timeout")
 						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPingFail, fmt.Errorf("ping send timeout"))
+						shutdown()
 						return
 					case <-ctx.Done():
 						return
@@ -211,9 +216,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		sr := newStreamResult(info.StreamStatus)
 		for data := range dataChan {
 			sr.reset()
-			writeMutex.Lock()
-			dataHandler(data, sr)
-			writeMutex.Unlock()
+			func() {
+				writeMutex.Lock()
+				defer writeMutex.Unlock()
+				dataHandler(data, sr)
+			}()
 			if sr.IsStopped() {
 				return
 			}
@@ -236,6 +243,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 		}()
 
+		pendingData := ""
 		for scanner.Scan() {
 			// 检查是否需要停止
 			select {
@@ -255,35 +263,67 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				println(data)
 			}
 
-			if len(data) < 6 {
-				continue
-			}
-			if data[:5] != "data:" && data[:6] != "[DONE]" {
-				continue
-			}
-			data = data[5:]
-			data = strings.TrimSpace(data)
 			if data == "" {
 				continue
 			}
-			if !strings.HasPrefix(data, "[DONE]") {
-				info.SetFirstResponseTime()
-				info.ReceivedResponseCount++
-
-				select {
-				case dataChan <- data:
-				case <-ctx.Done():
-					return
-				case <-stopChan:
-					return
-				}
-			} else {
+			if !strings.HasPrefix(data, "data:") && data != "[DONE]" {
+				continue
+			}
+			if data == "[DONE]" {
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-				if common.DebugEnabled {
-					println("received [DONE], stopping scanner")
-				}
 				return
 			}
+			data = strings.TrimSpace(strings.TrimPrefix(data, "data:"))
+			if data == "" {
+				continue
+			}
+			if data == "[DONE]" {
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+				return
+			}
+
+			// Most providers emit one JSON object per physical line, while SSE
+			// permits a single event payload to span multiple data lines. Dispatch
+			// complete JSON immediately for compatibility with providers that omit
+			// the blank event separator; retain incomplete JSON until the next line.
+			if pendingData != "" {
+				pendingData += "\n" + data
+				if len(pendingData) > maxPendingSSEData {
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, fmt.Errorf("pending SSE data exceeds %d bytes", maxPendingSSEData))
+					return
+				}
+				if !json.Valid([]byte(pendingData)) {
+					continue
+				}
+				data = pendingData
+				pendingData = ""
+			} else if (strings.HasPrefix(data, "{") || strings.HasPrefix(data, "[")) && !json.Valid([]byte(data)) {
+				pendingData = data
+				continue
+			}
+
+			info.SetFirstResponseTime()
+			info.ReceivedResponseCount++
+
+			select {
+			case dataChan <- data:
+			case <-ctx.Done():
+				return
+			case <-stopChan:
+				return
+			}
+		}
+		if pendingData != "" && json.Valid([]byte(pendingData)) {
+			info.SetFirstResponseTime()
+			info.ReceivedResponseCount++
+			select {
+			case dataChan <- pendingData:
+			case <-ctx.Done():
+			case <-stopChan:
+			}
+		if pendingData != "" {
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, fmt.Errorf("incomplete SSE JSON at EOF"))
+		}
 		}
 
 		if err := scanner.Err(); err != nil {
@@ -292,7 +332,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
 			}
 		}
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+		if reason, _ := info.StreamStatus.End(); reason == relaycommon.StreamEndReasonNone {
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+		}
 	})
 
 	// 主循环等待完成或超时

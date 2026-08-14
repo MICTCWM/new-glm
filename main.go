@@ -164,7 +164,11 @@ func main() {
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
 		gopool.Go(func() {
-			log.Println(http.ListenAndServe("0.0.0.0:8005", nil))
+			addr := os.Getenv("PPROF_ADDR")
+			if addr == "" {
+				addr = "127.0.0.1:8005"
+			}
+			log.Println(http.ListenAndServe(addr, nil))
 		})
 		go common.Monitor()
 		common.SysLog("pprof enabled")
@@ -200,7 +204,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   2592000, // 30 days
 		HttpOnly: true,
-		Secure:   false,
+		Secure:   common.GetEnvOrDefaultBool("SESSION_COOKIE_SECURE", true),
 		SameSite: http.SameSiteLaxMode,
 	})
 	server.Use(sessions.Sessions("session", store))

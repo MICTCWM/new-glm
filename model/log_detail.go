@@ -32,14 +32,24 @@ func RecordLogDetail(logId int, requestId string, userReq, upstreamReq, upstream
 	detail := &LogDetail{
 		LogId:                  logId,
 		RequestId:              requestId,
-		UserRequestBody:        userReq,
-		UpstreamRequestBody:    constant.RedactForceSystemPrompts(upstreamReq),
-		UpstreamResponseBody:   upstreamResp,
-		DownstreamResponseBody: downstreamResp,
+		UserRequestBody:        limitLogBody(userReq),
+		UpstreamRequestBody:    limitLogBody(constant.RedactForceSystemPrompts(upstreamReq)),
+		UpstreamResponseBody:   limitLogBody(upstreamResp),
+		DownstreamResponseBody: limitLogBody(downstreamResp),
 		HasConversion:          hasConversion,
 		CreatedAt:              common.GetTimestamp(),
 	}
 	return LOG_DB.Create(detail).Error
+}
+
+func limitLogBody(body string) string {
+	if common.RelayCaptureMaxBytes <= 0 {
+		return ""
+	}
+	if len(body) <= common.RelayCaptureMaxBytes {
+		return body
+	}
+	return body[:common.RelayCaptureMaxBytes]
 }
 
 // SanitizeLogDetail returns a copy safe to expose through the log detail API.

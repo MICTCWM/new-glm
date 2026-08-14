@@ -108,6 +108,7 @@ func InitEnv() {
 	RequestMaxDuration = GetEnvOrDefault("REQUEST_MAX_DURATION", 900)
 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
 	RelayMaxIdleConnsPerHost = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS_PER_HOST", 100)
+	RelayCaptureMaxBytes = GetEnvOrDefault("RELAY_CAPTURE_MAX_BYTES", 4<<20)
 
 	// Initialize string variables with GetEnvOrDefaultString
 	GeminiSafetySetting = GetEnvOrDefaultString("GEMINI_SAFETY_SETTING", "BLOCK_NONE")

@@ -47,9 +47,33 @@ func (s *StreamStatus) SetEndReason(reason StreamEndReason, err error) {
 		return
 	}
 	s.endOnce.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		s.EndReason = reason
 		s.EndError = err
 	})
+}
+
+func (s *StreamStatus) Reset() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.EndReason = StreamEndReasonNone
+	s.EndError = nil
+	s.Errors = nil
+	s.ErrorCount = 0
+	s.endOnce = sync.Once{}
+}
+
+func (s *StreamStatus) End() (StreamEndReason, error) {
+	if s == nil {
+		return StreamEndReasonNone, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.EndReason, s.EndError
 }
 
 func (s *StreamStatus) RecordError(msg string) {
@@ -89,9 +113,22 @@ func (s *StreamStatus) IsNormalEnd() bool {
 	if s == nil {
 		return true
 	}
-	return s.EndReason == StreamEndReasonDone ||
-		s.EndReason == StreamEndReasonEOF ||
-		s.EndReason == StreamEndReasonHandlerStop
+	reason, _ := s.End()
+	return reason == StreamEndReasonDone ||
+		reason == StreamEndReasonEOF ||
+		reason == StreamEndReasonHandlerStop
+}
+
+// IsSuccessfulEnd excludes handler-stop, which may represent a conversion or
+// downstream write error even though the scanner stopped intentionally.
+func (s *StreamStatus) IsSuccessfulEnd() bool {
+	if s == nil {
+		return true
+	}
+	reason, _ := s.End()
+	return reason == StreamEndReasonDone ||
+		reason == StreamEndReasonEOF ||
+		reason == StreamEndReasonNone
 }
 
 func (s *StreamStatus) Summary() string {
@@ -99,9 +136,10 @@ func (s *StreamStatus) Summary() string {
 		return "StreamStatus<nil>"
 	}
 	b := &strings.Builder{}
-	fmt.Fprintf(b, "reason=%s", s.EndReason)
-	if s.EndError != nil {
-		fmt.Fprintf(b, " end_error=%q", s.EndError.Error())
+	reason, endError := s.End()
+	fmt.Fprintf(b, "reason=%s", reason)
+	if endError != nil {
+		fmt.Fprintf(b, " end_error=%q", endError.Error())
 	}
 	s.mu.Lock()
 	if s.ErrorCount > 0 {

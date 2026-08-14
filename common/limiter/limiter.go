@@ -10,6 +10,59 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+const slidingWindowScript = `
+local now = redis.call('TIME')
+local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+local windowMs = tonumber(ARGV[2]) * 1000
+local maxCount = tonumber(ARGV[1])
+if maxCount <= 0 then return {1, ''} end
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, nowMs - windowMs)
+if redis.call('ZCARD', KEYS[1]) >= maxCount then return {0, ''} end
+local sequence = redis.call('INCR', KEYS[2])
+local member = tostring(nowMs) .. ':' .. tostring(sequence)
+redis.call('ZADD', KEYS[1], nowMs, member)
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
+redis.call('EXPIRE', KEYS[2], tonumber(ARGV[3]))
+return {1, member}
+`
+
+const slidingWindowRollbackScript = `
+return redis.call('ZREM', KEYS[1], ARGV[1])
+`
+
+// AllowSlidingWindow atomically checks and reserves a fixed-window slot.
+func AllowSlidingWindow(ctx context.Context, r *redis.Client, key string, maxCount int, duration int64) (string, bool, error) {
+	if maxCount <= 0 {
+		return "", true, nil
+	}
+	expiration := duration + 60
+	if expiration < 60 {
+		expiration = 60
+	}
+	result, err := r.Eval(ctx, slidingWindowScript, []string{key, key + ":seq"}, maxCount, duration, expiration).Result()
+	if err != nil {
+		return "", false, fmt.Errorf("sliding window rate limit failed: %w", err)
+	}
+	values, ok := result.([]interface{})
+	if !ok || len(values) != 2 {
+		return "", false, fmt.Errorf("unexpected sliding window response")
+	}
+	allowed, ok := values[0].(int64)
+	if !ok {
+		return "", false, fmt.Errorf("unexpected sliding window decision")
+	}
+	token, _ := values[1].(string)
+	return token, allowed == 1, nil
+}
+
+func RollbackSlidingWindow(ctx context.Context, r *redis.Client, key, token string) error {
+	if token == "" {
+		return nil
+	}
+	_, err := r.Eval(ctx, slidingWindowRollbackScript, []string{key}, token).Result()
+	return err
+}
+
 //go:embed lua/rate_limit.lua
 var rateLimitScript string
 

@@ -89,6 +89,7 @@ type DiskCacheStats struct {
 }
 
 var diskCacheStats DiskCacheStats
+var diskCacheReservedBytes int64
 
 // GetDiskCacheStats 获取缓存统计信息
 func GetDiskCacheStats() DiskCacheStats {
@@ -119,6 +120,16 @@ func DecrementDiskFiles(size int64) {
 	if atomic.AddInt64(&diskCacheStats.CurrentDiskUsageBytes, -size) < 0 {
 		atomic.StoreInt64(&diskCacheStats.CurrentDiskUsageBytes, 0)
 	}
+}
+
+func CommitDiskCacheReservation(size int64) {
+	if size <= 0 {
+		return
+	}
+	// Add usage before releasing the reservation so another writer cannot
+	// observe a capacity gap between the two counters.
+	atomic.AddInt64(&diskCacheStats.CurrentDiskUsageBytes, size)
+	ReleaseDiskCacheReservation(size)
 }
 
 // IncrementMemoryBuffers 增加内存缓存计数
@@ -153,6 +164,7 @@ func ResetDiskCacheStats() {
 func ResetDiskCacheUsage() {
 	atomic.StoreInt64(&diskCacheStats.ActiveDiskFiles, 0)
 	atomic.StoreInt64(&diskCacheStats.CurrentDiskUsageBytes, 0)
+	atomic.StoreInt64(&diskCacheReservedBytes, 0)
 }
 
 // SyncDiskCacheStats 从实际磁盘状态同步统计信息
@@ -168,10 +180,41 @@ func SyncDiskCacheStats() {
 
 // IsDiskCacheAvailable 检查是否可以创建新的磁盘缓存
 func IsDiskCacheAvailable(requestSize int64) bool {
-	if !IsDiskCacheEnabled() {
+	if requestSize < 0 || !IsDiskCacheEnabled() {
 		return false
 	}
 	maxBytes := GetDiskCacheMaxSizeBytes()
 	currentUsage := atomic.LoadInt64(&diskCacheStats.CurrentDiskUsageBytes)
-	return currentUsage+requestSize <= maxBytes
+	reserved := atomic.LoadInt64(&diskCacheReservedBytes)
+	return currentUsage+reserved+requestSize <= maxBytes
+}
+
+// ReserveDiskCache atomically reserves capacity for a file that is still being
+// written. Without a reservation, concurrent uploads can all pass the size
+// check before any of them updates the actual usage counter.
+func ReserveDiskCache(size int64) bool {
+	if size <= 0 || !IsDiskCacheEnabled() {
+		return false
+	}
+	maxBytes := GetDiskCacheMaxSizeBytes()
+	for {
+		current := atomic.LoadInt64(&diskCacheStats.CurrentDiskUsageBytes)
+		reserved := atomic.LoadInt64(&diskCacheReservedBytes)
+		if current+reserved+size > maxBytes {
+			return false
+		}
+		if atomic.CompareAndSwapInt64(&diskCacheReservedBytes, reserved, reserved+size) {
+			return true
+		}
+	}
+}
+
+func ReleaseDiskCacheReservation(size int64) {
+	if size <= 0 {
+		return
+	}
+	remaining := atomic.AddInt64(&diskCacheReservedBytes, -size)
+	if remaining < 0 {
+		atomic.StoreInt64(&diskCacheReservedBytes, 0)
+	}
 }

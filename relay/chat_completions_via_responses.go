@@ -144,7 +144,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	// Capture the final Responses payload, not the intermediate Chat payload.
 	// This is especially important during fallback: it makes it possible to
 	// verify that an Anthropic request was actually sent to the RE endpoint.
-	info.UpstreamRequestBody = jsonData
+	info.UpstreamRequestBody = common.LimitCaptureBytes(jsonData, common.RelayCaptureMaxBytes)
 
 	var requestBody io.Reader = bytes.NewBuffer(jsonData)
 
@@ -178,7 +178,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			ApplyRetryDelay(c, info, attempt, "Upstream retry")
+			if !ApplyRetryDelay(c, info, attempt, "Upstream retry") {
+				return nil, lastApiErr
+			}
 			continue
 		}
 		if resp == nil {
@@ -187,7 +189,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			ApplyRetryDelay(c, info, attempt, "Upstream retry")
+			if !ApplyRetryDelay(c, info, attempt, "Upstream retry") {
+				return nil, lastApiErr
+			}
 			continue
 		}
 
@@ -207,7 +211,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			ApplyRetryDelay(c, info, attempt, "Upstream retry")
+			if !ApplyRetryDelay(c, info, attempt, "Upstream retry") {
+				return nil, lastApiErr
+			}
 			continue
 		}
 
@@ -225,7 +231,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 					return nil, lastApiErr
 				}
 				info.UpstreamRetryCount = attempt + 1
-				ApplyRetryDelay(c, info, attempt, "Zero output retry")
+				if !ApplyRetryDelay(c, info, attempt, "Zero output retry") {
+					return nil, lastApiErr
+				}
 				continue
 			}
 			lastApiErr = napiErr
@@ -233,7 +241,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			ApplyRetryDelay(c, info, attempt, "Upstream retry")
+			if !ApplyRetryDelay(c, info, attempt, "Upstream retry") {
+				return nil, lastApiErr
+			}
 			continue
 		}
 

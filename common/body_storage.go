@@ -98,6 +98,10 @@ type diskStorage struct {
 }
 
 func newDiskStorage(data []byte, cachePath string) (*diskStorage, error) {
+	if !ReserveDiskCache(int64(len(data))) {
+		return nil, fmt.Errorf("disk cache capacity exceeded")
+	}
+	defer ReleaseDiskCacheReservation(int64(len(data)))
 	// 使用统一的缓存目录管理
 	filePath, file, err := CreateDiskCacheFile(DiskCacheTypeBody)
 	if err != nil {
@@ -106,9 +110,12 @@ func newDiskStorage(data []byte, cachePath string) (*diskStorage, error) {
 
 	// 写入数据
 	n, err := file.Write(data)
-	if err != nil {
+	if err != nil || n != len(data) {
 		file.Close()
 		os.Remove(filePath)
+		if err == nil {
+			err = io.ErrShortWrite
+		}
 		return nil, fmt.Errorf("failed to write to temp file: %w", err)
 	}
 
@@ -130,34 +137,78 @@ func newDiskStorage(data []byte, cachePath string) (*diskStorage, error) {
 }
 
 func newDiskStorageFromReader(reader io.Reader, maxBytes int64, cachePath string) (*diskStorage, error) {
+	if maxBytes <= 0 {
+		return nil, ErrRequestBodyTooLarge
+	}
 	// 使用统一的缓存目录管理
 	filePath, file, err := CreateDiskCacheFile(DiskCacheTypeBody)
 	if err != nil {
 		return nil, err
 	}
 
-	// 从 reader 读取并写入文件
-	written, err := io.Copy(file, io.LimitReader(reader, maxBytes+1))
-	if err != nil {
-		file.Close()
-		os.Remove(filePath)
-		return nil, fmt.Errorf("failed to write to temp file: %w", err)
+	// Count the active file immediately, then account for written bytes in
+	// chunks. Reserving maxBytes up front would reject valid small unknown-length
+	// bodies whenever the body limit is larger than the remaining disk budget.
+	IncrementDiskFiles(0)
+	written := int64(0)
+	cleanup := func() {
+		_ = file.Close()
+		_ = os.Remove(filePath)
+		DecrementDiskFiles(written)
 	}
-
-	if written > maxBytes {
-		file.Close()
-		os.Remove(filePath)
-		return nil, ErrRequestBodyTooLarge
+	buffer := make([]byte, 64*1024)
+	for {
+		readSize := int64(len(buffer))
+		if remaining := maxBytes - written + 1; remaining < readSize {
+			readSize = remaining
+		}
+		if readSize <= 0 {
+			cleanup()
+			return nil, ErrRequestBodyTooLarge
+		}
+		n, readErr := reader.Read(buffer[:readSize])
+		if n > 0 {
+			n64 := int64(n)
+			if !ReserveDiskCache(n64) {
+				cleanup()
+				return nil, fmt.Errorf("disk cache capacity exceeded")
+			}
+			writtenNow, writeErr := file.Write(buffer[:n])
+			if writtenNow > 0 {
+				CommitDiskCacheReservation(int64(writtenNow))
+				written += int64(writtenNow)
+			}
+			if writtenNow < n {
+				ReleaseDiskCacheReservation(int64(n - writtenNow))
+				cleanup()
+				if writeErr != nil {
+					return nil, fmt.Errorf("failed to write to temp file: %w", writeErr)
+				}
+				return nil, io.ErrShortWrite
+			}
+			if writeErr != nil {
+				cleanup()
+				return nil, fmt.Errorf("failed to write to temp file: %w", writeErr)
+			}
+			if written > maxBytes {
+				cleanup()
+				return nil, ErrRequestBodyTooLarge
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			cleanup()
+			return nil, fmt.Errorf("failed to read request body: %w", readErr)
+		}
 	}
 
 	// 重置文件指针
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		file.Close()
-		os.Remove(filePath)
+		cleanup()
 		return nil, fmt.Errorf("failed to seek temp file: %w", err)
 	}
-
-	IncrementDiskFiles(written)
 
 	return &diskStorage{
 		file:     file,
@@ -243,14 +294,12 @@ func CreateBodyStorage(data []byte) (BodyStorage, error) {
 	threshold := GetDiskCacheThresholdBytes()
 
 	// 检查是否应该使用磁盘缓存
-	if IsDiskCacheEnabled() &&
-		size >= threshold &&
-		IsDiskCacheAvailable(size) {
+	if IsDiskCacheEnabled() && size >= threshold {
 		storage, err := newDiskStorage(data, GetDiskCachePath())
 		if err != nil {
-			// 如果磁盘存储失败，回退到内存存储
-			SysError(fmt.Sprintf("failed to create disk storage, falling back to memory: %v", err))
-			return newMemoryStorage(data), nil
+			// Do not fall back to another large in-memory copy when disk cache is
+			// enabled but full or unavailable.
+			return nil, fmt.Errorf("failed to create disk storage: %w", err)
 		}
 		return storage, nil
 	}
@@ -262,11 +311,11 @@ func CreateBodyStorage(data []byte) (BodyStorage, error) {
 func CreateBodyStorageFromReader(reader io.Reader, contentLength int64, maxBytes int64) (BodyStorage, error) {
 	threshold := GetDiskCacheThresholdBytes()
 
-	// 如果启用了磁盘缓存且内容长度超过阈值，直接使用磁盘存储
+	// Unknown-length bodies must also be streamed to disk when disk caching is
+	// enabled. Reading them with io.ReadAll defeats the purpose of the cache and
+	// creates a request-sized memory spike for every concurrent upload.
 	if IsDiskCacheEnabled() &&
-		contentLength > 0 &&
-		contentLength >= threshold &&
-		IsDiskCacheAvailable(contentLength) {
+		(contentLength <= 0 || contentLength >= threshold) {
 		storage, err := newDiskStorageFromReader(reader, maxBytes, GetDiskCachePath())
 		if err != nil {
 			if IsRequestBodyTooLargeError(err) {
@@ -306,6 +355,40 @@ func CreateBodyStorageFromReader(reader io.Reader, contentLength int64, maxBytes
 // from type-asserting io.ReadCloser and closing the underlying BodyStorage.
 func ReaderOnly(r io.Reader) io.Reader {
 	return struct{ io.Reader }{r}
+}
+
+// ReadBodyPrefix reads at most maxBytes without turning a disk-backed body
+// into a full in-memory copy. The storage cursor is restored before returning.
+func ReadBodyPrefix(storage BodyStorage, maxBytes int) ([]byte, error) {
+	if maxBytes <= 0 {
+		return nil, nil
+	}
+	if _, err := storage.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(storage, int64(maxBytes)))
+	_, seekErr := storage.Seek(0, io.SeekStart)
+	if readErr != nil {
+		return nil, readErr
+	}
+	if seekErr != nil {
+		return nil, seekErr
+	}
+	return data, nil
+}
+
+// LimitCaptureBytes returns a bounded copy suitable for diagnostics. The copy
+// avoids retaining a large request/response backing array in the log record.
+func LimitCaptureBytes(data []byte, maxBytes int) []byte {
+	if maxBytes <= 0 || len(data) == 0 {
+		return nil
+	}
+	if len(data) <= maxBytes {
+		return data
+	}
+	limited := make([]byte, maxBytes)
+	copy(limited, data[:maxBytes])
+	return limited
 }
 
 // CleanupOldCacheFiles 清理旧的缓存文件（用于启动时清理残留）

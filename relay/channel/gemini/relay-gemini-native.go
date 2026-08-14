@@ -88,6 +88,30 @@ func NativeGeminiEmbeddingHandler(c *gin.Context, resp *http.Response, info *rel
 	return usage, nil
 }
 
+// NativeGeminiCountTokensHandler keeps Gemini's countTokens response in its
+// native shape. It is not a generation response and must not be decoded as a
+// candidate/usage response.
+func NativeGeminiCountTokensHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	var countResponse struct {
+		TotalTokens int `json:"totalTokens"`
+	}
+	if err := common.Unmarshal(responseBody, &countResponse); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	service.IOCopyBytesGracefully(c, resp, responseBody)
+	return &dto.Usage{
+		PromptTokens: countResponse.TotalTokens,
+		TotalTokens:  countResponse.TotalTokens,
+		InputTokens:  countResponse.TotalTokens,
+	}, nil
+}
+
 func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	helper.SetEventStreamHeaders(c)
 

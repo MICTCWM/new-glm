@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -122,8 +121,8 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+			if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+				return lastApiErr
 			}
 			continue
 		}
@@ -134,7 +133,6 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				httpResp.Body.Close()
 			}
 			httpResp = resp.(*http.Response)
-			info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 			if httpResp.StatusCode != http.StatusOK {
 				if httpResp.StatusCode == http.StatusCreated && info.ApiType == constant.APITypeReplicate {
 					httpResp.StatusCode = http.StatusOK
@@ -151,8 +149,8 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 					if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 						delay = common.RetryDelays[attempt]
 					}
-					if delay > 0 {
-						WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+					if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+						return lastApiErr
 					}
 					continue
 				}
@@ -172,8 +170,8 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+			if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+				return lastApiErr
 			}
 			continue
 		}

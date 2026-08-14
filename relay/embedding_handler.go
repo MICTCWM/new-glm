@@ -91,8 +91,8 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+			if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+				return lastApiErr
 			}
 			continue
 		}
@@ -117,8 +117,8 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 				if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 					delay = common.RetryDelays[attempt]
 				}
-				if delay > 0 {
-					WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+				if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+					return lastApiErr
 				}
 				continue
 			}
@@ -137,8 +137,8 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 			if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 				delay = common.RetryDelays[attempt]
 			}
-			if delay > 0 {
-				WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry")
+			if !WaitBeforeRetry(c, info, delay, attempt+1, "Upstream retry") {
+				return lastApiErr
 			}
 			continue
 		}

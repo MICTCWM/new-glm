@@ -20,8 +20,11 @@ func ShouldRetryZeroOutputUsageAfterStream(info *RelayInfo, usage *dto.Usage) bo
 		return false
 	}
 	// 客户端主动断开导致流提前结束，不应触发零输出重试
-	if info.StreamStatus != nil && info.StreamStatus.EndReason == StreamEndReasonClientGone {
-		return false
+	if info.StreamStatus != nil {
+		reason, _ := info.StreamStatus.End()
+		if reason == StreamEndReasonClientGone {
+			return false
+		}
 	}
 	return hasZeroOutputUsage(info, usage)
 }

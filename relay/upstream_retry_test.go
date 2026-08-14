@@ -56,3 +56,16 @@ func TestShouldRetryUpstreamSkipsConfiguredStatusOrErrorCode(t *testing.T) {
 		t.Fatal("expected configured internal error code to stop retries")
 	}
 }
+
+func TestShouldRetryUpstreamHonorsGlobalSkipRules(t *testing.T) {
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	for _, err := range []*types.NewAPIError{
+		types.NewError(errors.New("invalid request"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry()),
+		types.NewErrorWithStatusCode(errors.New("gateway timeout"), types.ErrorCodeBadResponseStatusCode, http.StatusGatewayTimeout),
+		types.NewError(errors.New("malformed response"), types.ErrorCodeBadResponseBody),
+	} {
+		if shouldRetryUpstream(info, err) {
+			t.Fatalf("expected %s/%d not to retry", err.GetErrorCode(), err.StatusCode)
+		}
+	}
+}

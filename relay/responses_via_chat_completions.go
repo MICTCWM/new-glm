@@ -76,7 +76,7 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
-	info.UpstreamRequestBody = jsonData
+	info.UpstreamRequestBody = common.LimitCaptureBytes(jsonData, common.RelayCaptureMaxBytes)
 
 	requestBody := bytes.NewBuffer(jsonData)
 	upstreamRetryTimes := common.UpstreamRetryTimes
@@ -104,7 +104,9 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			ApplyRetryDelay(c, info, attempt, "Upstream retry")
+			if !ApplyRetryDelay(c, info, attempt, "Upstream retry") {
+				return nil, lastApiErr
+			}
 			continue
 		}
 		if resp == nil {
@@ -113,7 +115,9 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			ApplyRetryDelay(c, info, attempt, "Upstream retry")
+			if !ApplyRetryDelay(c, info, attempt, "Upstream retry") {
+				return nil, lastApiErr
+			}
 			continue
 		}
 
@@ -122,7 +126,7 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 			httpResp.Body.Close()
 		}
 		httpResp = resp.(*http.Response)
-		upstreamBuf := &bytes.Buffer{}
+		upstreamBuf := common.NewLimitedCaptureBuffer(common.RelayCaptureMaxBytes)
 		httpResp.Body = &common.CapturingReadCloser{
 			Reader: httpResp.Body,
 			Closer: httpResp.Body,
@@ -141,7 +145,9 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			ApplyRetryDelay(c, info, attempt, "Upstream retry")
+			if !ApplyRetryDelay(c, info, attempt, "Upstream retry") {
+				return nil, lastApiErr
+			}
 			continue
 		}
 
@@ -174,7 +180,9 @@ func responsesViaChatCompletions(c *gin.Context, info *relaycommon.RelayInfo, ad
 				return nil, lastApiErr
 			}
 			info.UpstreamRetryCount = attempt + 1
-			ApplyRetryDelay(c, info, attempt, "Upstream retry")
+			if !ApplyRetryDelay(c, info, attempt, "Upstream retry") {
+				return nil, lastApiErr
+			}
 			continue
 		}
 
@@ -235,6 +243,32 @@ type chatResponseBufferWriter struct {
 	buf     bytes.Buffer
 	status  int
 	written bool
+}
+
+// ReadFrom prevents io.Copy from using the embedded writer's ReaderFrom and
+// sending the native Chat response before the Responses conversion runs.
+func (w *chatResponseBufferWriter) ReadFrom(r io.Reader) (int64, error) {
+	var total int64
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			written, writeErr := w.Write(buf[:n])
+			total += int64(written)
+			if writeErr != nil {
+				return total, writeErr
+			}
+			if written != n {
+				return total, io.ErrShortWrite
+			}
+		}
+		if readErr == io.EOF {
+			return total, nil
+		}
+		if readErr != nil {
+			return total, readErr
+		}
+	}
 }
 
 func (w *chatResponseBufferWriter) WriteHeader(code int) {

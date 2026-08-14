@@ -1005,10 +1005,24 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		err = HandleStreamResponseData(c, info, claudeInfo, data)
 		if err != nil {
 			sr.Stop(err)
+			return
+		}
+		var event struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal([]byte(data), &event) == nil && event.Type == "message_stop" {
+			sr.Done()
 		}
 	})
 	if err != nil {
 		return nil, err
+	}
+	if info.StreamStatus != nil && !info.StreamStatus.IsSuccessfulEnd() {
+		reason, endErr := info.StreamStatus.End()
+		if endErr == nil {
+			endErr = fmt.Errorf("claude stream ended abnormally: %s", reason)
+		}
+		return nil, types.NewOpenAIError(endErr, types.ErrorCodeBadResponse, http.StatusBadGateway)
 	}
 
 	finalizeClaudeStreamUsage(c, info, claudeInfo)

@@ -1008,6 +1008,10 @@ func FetchModels(c *gin.Context) {
 	if baseURL == "" {
 		baseURL = constant.ChannelBaseURLs[req.Type]
 	}
+	if err := common.ValidatePublicURL(baseURL, []string{"80", "443", "8080", "8443"}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid base URL: " + err.Error()})
+		return
+	}
 
 	// remove line breaks and extra spaces.
 	key := strings.TrimSpace(req.Key)
@@ -1052,7 +1056,13 @@ func FetchModels(c *gin.Context) {
 		return
 	}
 
-	client := &http.Client{}
+	client := common.NewSSRFProtectedHTTPClient(20 * time.Second)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("too many redirects")
+		}
+		return common.ValidatePublicURL(req.URL.String(), []string{"80", "443", "8080", "8443"})
+	}
 	url := fmt.Sprintf("%s/v1/models", baseURL)
 
 	request, err := http.NewRequest("GET", url, nil)
@@ -1074,6 +1084,7 @@ func FetchModels(c *gin.Context) {
 		})
 		return
 	}
+	defer response.Body.Close()
 	//check status code
 	if response.StatusCode != http.StatusOK {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -1082,8 +1093,6 @@ func FetchModels(c *gin.Context) {
 		})
 		return
 	}
-	defer response.Body.Close()
-
 	var result struct {
 		Data []struct {
 			ID string `json:"id"`

@@ -10,13 +10,20 @@ import (
 // 在请求处理完成后自动清理磁盘/内存缓存
 func BodyStorageCleanup() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 处理请求
+		defer func() {
+			// Cleanup must also run when a downstream handler panics and recovery
+			// unwinds the middleware stack.
+			if c.Request.MultipartForm != nil {
+				if err := c.Request.MultipartForm.RemoveAll(); err != nil {
+					common.SysError("failed to remove request multipart temporary files: " + err.Error())
+				}
+			}
+			common.CleanupBodyStorage(c)
+
+			// 清理文件缓存（URL 下载的文件等）
+			service.CleanupFileSources(c)
+		}()
+
 		c.Next()
-
-		// 请求结束后清理存储
-		common.CleanupBodyStorage(c)
-
-		// 清理文件缓存（URL 下载的文件等）
-		service.CleanupFileSources(c)
 	}
 }

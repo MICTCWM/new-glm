@@ -12,11 +12,11 @@ import (
 )
 
 func WaitBeforeRetry(c *gin.Context, info *relaycommon.RelayInfo, delay time.Duration, retryNumber int, label string) bool {
-	if delay <= 0 {
-		return true
-	}
 	if c != nil && c.Request != nil && c.Request.Context().Err() != nil {
 		return false
+	}
+	if delay <= 0 {
+		return true
 	}
 	if label == "" {
 		label = "retry"
@@ -82,8 +82,5 @@ func ApplyRetryDelay(c *gin.Context, info *relaycommon.RelayInfo, attempt int, l
 	if len(common.RetryDelays) > 0 && attempt < len(common.RetryDelays) {
 		delay = common.RetryDelays[attempt]
 	}
-	if delay > 0 {
-		return WaitBeforeRetry(c, info, delay, attempt+1, label)
-	}
-	return false
+	return WaitBeforeRetry(c, info, delay, attempt+1, label)
 }
