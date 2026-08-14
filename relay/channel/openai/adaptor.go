@@ -327,22 +327,16 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		}
 
 	}
-	if strings.HasPrefix(info.UpstreamModelName, "o") || strings.HasPrefix(info.UpstreamModelName, "gpt-5") {
+	if strings.HasPrefix(info.UpstreamModelName, "gpt-") {
 		if lo.FromPtrOr(request.MaxCompletionTokens, uint(0)) == 0 && lo.FromPtrOr(request.MaxTokens, uint(0)) != 0 {
 			request.MaxCompletionTokens = request.MaxTokens
 			request.MaxTokens = nil
 		}
 
-		if strings.HasPrefix(info.UpstreamModelName, "o") {
-			request.Temperature = nil
-		}
-
-		// gpt-5系列模型适配 归零不再支持的参数
-		if strings.HasPrefix(info.UpstreamModelName, "gpt-5") {
-			request.Temperature = nil
-			request.TopP = nil
-			request.LogProbs = nil
-		}
+		// gpt系列模型适配 归零不再支持的参数
+		request.Temperature = nil
+		request.TopP = nil
+		request.LogProbs = nil
 
 		// 转换模型推理力度后缀
 		effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(info.UpstreamModelName)
@@ -355,9 +349,8 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 
 		info.SyncReasoningEffortFromOpenAIRequest(request)
 
-		// o系列模型developer适配（o1-mini除外）
-		if !strings.HasPrefix(info.UpstreamModelName, "o1-mini") && !strings.HasPrefix(info.UpstreamModelName, "o1-preview") {
-			//修改第一个Message的内容，将system改为developer
+		// 仅 OpenAI 渠道执行 system→developer 转换，其余渠道消息原样透传
+		if info.ChannelType == constant.ChannelTypeOpenAI {
 			if len(request.Messages) > 0 && request.Messages[0].Role == "system" {
 				request.Messages[0].Role = "developer"
 			}
