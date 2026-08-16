@@ -361,10 +361,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	// 模型不支持图片校验：请求的模型在"不支持图片"列表中，且请求中包含图片时，
-	// 直接拒绝请求，不转发给上游。
-	if operation_setting.IsModelNoImage(relayInfo.OriginModelName) && service.RequestContainsImage(relayFormat, request) {
-		logger.LogInfo(c, fmt.Sprintf("model %s does not support image input, request rejected", relayInfo.OriginModelName))
+	// 不支持视觉的模型 + 含图片的请求：
+	// 若已配置可路由的视觉模型，则由下方视觉路由逻辑把图片交给视觉模型描述后替换；
+	// 若未配置任何视觉模型，则直接拒绝请求，不转发给上游。
+	if operation_setting.IsModelNoImage(relayInfo.OriginModelName) &&
+		service.RequestContainsImage(relayFormat, request) &&
+		len(operation_setting.VisionRouteModels) == 0 {
+		logger.LogInfo(c, fmt.Sprintf("model %s does not support image input and no vision route model configured, request rejected", relayInfo.OriginModelName))
 		newAPIError = types.NewOpenAIError(
 			fmt.Errorf("model %s does not support image input", relayInfo.OriginModelName),
 			types.ErrorCodeInvalidRequest,
@@ -422,12 +425,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if service.ShouldVisionRoute(relayFormat, relayInfo.OriginModelName, request) {
 		// 发送思考提示（流式请求才发送）
 		sendVisionRouteNotice(c, relayInfo)
-		// 执行视觉路由（调用 Kimi + 替换图片）
-		// 如果 Kimi 失败，降级为丢弃图片，仅保留文本
+		// 执行视觉路由（调用视觉模型 + 替换图片）
+		// 如果视觉模型调用失败，降级为丢弃图片，仅保留文本
 		routedRequest, routeErr := service.ProcessVisionRoute(c, relayInfo, request)
 		if routeErr != nil {
 			logger.LogWarn(c, "vision route failed, falling back to text-only: "+routeErr.Error())
-			// 降级：丢弃图片，仅保留文本，按 glm-5.2 正常计费
+			// 降级：丢弃图片，仅保留文本，按目标模型正常计费
 			request = service.StripImagesFromRequest(relayFormat, request)
 			relayInfo.Request = request
 			logger.LogInfo(c, fmt.Sprintf("vision route: degraded to strip images (text-only), model=%s, cacheCreated=%d, cacheHits=%d",

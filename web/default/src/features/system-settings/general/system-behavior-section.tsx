@@ -32,8 +32,8 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { Textarea } from '@/components/ui/textarea'
 import { ChannelMultiSelect } from '@/features/vendors/components/channel-multi-select'
+import { ModelMultiSelect } from '@/features/models/components/model-multi-select'
 import { SettingsSection } from '../components/settings-section'
 import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
@@ -53,7 +53,8 @@ const behaviorSchema = z.object({
   DemoSiteEnabled: z.boolean(),
   SelfUseModeEnabled: z.boolean(),
   RegionBlockEnabled: z.boolean(),
-  ModelNoImageModels: z.string(),
+  ModelNoImageModels: z.array(z.string()),
+  VisionRouteModels: z.array(z.string()),
 })
 
 type BehaviorFormValues = z.infer<typeof behaviorSchema>
@@ -482,18 +483,38 @@ export function SystemBehaviorSection({
             name='ModelNoImageModels'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t('Models Not Supporting Images')}</FormLabel>
+                <FormLabel>{t('Models Without Vision')}</FormLabel>
                 <FormControl>
-                  <Textarea
-                    rows={6}
-                    placeholder={t('one model per line')}
-                    {...field}
-                    onChange={(event) => field.onChange(event.target.value)}
+                  <ModelMultiSelect
+                    value={field.value}
+                    onChange={field.onChange}
                   />
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'By default all models support images. Requests containing images sent to a model listed here are rejected. Enter one model name per line.'
+                    'By default all models support vision. When a request containing images is sent to a model listed here, the images are routed to a vision model for description and cached for reuse. Select models from the model list.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='VisionRouteModels'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Vision Route Models')}</FormLabel>
+                <FormControl>
+                  <ModelMultiSelect
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Vision models that handle image descriptions. When a model without vision receives an image, the image is described by one of these models and cached for reuse. Select models from the model list.'
                   )}
                 </FormDescription>
                 <FormMessage />

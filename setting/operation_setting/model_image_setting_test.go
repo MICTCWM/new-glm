@@ -43,3 +43,32 @@ func TestModelNoImageModelsEmpty(t *testing.T) {
 	ModelNoImageModelsFromString("")
 	require.Empty(t, ModelNoImageModels)
 }
+
+func TestModelNoImageModelsJSONFormat(t *testing.T) {
+	original := ModelNoImageModels
+	defer func() { ModelNoImageModels = original }()
+
+	// 前端多选组件写入 JSON 数组格式
+	ModelNoImageModelsFromString(`["gpt-4o-mini","kimi-latest","glm-5.2"]`)
+	require.Equal(t, []string{"gpt-4o-mini", "kimi-latest", "glm-5.2"}, ModelNoImageModels)
+
+	// ToString 输出 JSON 数组，可再次解析回同样结果
+	ModelNoImageModelsFromString(ModelNoImageModelsToString())
+	require.Equal(t, []string{"gpt-4o-mini", "kimi-latest", "glm-5.2"}, ModelNoImageModels)
+}
+
+func TestVisionRouteModelsRoundTrip(t *testing.T) {
+	original := VisionRouteModels
+	defer func() { VisionRouteModels = original }()
+
+	VisionRouteModelsFromString(`["kimi-k2.6","glm-4.6","gpt-4o"]`)
+	require.Equal(t, []string{"kimi-k2.6", "glm-4.6", "gpt-4o"}, VisionRouteModels)
+
+	// JSON 往返
+	VisionRouteModelsFromString(VisionRouteModelsToString())
+	require.Equal(t, []string{"kimi-k2.6", "glm-4.6", "gpt-4o"}, VisionRouteModels)
+
+	// 兼容旧换行分隔格式
+	VisionRouteModelsFromString("kimi-k2.6\n  \nglm-4.6")
+	require.Equal(t, []string{"kimi-k2.6", "glm-4.6"}, VisionRouteModels)
+}

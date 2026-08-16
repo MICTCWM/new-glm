@@ -289,7 +289,8 @@ export type OperationsSettings = {
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
   RegionBlockEnabled: boolean
-  ModelNoImageModels: string
+  ModelNoImageModels: string[]
+  VisionRouteModels: string[]
   ChannelDisableThreshold: string
   QuotaRemindThreshold: string
   AutomaticDisableChannelEnabled: boolean
