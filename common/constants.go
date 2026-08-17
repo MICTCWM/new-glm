@@ -329,7 +329,7 @@ const (
 )
 
 // RPM Queue configuration
-var RpmQueueTimeout = 180 * time.Second // 排队等待超时时间
+var RpmQueueTimeout = 360 * time.Second // 排队等待超时时间
 
 // GPT 钱包互转汇率：
 // 500 基础余额 = 1.5 GPT 余额，即 250000000 内部额度 = 1.5 GPT。
