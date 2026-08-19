@@ -68,7 +68,8 @@ func SendRetryWaitNotice(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	return streamnotice.SendRetryWaitNotice(c, info)
 }
 
-// SendErrorNotice 在已经开始流式输出后，将错误信息作为正文内容（content）流式输出给用户。
+// SendErrorNotice 在已经开始流式输出后，将错误信息以标准错误 chunk
+// （OpenAI/Claude/Gemini/Responses 各自的 error 事件）而非正文 content 输出给用户。
 // 用于所有重试都失败的场景，因为此时 HTTP 响应头已发送 200，无法再通过状态码传递错误。
 func SendErrorNotice(c *gin.Context, info *relaycommon.RelayInfo, errorMsg string) bool {
 	return streamnotice.SendErrorNotice(c, info, errorMsg)
